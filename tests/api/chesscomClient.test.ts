@@ -446,8 +446,56 @@ describe('chesscomClient', () => {
         expect(message).not.toContain('1. e4');
       }
     });
+
+    it('handles mid-stream abort cleanly and throws ABORTED rather than JSON syntax error', async () => {
+      const controller = new AbortController();
+
+      const stream = new ReadableStream({
+        async pull(streamController) {
+          streamController.enqueue(new TextEncoder().encode('{"archives": ['));
+          controller.abort();
+          streamController.enqueue(new TextEncoder().encode(']}'));
+          streamController.close();
+        },
+      });
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const promise = fetchPlayerArchives('hikaru', { signal: controller.signal });
+      await expect(promise).rejects.toThrowError(
+        expect.objectContaining({ code: 'ABORTED', retryable: false })
+      );
+    });
+
+    it('translates stream read errors into typed errors', async () => {
+      const stream = new ReadableStream({
+        pull() {
+          const err = new Error('Stream read error');
+          err.name = 'AbortError';
+          throw err;
+        },
+      });
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const promise = fetchPlayerArchives('hikaru');
+      await expect(promise).rejects.toThrowError(
+        expect.objectContaining({ code: 'ABORTED', retryable: false })
+      );
+    });
   });
 });
+
 
 
 

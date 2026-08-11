@@ -89,3 +89,36 @@ Implemented the direct browser Chess.com PubAPI client with strict origin/path v
 ## Issues / Concerns
 
 None. Implementation is robust, fully tested, and cleanly integrated.
+
+---
+
+## Code Review Fix Report
+
+### Changes Made
+1. **`lib/api/chesscomClient.ts`**:
+   - Updated `readResponseBody` to take `composed` object containing `signal` and `isTimeout()` function.
+   - Checked `composed.signal.aborted` during stream chunk reading (`while` loop) and before returning fallback text, throwing `createAbortError()` / `createTimeoutError()` immediately instead of returning partial unparsed text.
+   - Wrapped `readResponseBody` and `JSON.parse` inside the error translation `try-catch` block so any stream read errors, `DOMException [AbortError]`, or `TypeError` are properly caught and translated into typed `PubApiError`s (`ABORTED`, `TIMEOUT`, `OFFLINE`, `CORS_ERROR`, etc.).
+
+2. **`tests/api/chesscomClient.test.ts`**:
+   - Added unit tests covering mid-stream abort (asserting `ABORTED` error is thrown instead of `INVALID_UPSTREAM_RESPONSE`) and stream read exception translation.
+
+### Covering Tests Ran & Command Output
+- Command: `npx vitest run`
+- Results: 104/104 tests passing across 5 test suites (pristine output).
+
+```
+ RUN  v3.2.7 C:/Users/sheha/OneDrive/Desktop/ChessGameReviewer
+
+ ✓  unit  tests/unit/gameQuery.test.ts (27 tests) 24ms
+ ✓  unit  tests/unit/chesscomSchemas.test.ts (12 tests) 32ms
+ ✓  unit  tests/unit/results.test.ts (27 tests) 15ms
+ ✓  unit  tests/setup/headers.test.ts (8 tests) 11ms
+ ✓  dom  tests/api/chesscomClient.test.ts (30 tests) 249ms
+
+ Test Files  5 passed (5)
+      Tests  104 passed (104)
+   Start at  22:56:44
+   Duration  3.94s
+```
+

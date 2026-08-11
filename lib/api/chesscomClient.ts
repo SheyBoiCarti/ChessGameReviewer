@@ -63,7 +63,10 @@ function createComposedSignal(
 /**
  * Helper to safely read and byte-count response body stream up to 32 MiB limit.
  */
-async function readResponseBody(response: Response, signal: AbortSignal): Promise<string> {
+async function readResponseBody(
+  response: Response,
+  composed: { signal: AbortSignal; isTimeout: () => boolean }
+): Promise<string> {
   const contentLengthStr = response.headers.get('content-length');
   if (contentLengthStr) {
     const contentLength = parseInt(contentLengthStr, 10);
@@ -80,9 +83,12 @@ async function readResponseBody(response: Response, signal: AbortSignal): Promis
 
     try {
       while (true) {
-        if (signal.aborted) {
-          await reader.cancel();
-          break;
+        if (composed.signal.aborted) {
+          await reader.cancel().catch(() => {});
+          if (composed.isTimeout()) {
+            throw createTimeoutError();
+          }
+          throw createAbortError();
         }
 
         const { done, value } = await reader.read();
@@ -91,13 +97,21 @@ async function readResponseBody(response: Response, signal: AbortSignal): Promis
         if (value) {
           totalBytes += value.length;
           if (totalBytes > MAX_BODY_BYTES) {
-            await reader.cancel();
+            await reader.cancel().catch(() => {});
             throw createResponseTooLargeError('Streamed body exceeded 32 MiB limit');
           }
           text += decoder.decode(value, { stream: true });
         }
       }
       text += decoder.decode(); // flush decoder
+
+      if (composed.signal.aborted) {
+        if (composed.isTimeout()) {
+          throw createTimeoutError();
+        }
+        throw createAbortError();
+      }
+
       return text;
     } finally {
       reader.releaseLock();
@@ -105,6 +119,12 @@ async function readResponseBody(response: Response, signal: AbortSignal): Promis
   } else {
     // Fallback if body stream reader unavailable
     const text = await response.text();
+    if (composed.signal.aborted) {
+      if (composed.isTimeout()) {
+        throw createTimeoutError();
+      }
+      throw createAbortError();
+    }
     if (text.length > MAX_BODY_BYTES) {
       throw createResponseTooLargeError('Body text length exceeded 32 MiB limit');
     }
@@ -128,17 +148,17 @@ async function executePubApiRequest<T>(
     const composed = createComposedSignal(options?.signal, timeoutMs);
 
     try {
-      let response: Response;
-
-      if (composed.signal.aborted) {
-        if (composed.isTimeout()) {
-          throw createTimeoutError();
-        }
-        throw createAbortError();
-      }
+      let responseText: string;
 
       try {
-        response = await fetch(url, {
+        if (composed.signal.aborted) {
+          if (composed.isTimeout()) {
+            throw createTimeoutError();
+          }
+          throw createAbortError();
+        }
+
+        const response = await fetch(url, {
           method: 'GET',
           mode: 'cors',
           credentials: 'omit',
@@ -146,12 +166,44 @@ async function executePubApiRequest<T>(
           cache: 'default',
           signal: composed.signal,
         });
+
+        // Check redirect safety
+        if (response.url && response.url.length > 0) {
+          if (!isValidRedirectUrl(response.url, expectedType, username, year, month)) {
+            throw createPubApiError(
+              'REDIRECT_DISALLOWED',
+              'Redirect target was outside allowed origin or path family',
+              false
+            );
+          }
+        }
+
+        // Handle HTTP error statuses
+        if (!response.ok) {
+          const upstreamErr = parseUpstreamHttpError(response.status);
+          throw createPubApiError(
+            upstreamErr.code,
+            upstreamErr.message,
+            upstreamErr.retryable,
+            upstreamErr.status
+          );
+        }
+
+        // Read stream with size protection
+        responseText = await readResponseBody(response, composed);
       } catch (err: unknown) {
         if (err instanceof PubApiError) {
           throw err;
         }
 
         if (err && typeof err === 'object' && (err as { name?: string }).name === 'AbortError') {
+          if (composed.isTimeout()) {
+            throw createTimeoutError();
+          }
+          throw createAbortError();
+        }
+
+        if (composed.signal.aborted) {
           if (composed.isTimeout()) {
             throw createTimeoutError();
           }
@@ -165,36 +217,17 @@ async function executePubApiRequest<T>(
         throw createCorsError();
       }
 
-      // Check redirect safety
-      if (response.url && response.url.length > 0) {
-        if (!isValidRedirectUrl(response.url, expectedType, username, year, month)) {
-          throw createPubApiError(
-            'REDIRECT_DISALLOWED',
-            'Redirect target was outside allowed origin or path family',
-            false
-          );
-        }
-      }
-
-      // Handle HTTP error statuses
-      if (!response.ok) {
-        const upstreamErr = parseUpstreamHttpError(response.status);
-        throw createPubApiError(
-          upstreamErr.code,
-          upstreamErr.message,
-          upstreamErr.retryable,
-          upstreamErr.status
-        );
-      }
-
-      // Read stream with size protection
-      const responseText = await readResponseBody(response, composed.signal);
-
       // Parse JSON
       let json: unknown;
       try {
         json = JSON.parse(responseText);
       } catch {
+        if (composed.signal.aborted) {
+          if (composed.isTimeout()) {
+            throw createTimeoutError();
+          }
+          throw createAbortError();
+        }
         throw createInvalidResponseError('Failed to parse JSON response');
       }
 
