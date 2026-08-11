@@ -35,7 +35,7 @@ We have fully implemented Task 1.1 (Bootstrap supported tooling) for Phase 1 of 
    - Output: `1 passed (8 tests passed)` — verifies security headers array, COOP/COEP/CSP values, framing restrictions, and `/:path*` route matching.
 2. **Playwright E2E Tests (`npm run test:e2e`):**
    - Command: `npm run test:e2e`
-   - Output: `4 passed (30.1s)`:
+   - Output: `4 passed (5.2s)`:
      - `tests/e2e/server-headers.spec.ts`: HTTP headers verified over HTTP request for document route `/` and static asset path `/globals.css`.
      - `tests/e2e/smoke.spec.ts`: Asserts heading ("Chess.com Game Analyzer"), unaffiliated notice, privacy notice, dynamic `crossOriginIsolated` state, and zero console errors.
      - `tests/e2e/csp.spec.ts`: Verifies approved PubAPI CORS fetch to `https://api.chess.com` is permitted by CSP while an unauthorized domain (`https://example.com`) is blocked.
@@ -77,3 +77,38 @@ We have fully implemented Task 1.1 (Bootstrap supported tooling) for Phase 1 of 
 ## Concerns
 
 None.
+
+---
+
+## Code Review Fix Report
+
+### Changes Implemented
+1. **Removed `"tests"` from `tsconfig.json` `exclude` array:**
+   - Updated `tsconfig.json` so `exclude` contains only `["node_modules"]`.
+   - Now `npm run typecheck` (`tsc --noEmit`) strictly type-checks all source files, configuration files (`vitest.config.ts`, `playwright.config.ts`), and test files (`tests/**/*.ts`, `tests/**/*.tsx`).
+   - Refactored `vitest.config.ts` project definitions using `extends: true` to satisfy strict Vitest v3 types without `tsc` type errors.
+
+2. **Configured Playwright `webServer` for production server build:**
+   - Updated `playwright.config.ts` setting `webServer.command` to `'npm run build && npm run start'`.
+   - Ensures Playwright E2E tests run against a true Next.js production server over HTTP to accurately test production HTTP response headers, CSP, and COOP/COEP behavior.
+
+### Verification Evidence & Test Execution
+
+1. **Type Check (`npm run typecheck`):**
+   - Command: `npm run typecheck`
+   - Result: Exit code 0, 0 errors. All test files and config files successfully type-checked.
+2. **Vitest Unit & DOM Tests (`npm test`):**
+   - Command: `npm test`
+   - Result: `1 passed (8 tests passed)` in 1.08s, exit code 0.
+3. **Playwright E2E Tests on Production Build (`npm run test:e2e`):**
+   - Command: `npm run test:e2e`
+   - Result: `4 passed (5.2s)`:
+     - `tests/e2e/server-headers.spec.ts`: verified COOP (`same-origin`), COEP (`require-corp`), `nosniff`, `X-Frame-Options`, and CSP over HTTP against Next.js production build.
+     - `tests/e2e/smoke.spec.ts`: verified heading, notices, dynamic `crossOriginIsolated` state, and zero console errors.
+     - `tests/e2e/csp.spec.ts`: verified allowed `https://api.chess.com` CORS fetch and blocked unauthorized connect target (`https://example.com`).
+4. **Code Formatting (`npm run format:check`):**
+   - Command: `npm run format:check`
+   - Result: Exit code 0 ("All matched files use Prettier code style!").
+5. **Linting (`npm run lint`):**
+   - Command: `npm run lint`
+   - Result: Exit code 0, 0 lint warnings or errors.

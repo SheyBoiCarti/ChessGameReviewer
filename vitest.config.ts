@@ -17,6 +17,7 @@ export default defineConfig({
     ],
     projects: [
       {
+        extends: true,
         test: {
           name: 'unit',
           environment: 'node',
@@ -24,6 +25,7 @@ export default defineConfig({
         },
       },
       {
+        extends: true,
         test: {
           name: 'dom',
           environment: 'jsdom',
