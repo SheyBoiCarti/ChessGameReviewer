@@ -1,0 +1,28 @@
+{
+  "games": [
+    {
+      "url": "https://www.chess.com/game/live/101010101",
+      "pgn": "[Event \"Live Chess\"]\n[Site \"Chess.com\"]\n[Date \"2024.01.15\"]\n[White \"magnuscarlsen\"]\n[Black \"hikaru\"]\n[Result \"1-0\"]\n1. e4 e5 2. Nf3 Nc6 1-0",
+      "time_control": "180+0",
+      "end_time": 1705320000,
+      "rated": true,
+      "time_class": "blitz",
+      "rules": "chess",
+      "white": {
+        "rating": 2850,
+        "result": "win",
+        "@id": "https://api.chess.com/pub/player/magnuscarlsen",
+        "username": "magnuscarlsen",
+        "uuid": "user-uuid-1"
+      },
+      "black": {
+        "rating": 2820,
+        "result": "resigned",
+        "@id": "https://api.chess.com/pub/player/hikaru",
+        "username": "hikaru",
+        "uuid": "user-uuid-2"
+      },
+      "uuid": "game-uuid-1"
+    }
+  ]
+}

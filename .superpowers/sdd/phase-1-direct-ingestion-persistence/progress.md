@@ -2,3 +2,6 @@
 Task 1.1: minor (deferred): package.json lint script misses root configs.
 Task 1.1: minor (deferred): tests/e2e/csp.spec.ts unasserted positive fetch case.
 Task 1.1: minor (deferred): Task report omitted Playwright MCP verification notes.
+Task 1.1: fix round 1/5 (2 addressed, 0 open; commits bb37832..67e370f)
+Task 1.1: complete (commits f4eb808..67e370f, review clean)
+Task 1.2: in_progress

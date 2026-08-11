@@ -1,0 +1,12 @@
+{
+  "games": [
+    {
+      "url": "https://www.chess.com/game/live/101010102",
+      "pgn": "[Event \"Live Chess\"]",
+      "time_class": "blitz",
+      "white": {
+        "username": "magnuscarlsen"
+      }
+    }
+  ]
+}
