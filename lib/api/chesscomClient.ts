@@ -1,0 +1,253 @@
+import { buildArchivesUrl, buildMonthlyUrl, isValidRedirectUrl } from './chesscomUrl';
+import {
+  createPubApiError,
+  createTimeoutError,
+  createAbortError,
+  createOfflineError,
+  createCorsError,
+  createResponseTooLargeError,
+  createInvalidResponseError,
+  PubApiError,
+} from './errors';
+import { parseUpstreamHttpError, validateArchivesResponse, validateMonthlyGamesResponse, RawChesscomGame } from './chesscomSchemas';
+import { pubApiCoordinator } from './pubApiCoordinator';
+
+export interface FetchOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number; // defaults to 10000ms (10 seconds)
+}
+
+const MAX_BODY_BYTES = 32 * 1024 * 1024; // 32 MiB
+
+/**
+ * Creates a composed abort signal combining caller signal and timeout deadline.
+ */
+function createComposedSignal(
+  callerSignal?: AbortSignal,
+  timeoutMs: number = 10000
+): { signal: AbortSignal; cleanup: () => void; isTimeout: () => boolean } {
+  const controller = new AbortController();
+  let timedOut = false;
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  const onCallerAbort = () => {
+    controller.abort();
+  };
+
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      controller.abort();
+    } else {
+      callerSignal.addEventListener('abort', onCallerAbort, { once: true });
+    }
+  }
+
+  const cleanup = () => {
+    clearTimeout(timer);
+    if (callerSignal) {
+      callerSignal.removeEventListener('abort', onCallerAbort);
+    }
+  };
+
+  return {
+    signal: controller.signal,
+    cleanup,
+    isTimeout: () => timedOut,
+  };
+}
+
+/**
+ * Helper to safely read and byte-count response body stream up to 32 MiB limit.
+ */
+async function readResponseBody(response: Response, signal: AbortSignal): Promise<string> {
+  const contentLengthStr = response.headers.get('content-length');
+  if (contentLengthStr) {
+    const contentLength = parseInt(contentLengthStr, 10);
+    if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+      throw createResponseTooLargeError('Declared Content-Length exceeds 32 MiB limit');
+    }
+  }
+
+  if (response.body && typeof response.body.getReader === 'function') {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let totalBytes = 0;
+    let text = '';
+
+    try {
+      while (true) {
+        if (signal.aborted) {
+          await reader.cancel();
+          break;
+        }
+
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        if (value) {
+          totalBytes += value.length;
+          if (totalBytes > MAX_BODY_BYTES) {
+            await reader.cancel();
+            throw createResponseTooLargeError('Streamed body exceeded 32 MiB limit');
+          }
+          text += decoder.decode(value, { stream: true });
+        }
+      }
+      text += decoder.decode(); // flush decoder
+      return text;
+    } finally {
+      reader.releaseLock();
+    }
+  } else {
+    // Fallback if body stream reader unavailable
+    const text = await response.text();
+    if (text.length > MAX_BODY_BYTES) {
+      throw createResponseTooLargeError('Body text length exceeded 32 MiB limit');
+    }
+    return text;
+  }
+}
+
+/**
+ * Low-level execution helper for PubAPI requests.
+ */
+async function executePubApiRequest<T>(
+  url: URL,
+  expectedType: 'archives' | 'monthly',
+  username: string,
+  year?: string | number,
+  month?: string | number,
+  options?: FetchOptions
+): Promise<T> {
+  return pubApiCoordinator.execute(async () => {
+    const timeoutMs = options?.timeoutMs ?? 10000;
+    const composed = createComposedSignal(options?.signal, timeoutMs);
+
+    try {
+      let response: Response;
+
+      if (composed.signal.aborted) {
+        if (composed.isTimeout()) {
+          throw createTimeoutError();
+        }
+        throw createAbortError();
+      }
+
+      try {
+        response = await fetch(url, {
+          method: 'GET',
+          mode: 'cors',
+          credentials: 'omit',
+          redirect: 'follow',
+          cache: 'default',
+          signal: composed.signal,
+        });
+      } catch (err: unknown) {
+        if (err instanceof PubApiError) {
+          throw err;
+        }
+
+        if (err && typeof err === 'object' && (err as { name?: string }).name === 'AbortError') {
+          if (composed.isTimeout()) {
+            throw createTimeoutError();
+          }
+          throw createAbortError();
+        }
+
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          throw createOfflineError();
+        }
+
+        throw createCorsError();
+      }
+
+      // Check redirect safety
+      if (response.url && response.url.length > 0) {
+        if (!isValidRedirectUrl(response.url, expectedType, username, year, month)) {
+          throw createPubApiError(
+            'REDIRECT_DISALLOWED',
+            'Redirect target was outside allowed origin or path family',
+            false
+          );
+        }
+      }
+
+      // Handle HTTP error statuses
+      if (!response.ok) {
+        const upstreamErr = parseUpstreamHttpError(response.status);
+        throw createPubApiError(
+          upstreamErr.code,
+          upstreamErr.message,
+          upstreamErr.retryable,
+          upstreamErr.status
+        );
+      }
+
+      // Read stream with size protection
+      const responseText = await readResponseBody(response, composed.signal);
+
+      // Parse JSON
+      let json: unknown;
+      try {
+        json = JSON.parse(responseText);
+      } catch {
+        throw createInvalidResponseError('Failed to parse JSON response');
+      }
+
+      // Schema validation
+      if (expectedType === 'archives') {
+        const result = validateArchivesResponse(json);
+        if (!result.success) {
+          throw createInvalidResponseError(result.diagnostic.message);
+        }
+        return result.archives as unknown as T;
+      } else {
+        const result = validateMonthlyGamesResponse(json);
+        if (!result.success) {
+          if (result.diagnostic.code === 'RESPONSE_TOO_LARGE') {
+            throw createResponseTooLargeError(result.diagnostic.message);
+          }
+          throw createInvalidResponseError(result.diagnostic.message);
+        }
+        return result.games as unknown as T;
+      }
+    } finally {
+      composed.cleanup();
+    }
+  });
+}
+
+/**
+ * Fetches player archive list from Chess.com PubAPI.
+ */
+export async function fetchPlayerArchives(
+  username: string,
+  options?: FetchOptions
+): Promise<string[]> {
+  const url = buildArchivesUrl(username);
+  return executePubApiRequest<string[]>(url, 'archives', username, undefined, undefined, options);
+}
+
+/**
+ * Fetches monthly games archive for a player from Chess.com PubAPI.
+ */
+export async function fetchMonthlyGames(
+  username: string,
+  year: string | number,
+  month: string | number,
+  options?: FetchOptions
+): Promise<RawChesscomGame[]> {
+  const url = buildMonthlyUrl(username, year, month);
+  return executePubApiRequest<RawChesscomGame[]>(
+    url,
+    'monthly',
+    username,
+    year,
+    month,
+    options
+  );
+}
