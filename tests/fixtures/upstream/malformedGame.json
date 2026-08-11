@@ -1,0 +1,10 @@
+{
+  "games": [
+    {
+      "url": 12345,
+      "end_time": "invalid_timestamp",
+      "time_class": 100,
+      "white": "not_an_object"
+    }
+  ]
+}

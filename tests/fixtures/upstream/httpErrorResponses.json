@@ -1,0 +1,12 @@
+{
+  "notFound404": {
+    "code": 0,
+    "message": "User or resource not found"
+  },
+  "gone410": {
+    "code": 0,
+    "message": "Account closed"
+  },
+  "rateLimit429Html": "<html><body><h1>429 Too Many Requests</h1></body></html>",
+  "serverError500Html": "<html><body><h1>500 Internal Server Error</h1></body></html>"
+}
