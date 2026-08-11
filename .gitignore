@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+playwright-report/
+test-results/
+tsconfig.tsbuildinfo
+*.log
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
