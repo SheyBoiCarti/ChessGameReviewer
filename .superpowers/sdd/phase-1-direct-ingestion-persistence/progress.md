@@ -1,4 +1,5 @@
 # SDD ledger â€” plan: C:\Users\sheha\OneDrive\Desktop\ChessGameReviewer\docs\superpowers\plans\phase-1-direct-ingestion-persistence.md
+
 Task 1.1: minor (deferred): package.json lint script misses root configs.
 Task 1.1: minor (deferred): tests/e2e/csp.spec.ts unasserted positive fetch case.
 Task 1.1: minor (deferred): Task report omitted Playwright MCP verification notes.
@@ -13,11 +14,25 @@ Task 1.3: minor (deferred): chesscomClient.ts fallback response.text() length ch
 Task 1.3: minor (deferred): unused variable in chesscomClient.test.ts.
 Task 1.3: fix round 1/5 (1 addressed, 0 open; commits 73bf594..35385d9)
 Task 1.3: complete (commits e7dd45e..35385d9, review clean)
-Task 1.4: fix round 1/5 (5 addressed, 1 open — SchemaVersionError class unused; commits db222c8..b94349d)
+Task 1.4: fix round 1/5 (5 addressed, 1 open ï¿½ SchemaVersionError class unused; commits db222c8..b94349d)
 Task 1.4: minor (deferred): openDatabase.ts contains unused SchemaVersionError class.
 Task 1.4: complete (commits 35385d9..b94349d, review clean)
 Task 1.5: minor (deferred): syncOrchestrator.ts currentGameRatio jumps from 0 to 1.0 instead of updating per game.
 Task 1.5: fix round 1/5 (2 addressed, 0 open; commits f01c040..79da1b0)
 Task 1.5: complete (commits b94349d..79da1b0, review clean)
 
-Phase 1 Complete.
+The earlier `Phase 1 Complete` marker was premature and is retracted by the independent audit repair.
+
+Phase 1 local repair verification: complete at implementation revision `55397f68beda0ea29323f06d23bb0b413f287470` on 2026-08-12.
+
+- `npm.cmd ci`: pass; clean lockfile install, zero vulnerabilities after install.
+- `npm.cmd run format:check`: pass.
+- `npm.cmd run lint`: pass.
+- `npm.cmd run typecheck`: pass.
+- `npm.cmd run test:coverage`: pass; 16 files, 223 tests, 91.54% branches overall, domain branch gates pass.
+- `npm.cmd run build`: pass with Next.js 16.3.0.
+- `npm.cmd run test:e2e`: pass; 11 Chromium-project production-browser tests using installed Microsoft Edge.
+- `npm.cmd audit --audit-level=high`: pass; zero vulnerabilities.
+- Architecture/security searches: pass after interpreting the intended `wasm-unsafe-eval` CSP token and raw-payload rejection validator.
+
+External-only checks remain pending: an exact deployed preview URL/revision, Playwright MCP inspection of that preview, and the separately controlled live Chess.com CORS smoke request. These are not represented as locally proven. See `docs/verification/phase-1-local-verification.md`.
