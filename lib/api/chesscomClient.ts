@@ -150,13 +150,14 @@ async function executePubApiRequest<T>(
   options?: FetchOptions
 ): Promise<T> {
   const timeoutMs = options?.timeoutMs ?? 10000;
-  const composed = createComposedSignal(options?.signal, timeoutMs);
+
+  let responseText: string;
+  let composed: ReturnType<typeof createComposedSignal> | undefined;
 
   try {
-    let responseText: string;
-
-    try {
-      responseText = await pubApiCoordinator.execute(async () => {
+    responseText = await pubApiCoordinator.execute(async () => {
+      composed = createComposedSignal(options?.signal, timeoutMs);
+      try {
         if (composed.signal.aborted) {
           if (composed.isTimeout()) {
             throw createTimeoutError();
@@ -240,66 +241,60 @@ async function executePubApiRequest<T>(
 
         // Read stream with size protection
         return await readResponseBody(response, composed);
-      }, composed.signal);
-    } catch (err: unknown) {
-      if (err instanceof PubApiError) {
-        throw err;
+      } finally {
+        composed.cleanup();
       }
-
-      if (err && typeof err === 'object' && (err as { name?: string }).name === 'AbortError') {
-        if (composed.isTimeout()) {
-          throw createTimeoutError();
-        }
-        throw createAbortError();
-      }
-
-      if (composed.signal.aborted) {
-        if (composed.isTimeout()) {
-          throw createTimeoutError();
-        }
-        throw createAbortError();
-      }
-
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        throw createOfflineError();
-      }
-
-      throw createCorsError();
+    }, options?.signal);
+  } catch (err: unknown) {
+    if (err instanceof PubApiError) {
+      throw err;
     }
 
-    // Parse JSON
-    let json: unknown;
-    try {
-      json = JSON.parse(responseText);
-    } catch {
-      if (composed.signal.aborted) {
-        if (composed.isTimeout()) {
-          throw createTimeoutError();
-        }
-        throw createAbortError();
+    if (err && typeof err === 'object' && (err as { name?: string }).name === 'AbortError') {
+      if (composed?.isTimeout()) {
+        throw createTimeoutError();
       }
-      throw createPubApiError('MALFORMED_JSON', 'Failed to parse JSON response', false);
+      throw createAbortError();
     }
 
-    // Schema validation
-    if (expectedType === 'archives') {
-      const result = validateArchivesResponse(json);
-      if (!result.success) {
-        throw createPubApiError('INVALID_SCHEMA', result.diagnostic.message, false);
+    if (composed?.signal.aborted) {
+      if (composed.isTimeout()) {
+        throw createTimeoutError();
       }
-      return result.archives as unknown as T;
-    } else {
-      const result = validateMonthlyGamesResponse(json);
-      if (!result.success) {
-        if (result.diagnostic.code === 'RESPONSE_TOO_LARGE') {
-          throw createResponseTooLargeError(result.diagnostic.message);
-        }
-        throw createPubApiError('INVALID_SCHEMA', result.diagnostic.message, false);
-      }
-      return result.games as unknown as T;
+      throw createAbortError();
     }
-  } finally {
-    composed.cleanup();
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw createOfflineError();
+    }
+
+    throw createCorsError();
+  }
+
+  // Parse JSON
+  let json: unknown;
+  try {
+    json = JSON.parse(responseText);
+  } catch {
+    throw createPubApiError('MALFORMED_JSON', 'Failed to parse JSON response', false);
+  }
+
+  // Schema validation
+  if (expectedType === 'archives') {
+    const result = validateArchivesResponse(json);
+    if (!result.success) {
+      throw createPubApiError('INVALID_SCHEMA', result.diagnostic.message, false);
+    }
+    return result.archives as unknown as T;
+  } else {
+    const result = validateMonthlyGamesResponse(json);
+    if (!result.success) {
+      if (result.diagnostic.code === 'RESPONSE_TOO_LARGE') {
+        throw createResponseTooLargeError(result.diagnostic.message);
+      }
+      throw createPubApiError('INVALID_SCHEMA', result.diagnostic.message, false);
+    }
+    return result.games as unknown as T;
   }
 }
 

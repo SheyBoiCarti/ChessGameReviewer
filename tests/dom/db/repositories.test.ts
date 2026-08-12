@@ -151,6 +151,31 @@ describe('Repositories & Atomic Transactions', () => {
       await upsertGames(db, [julyGame, augustGame]);
       await expect(getGamesForMonth(db, 'JaneDoe', '2026-08')).resolves.toEqual([augustGame]);
     });
+
+    it('queries a UTC month through the username-endedAt index range', async () => {
+      const julyGame = makeGameRecord({
+        id: 'july-bounded',
+        endedAt: Date.UTC(2026, 6, 31, 23, 59, 59) / 1000,
+      });
+      const augustGame = makeGameRecord({
+        id: 'august-bounded',
+        endedAt: Date.UTC(2026, 7, 1) / 1000,
+      });
+      const otherUserAugustGame = makeGameRecord({
+        id: 'other-user-august',
+        username: 'otheruser',
+        endedAt: Date.UTC(2026, 7, 15) / 1000,
+      });
+      await upsertGames(db, [julyGame, augustGame, otherUserAugustGame]);
+
+      const index = db
+        .transaction(STORES.GAMES, 'readonly')
+        .objectStore(STORES.GAMES)
+        .index('usernameEndedAt');
+      expect(index.keyPath).toEqual(['username', 'endedAt']);
+
+      await expect(getGamesForMonth(db, 'JANEDOE', '2026-08')).resolves.toEqual([augustGame]);
+    });
   });
 
   describe('saveSyncBatch Atomic Multi-Store Transaction', () => {

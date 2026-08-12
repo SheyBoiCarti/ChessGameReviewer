@@ -23,6 +23,8 @@ export interface RawChesscomGame {
 }
 
 const MAX_MONTHLY_GAMES_LIMIT = 20000;
+const MONTHLY_ARCHIVE_URL =
+  /^https:\/\/api\.chess\.com\/pub\/player\/[^/]+\/games\/\d{4}\/(0[1-9]|1[0-2])$/i;
 
 export function validateArchivesResponse(
   data: unknown
@@ -52,11 +54,7 @@ export function validateArchivesResponse(
 
   const validArchives: string[] = [];
   for (const item of obj['archives']) {
-    if (
-      typeof item === 'string' &&
-      item.trim().length > 0 &&
-      item.startsWith('https://api.chess.com/')
-    ) {
+    if (typeof item === 'string' && item.trim().length > 0 && MONTHLY_ARCHIVE_URL.test(item)) {
       validArchives.push(item);
     } else {
       return {

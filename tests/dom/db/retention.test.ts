@@ -169,7 +169,7 @@ describe('Retention & LRU Eviction', () => {
     it('uses current versions when compatibility metadata is absent', async () => {
       await expect(checkSchemaCompatibility(db)).resolves.toMatchObject({
         compatible: true,
-        schemaVersion: 1,
+        schemaVersion: 2,
         normalizerVersion: 1,
       });
     });

@@ -125,27 +125,32 @@ export async function getGamesForMonth(
   month: string
 ): Promise<GameRecord[]> {
   const normUsername = username.toLowerCase();
-  const tx = db.transaction([STORES.GAMES], 'readonly');
-  const store = tx.objectStore(STORES.GAMES);
-  const index = store.index('username');
-  const results = await reqToPromise(index.getAll(normUsername));
-
-  if (!Array.isArray(results)) return [];
-
   const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
   if (!match) return [];
+
   const targetYear = Number(match[1]);
   const targetMonth = Number(match[2]) - 1; // 0-indexed months in UTC
+  const monthStart = Date.UTC(targetYear, targetMonth, 1) / 1000;
+  const nextMonthStart = Date.UTC(targetYear, targetMonth + 1, 1) / 1000;
+  const tx = db.transaction([STORES.GAMES], 'readonly');
+  const store = tx.objectStore(STORES.GAMES);
+  const index = store.index('usernameEndedAt');
+  const monthRange = IDBKeyRange.bound(
+    [normUsername, monthStart],
+    [normUsername, nextMonthStart],
+    false,
+    true
+  );
+  const results = await reqToPromise(index.getAll(monthRange));
+
+  if (!Array.isArray(results)) return [];
 
   const validRecords: GameRecord[] = [];
   for (const record of results) {
     if (!isValidGameRecord(record)) {
       throw new CorruptRecordError(STORES.GAMES);
     }
-    const date = new Date(record.endedAt * 1000);
-    if (date.getUTCFullYear() === targetYear && date.getUTCMonth() === targetMonth) {
-      validRecords.push(record);
-    }
+    validRecords.push(record);
   }
   return validRecords;
 }

@@ -87,12 +87,22 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
         return db.createObjectStore(name, { keyPath });
       };
 
-      const ensureIndex = (store: IDBObjectStore | null, indexName: string, keyPath: string) => {
+      const ensureIndex = (
+        store: IDBObjectStore | null,
+        indexName: string,
+        keyPath: string | string[]
+      ) => {
         if (upgradeError || !store) return;
         const existingIndexes = Array.from(store.indexNames);
         if (existingIndexes.includes(indexName)) {
           const idx = store.index(indexName);
-          if (idx.keyPath !== keyPath) {
+          const keyPathMatches =
+            idx.keyPath === keyPath ||
+            (Array.isArray(idx.keyPath) &&
+              Array.isArray(keyPath) &&
+              idx.keyPath.length === keyPath.length &&
+              idx.keyPath.every((part, index) => part === keyPath[index]));
+          if (!keyPathMatches) {
             upgradeError = new SchemaVersionError(
               `Index ${indexName} on store ${store.name} has incompatible keyPath. Reset the database.`
             );
@@ -115,6 +125,7 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
       const gamesStore = getOrCreateStore(STORES.GAMES, 'id');
       ensureIndex(gamesStore, 'username', 'username');
       ensureIndex(gamesStore, 'endedAt', 'endedAt');
+      ensureIndex(gamesStore, 'usernameEndedAt', ['username', 'endedAt']);
       ensureIndex(gamesStore, 'timeClass', 'timeClass');
       ensureIndex(gamesStore, 'userColor', 'userColor');
 
