@@ -17,7 +17,14 @@ export type UpstreamErrorCode =
   | 'UPSTREAM_RATE_LIMITED'
   | 'UPSTREAM_UNAVAILABLE'
   | 'RESPONSE_TOO_LARGE'
-  | 'INVALID_UPSTREAM_RESPONSE';
+  | 'INVALID_UPSTREAM_RESPONSE'
+  | 'CORS_ERROR'
+  | 'OFFLINE'
+  | 'TIMEOUT'
+  | 'ABORTED'
+  | 'MALFORMED_JSON'
+  | 'INVALID_SCHEMA'
+  | 'REDIRECT_DISALLOWED';
 
 export interface UpstreamError {
   code: UpstreamErrorCode;
