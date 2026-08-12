@@ -101,4 +101,39 @@ describe('JobQueue Serialization, Deduplication & Cancellation', () => {
 
     expect(taskSignalAborted).toBe(true); // task signal was triggered when all callers aborted
   });
+
+  it('allows a new caller to enqueue a username even if a previously queued job for that username had all callers abort before executing', async () => {
+    const controller1 = new AbortController();
+
+    const longTask = vi.fn().mockImplementation(async () => {
+      await new Promise((res) => setTimeout(res, 80));
+      return 'user1-done';
+    });
+
+    const abortedTask = vi.fn().mockImplementation(async () => 'should-not-run');
+
+    const freshTask = vi.fn().mockImplementation(async () => 'fresh-result');
+
+    // 1. User 1 starts long task
+    const p1 = queue.enqueue('user1', longTask);
+
+    // 2. User 2 enqueues while user 1 is running, with signal controller1
+    const p2 = queue.enqueue('user2', abortedTask, controller1.signal);
+
+    // 3. Controller 1 aborts before user 1 finishes
+    controller1.abort();
+    await expect(p2).rejects.toThrow();
+
+    // 4. While user 1 is STILL running, user 2 enqueues a fresh task with a new signal
+    const controller2 = new AbortController();
+    const p3 = queue.enqueue('user2', freshTask, controller2.signal);
+
+    // 5. Await user 1 and user 2's fresh task
+    const [r1, r3] = await Promise.all([p1, p3]);
+
+    expect(r1).toBe('user1-done');
+    expect(r3).toBe('fresh-result');
+    expect(freshTask).toHaveBeenCalledTimes(1);
+    expect(abortedTask).not.toHaveBeenCalled();
+  });
 });
