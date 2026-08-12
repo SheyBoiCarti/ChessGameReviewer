@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { EngineScheduler } from '../../../../../lib/engine/scheduler/engineScheduler';
-import type { ScheduledEngineAdapter } from '../../../../../lib/engine/scheduler/types';
+import { EngineScheduler } from '../../../../lib/engine/scheduler/engineScheduler';
+import type { ScheduledEngineAdapter } from '../../../../lib/engine/scheduler/types';
 
 class DeferredAdapter implements ScheduledEngineAdapter {
   readonly calls: string[] = [];
@@ -27,7 +27,7 @@ const job = (id: string, priority: 1 | 2 | 3, relevanceToken = id) => ({
   priority,
   relevanceToken,
   createdAt: 0,
-  deadlineAt: 10_000,
+  deadlineAt: Date.now() + 10_000,
   payload: { id },
 });
 
@@ -38,16 +38,19 @@ describe('EngineScheduler', () => {
     const first = scheduler.schedule(job('batch-1', 2));
     const second = scheduler.schedule(job('batch-2', 2));
     const interactive = scheduler.schedule(job('interactive', 1));
-    await Promise.resolve();
-    expect(adapter.calls).toEqual(['batch-1']);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(adapter.calls).toEqual(['batch-1', 'stop']);
     adapter.finish('batch-1');
-    await first;
     await Promise.resolve();
-    expect(adapter.calls).toEqual(['batch-1', 'interactive']);
+    expect(adapter.calls).toEqual(['batch-1', 'stop', 'interactive']);
     adapter.finish('interactive');
     await interactive;
     await Promise.resolve();
-    expect(adapter.calls).toEqual(['batch-1', 'interactive', 'batch-2']);
+    expect(adapter.calls).toEqual(['batch-1', 'stop', 'interactive', 'batch-1']);
+    adapter.finish('batch-1');
+    await first;
+    await Promise.resolve();
+    expect(adapter.calls).toEqual(['batch-1', 'stop', 'interactive', 'batch-1', 'batch-2']);
     adapter.finish('batch-2');
     await expect(second).resolves.toBe('batch-2');
   });
@@ -60,18 +63,20 @@ describe('EngineScheduler', () => {
     const current = scheduler.schedule(job('current', 1, 'board'));
     await expect(old).rejects.toMatchObject({ name: 'AbortError' });
     adapter.finish('batch');
-    await batch;
     await Promise.resolve();
     expect(adapter.calls).toContain('current');
     adapter.finish('current');
     await expect(current).resolves.toBe('current');
+    await Promise.resolve();
+    adapter.finish('batch');
+    await batch;
   });
 
   it('preempts active batch work for interactive work and retries a safe crash once', async () => {
     const adapter = new DeferredAdapter();
     const scheduler = new EngineScheduler(adapter, { createAdapter: () => adapter });
     const batch = scheduler.schedule(job('batch', 2));
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const interactive = scheduler.schedule(job('interactive', 1));
     await Promise.resolve();
     expect(adapter.calls).toEqual(['batch', 'stop']);
@@ -79,7 +84,7 @@ describe('EngineScheduler', () => {
     await Promise.resolve();
     expect(adapter.calls).toContain('interactive');
     adapter.pending.get('interactive')?.reject(new Error('worker crash'));
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(adapter.calls.filter((call) => call === 'interactive')).toHaveLength(2);
     adapter.finish('interactive');
     await expect(interactive).resolves.toBe('interactive');
@@ -93,9 +98,11 @@ describe('EngineScheduler', () => {
     const active = scheduler.schedule(job('active', 2));
     const queued = scheduler.schedule(job('queued', 2));
     await Promise.resolve();
+    const activeExpectation = expect(active).rejects.toMatchObject({ name: 'AbortError' });
+    const queuedExpectation = expect(queued).rejects.toMatchObject({ code: 'ENGINE_DISPOSED' });
     scheduler.dispose();
-    await expect(active).rejects.toMatchObject({ name: 'AbortError' });
-    await expect(queued).rejects.toMatchObject({ name: 'AbortError' });
+    await activeExpectation;
+    await queuedExpectation;
     expect(adapter.calls).toContain('dispose');
   });
 });

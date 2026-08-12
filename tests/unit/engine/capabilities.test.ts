@@ -48,7 +48,7 @@ describe('engine capability and resource policy', () => {
       threads: 4,
       hashMb: 16,
     });
-    expect(selectEngineResources({ hardwareConcurrency: undefined, deviceMemoryGb: undefined })).toEqual({
+    expect(selectEngineResources({})).toEqual({
       threads: 1,
       hashMb: 32,
     });
