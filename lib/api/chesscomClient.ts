@@ -200,6 +200,9 @@ async function executePubApiRequest<T>(
             retryable = true;
           } else if (response.status === 429) {
             retryable = true;
+          }
+          
+          if (retryable) {
             const retryAfter = response.headers.get('retry-after');
             if (retryAfter) {
               const seconds = parseInt(retryAfter, 10);
