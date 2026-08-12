@@ -157,8 +157,9 @@ export async function* syncOrchestrator(
     // Step 6: Normalize games
     const normalizedGames: GameRecord[] = [];
     const monthDiagnostics: Diagnostic[] = [];
+    const totalRaw = rawGames.length;
 
-    for (let i = 0; i < rawGames.length; i++) {
+    for (let i = 0; i < totalRaw; i++) {
       const rawGame = rawGames[i]!;
       const whiteUser = rawGame.white.username?.toLowerCase().trim();
       const blackUser = rawGame.black.username?.toLowerCase().trim();
@@ -229,6 +230,21 @@ export async function* syncOrchestrator(
         pgn: rawGame.pgn ?? '',
         rules: 'chess',
       });
+
+      const currentGameRatio = (i + 1) / totalRaw;
+      if (totalRaw > 50 && ((i + 1) % 50 === 0 || i === totalRaw - 1)) {
+        yield {
+          phase: 'processing_month',
+          username: normUser,
+          totalMonths: totalMonthsToSync,
+          completedMonths,
+          currentMonth: item.monthKey,
+          currentGameRatio,
+          gamesSyncedInCurrentMonth: normalizedGames.length,
+          totalGamesSynced: totalGamesSynced + normalizedGames.length,
+          diagnostics: [...allDiagnostics, ...monthDiagnostics],
+        };
+      }
     }
 
     allDiagnostics.push(...monthDiagnostics);

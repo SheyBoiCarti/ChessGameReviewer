@@ -35,7 +35,16 @@ export class JobQueue {
     const normUser = username.toLowerCase().trim();
 
     // Check if job for this username is already active or queued
-    const existingJob = this.jobMap.get(normUser) as QueuedJob<T> | undefined;
+    let existingJob = this.jobMap.get(normUser) as QueuedJob<T> | undefined;
+
+    if (existingJob && existingJob.taskController.signal.aborted) {
+      this.jobMap.delete(normUser);
+      const qIndex = this.queue.indexOf(existingJob as QueuedJob<unknown>);
+      if (qIndex !== -1) {
+        this.queue.splice(qIndex, 1);
+      }
+      existingJob = undefined;
+    }
 
     if (existingJob) {
       return this.attachCallerToJob(existingJob, signal);
@@ -86,9 +95,16 @@ export class JobQueue {
           }
           reject(createAbortError());
 
-          // If no active callers remain for this job, abort the task
+          // If no active callers remain for this job, abort the task and remove from map & queue
           if (job.callers.length === 0) {
             job.taskController.abort();
+            if (this.jobMap.get(job.username) === (job as QueuedJob<unknown>)) {
+              this.jobMap.delete(job.username);
+            }
+            const qIndex = this.queue.indexOf(job as QueuedJob<unknown>);
+            if (qIndex !== -1) {
+              this.queue.splice(qIndex, 1);
+            }
           }
         };
 
@@ -138,7 +154,9 @@ export class JobQueue {
         caller.reject(err);
       }
     } finally {
-      this.jobMap.delete(nextJob.username);
+      if (this.jobMap.get(nextJob.username) === nextJob) {
+        this.jobMap.delete(nextJob.username);
+      }
       this.activeJob = null;
       // Process next in queue
       this.processNext();
