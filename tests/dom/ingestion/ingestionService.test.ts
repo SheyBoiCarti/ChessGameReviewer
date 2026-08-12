@@ -10,7 +10,11 @@ import {
 import type { GameQuery } from '../../../lib/api/contracts';
 import type { RawChesscomGame } from '../../../lib/api/chesscomSchemas';
 import type { IngestionDependencies, IngestionProgress } from '../../../features/ingestion/types';
-import { runIngestion } from '../../../features/ingestion/ingestionService';
+import {
+  createJobId,
+  IngestionManager,
+  runIngestion,
+} from '../../../features/ingestion/ingestionService';
 import {
   makeArchiveSync,
   makeGameRecord,
@@ -49,6 +53,20 @@ function rejectWhenAborted(signal: AbortSignal): Promise<never> {
     }
     signal.addEventListener('abort', () => reject(createAbortError()), { once: true });
   });
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 describe('runIngestion', () => {
@@ -383,5 +401,60 @@ describe('runIngestion', () => {
         retry: { attempt: 2, delayMs: 500 },
       })
     );
+  });
+});
+
+describe('IngestionManager', () => {
+  it('cancels the previous query and ignores its late progress/result', async () => {
+    const oldArchives = deferred<string[]>();
+    const fetchArchives = vi
+      .fn()
+      .mockImplementationOnce(() => oldArchives.promise)
+      .mockResolvedValueOnce([]);
+    const deps = fakeDependencies({ fetchArchives });
+    const manager = new IngestionManager(deps);
+    const oldProgress = vi.fn();
+    const currentProgress = vi.fn();
+    const old = manager.start(makeQuery({ username: 'old-user' }), {
+      onProgress: oldProgress,
+    });
+    await vi.waitFor(() => expect(fetchArchives).toHaveBeenCalledTimes(1));
+    const oldProgressCountAtSupersession = oldProgress.mock.calls.length;
+
+    const current = manager.start(makeQuery({ username: 'new-user' }), {
+      onProgress: currentProgress,
+    });
+    oldArchives.resolve([]);
+
+    await expect(old).resolves.toMatchObject({ status: 'cancelled' });
+    await expect(current).resolves.toMatchObject({ status: 'complete' });
+    expect(oldProgress).toHaveBeenCalledTimes(oldProgressCountAtSupersession);
+    expect(currentProgress).toHaveBeenCalled();
+  });
+
+  it('uses cryptographically random job IDs when crypto.randomUUID is available', async () => {
+    const manager = new IngestionManager(
+      fakeDependencies({ fetchArchives: vi.fn().mockResolvedValue([]) })
+    );
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000001');
+
+    await expect(manager.start(makeQuery())).resolves.toMatchObject({
+      jobId: '00000000-0000-4000-8000-000000000001',
+    });
+  });
+
+  it('creates an RFC 4122 version 4 ID with secure random bytes as a fallback', () => {
+    const getRandomValues = vi.fn((bytes: Uint8Array) => {
+      bytes.fill(0);
+      return bytes;
+    });
+    vi.stubGlobal('crypto', { getRandomValues });
+
+    try {
+      expect(createJobId()).toBe('00000000-0000-4000-8000-000000000000');
+      expect(getRandomValues).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

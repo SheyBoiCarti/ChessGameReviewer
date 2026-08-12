@@ -20,6 +20,7 @@ import type {
   IngestionResult,
   IngestionTerminalStatus,
   RunIngestionOptions,
+  StartOptions,
 } from './types';
 
 const ARCHIVE_LIST_FRESH_MS = 15 * 60_000;
@@ -262,6 +263,7 @@ async function resolveArchiveMonths(
       () => runtime.deps.fetchArchives(query.username, { signal: runtime.signal }),
       runtime.retry
     );
+    throwIfAborted(runtime.signal);
     const months = archives.map((archive) => parseArchiveMonth(archive, query.username));
     await runtime.deps.writeArchiveList({
       username: query.username,
@@ -389,6 +391,7 @@ async function executeIngestion(
             }),
         }
       );
+      throwIfAborted(runtime.signal);
       recordsFetched += rawGames.length;
       const normalizedMonthGames: GameRecord[] = [];
       for (const raw of rawGames) {
@@ -492,5 +495,45 @@ export async function runIngestion(
       [],
       [safeDiagnostic(error)]
     );
+  }
+}
+
+export function createJobId(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+export class IngestionManager {
+  private active: { token: symbol; controller: AbortController } | null = null;
+
+  constructor(private readonly deps: IngestionDependencies) {}
+
+  async start(input: unknown, options: StartOptions = {}): Promise<IngestionResult> {
+    this.active?.controller.abort();
+    const token = Symbol('ingestion-job');
+    const controller = new AbortController();
+    this.active = { token, controller };
+
+    try {
+      return await runIngestion(input, {
+        ...options,
+        deps: this.deps,
+        jobId: createJobId(),
+        signal: controller.signal,
+        onProgress: (progress) => {
+          if (this.active?.token === token) options.onProgress?.(progress);
+        },
+      });
+    } finally {
+      if (this.active?.token === token) this.active = null;
+    }
+  }
+
+  cancel(): void {
+    this.active?.controller.abort();
   }
 }
