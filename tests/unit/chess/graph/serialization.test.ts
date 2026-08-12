@@ -16,6 +16,7 @@ describe('opening graph serialization', () => {
       queryFingerprint: 'query',
       sourceGameCount: 0,
       excludedGameCount: 0,
+      openingHorizon: 30,
       buildTimestamp: 0,
       status: 'complete' as const,
       rootKey: 'root',
@@ -69,6 +70,8 @@ describe('opening graph serialization', () => {
     );
     expect(restored.root.aggregate).toEqual(graph.root.aggregate);
     expect(dto.excludedGameCount).toBe(0);
+    expect(dto.openingHorizon).toBe(4);
+    expect(restored.openingHorizon).toBe(4);
     expect(restored.paths.sequence(4)).toEqual(graph.paths.sequence(4));
   });
 
@@ -79,14 +82,16 @@ describe('opening graph serialization', () => {
     expect(() =>
       deserializeOpeningGraph({
         formatVersion: 1,
+        openingHorizon: 1,
         paths: [],
         positions: [],
         rootKey: 'missing',
       } as never)
-    ).toThrow('INVALID_PATH_STORE');
+    ).toThrow('INVALID_OPENING_HORIZON');
     expect(() =>
       deserializeOpeningGraph({
         formatVersion: 1,
+        openingHorizon: 30,
         paths: [{ id: 0, parentId: null, uci: null, san: null, ply: 0 }],
         positions: [
           {

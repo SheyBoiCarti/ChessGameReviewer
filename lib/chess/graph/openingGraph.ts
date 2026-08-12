@@ -15,6 +15,7 @@ export interface OpeningGraphSnapshot {
   root: PositionNode;
   positions: ReadonlyMap<string, PositionNode>;
   paths: PathStore;
+  openingHorizon: number;
   includedGameCount: number;
   remainingGameCount: number;
   reachedLimit?: keyof GraphBuildLimits;
@@ -56,10 +57,17 @@ export class OpeningGraphBuilder {
 
     for (let gameIndex = 0; gameIndex < orderedGames.length; gameIndex += 1) {
       const limit = this.addGame(state, orderedGames[gameIndex]);
-      if (limit) return snapshotFor(state, 'limited', orderedGames.length - gameIndex, limit);
+      if (limit)
+        return snapshotFor(
+          state,
+          'limited',
+          orderedGames.length - gameIndex,
+          this.options.maxOpeningPlies,
+          limit
+        );
     }
 
-    return snapshotFor(state, 'complete', 0);
+    return snapshotFor(state, 'complete', 0, this.options.maxOpeningPlies);
   }
 
   async buildAsync(
@@ -80,14 +88,23 @@ export class OpeningGraphBuilder {
         processedGameCount: gameIndex + 1,
         includedGameCount: state.includedGameCount,
       });
-      if (limit) return snapshotFor(state, 'limited', orderedGames.length - gameIndex, limit);
+      if (limit)
+        return snapshotFor(
+          state,
+          'limited',
+          orderedGames.length - gameIndex,
+          this.options.maxOpeningPlies,
+          limit
+        );
       if ((gameIndex + 1) % yieldEveryGames === 0) {
         await yieldToWorkerEventLoop();
         if (runtime.shouldCancel?.()) return undefined;
       }
     }
 
-    return runtime.shouldCancel?.() ? undefined : snapshotFor(state, 'complete', 0);
+    return runtime.shouldCancel?.()
+      ? undefined
+      : snapshotFor(state, 'complete', 0, this.options.maxOpeningPlies);
   }
 
   private addGame(
@@ -186,6 +203,7 @@ function snapshotFor(
   state: BuildState,
   status: OpeningGraphSnapshot['status'],
   remainingGameCount: number,
+  openingHorizon: number,
   reachedLimit?: keyof GraphBuildLimits
 ): OpeningGraphSnapshot {
   if (!state.root) {
@@ -197,6 +215,7 @@ function snapshotFor(
     root: state.root,
     positions: state.positions,
     paths: state.paths,
+    openingHorizon,
     includedGameCount: state.includedGameCount,
     remainingGameCount,
     ...(reachedLimit ? { reachedLimit } : {}),

@@ -4,7 +4,7 @@ Phase 2 persists graph snapshots only through the explicit DTO emitted by `seria
 
 ## Version 1
 
-`formatVersion` is `1`. A snapshot stores the query fingerprint, source-game count, excluded-game count, build timestamp, graph status, root key, included and remaining game counts, sorted position records, sorted edges, sorted arrival-path aggregates, and path nodes ordered by ID.
+`formatVersion` is `1`. A snapshot stores the query fingerprint, source-game count, excluded-game count, opening horizon, build timestamp, graph status, root key, included and remaining game counts, sorted position records, sorted edges, sorted arrival-path aggregates, and path nodes ordered by ID.
 
 Position identity is the normalized four-field FEN key. Complete six-field FEN remains on parsed plies and is not replaced by the graph key.
 

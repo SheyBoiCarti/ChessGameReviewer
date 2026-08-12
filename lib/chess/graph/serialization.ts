@@ -9,6 +9,7 @@ export interface SerializedOpeningGraph {
   queryFingerprint: string;
   sourceGameCount: number;
   excludedGameCount: number;
+  openingHorizon: number;
   buildTimestamp: number;
   status: OpeningGraphSnapshot['status'];
   rootKey: string;
@@ -47,6 +48,7 @@ export function serializeOpeningGraph(
     formatVersion: GRAPH_FORMAT_VERSION,
     ...metadata,
     excludedGameCount: metadata.excludedGameCount ?? 0,
+    openingHorizon: graph.openingHorizon,
     status: graph.status,
     rootKey: graph.root.key,
     includedGameCount: graph.includedGameCount,
@@ -70,6 +72,9 @@ export function serializeOpeningGraph(
 
 export function deserializeOpeningGraph(dto: SerializedOpeningGraph): OpeningGraphSnapshot {
   if (dto.formatVersion !== GRAPH_FORMAT_VERSION) throw new Error('UNSUPPORTED_GRAPH_FORMAT');
+  if (!Number.isInteger(dto.openingHorizon) || dto.openingHorizon < 2 || dto.openingHorizon > 40) {
+    throw new Error('INVALID_OPENING_HORIZON');
+  }
   const paths = PathStore.fromNodes(dto.paths);
   const positions = new Map<string, PositionNode>();
   for (const serialized of dto.positions)
@@ -98,6 +103,7 @@ export function deserializeOpeningGraph(dto: SerializedOpeningGraph): OpeningGra
     root,
     positions,
     paths,
+    openingHorizon: dto.openingHorizon,
     includedGameCount: dto.includedGameCount,
     remainingGameCount: dto.remainingGameCount,
     ...(reachedLimit ? { reachedLimit } : {}),
