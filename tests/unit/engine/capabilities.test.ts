@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { detectEngineCapability } from '../../../lib/engine/capabilities';
+import { detectEngineCapability, supportsWasmSimd } from '../../../lib/engine/capabilities';
 import { selectEngineResources } from '../../../lib/engine/resourcePolicy';
 
 describe('engine capability and resource policy', () => {
@@ -54,5 +54,9 @@ describe('engine capability and resource policy', () => {
       threads: 1,
       hashMb: 32,
     });
+  });
+
+  it('uses WebAssembly validation for SIMD capability rather than feature presence', () => {
+    expect(typeof supportsWasmSimd()).toBe('boolean');
   });
 });

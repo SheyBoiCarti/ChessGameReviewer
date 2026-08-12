@@ -19,6 +19,20 @@ export interface EngineCapabilityProbe extends EngineResourceInput {
   singleThreadInitialized: boolean;
 }
 
+/** Validates a tiny module containing a SIMD instruction instead of feature-sniffing. */
+export function supportsWasmSimd(): boolean {
+  try {
+    return WebAssembly.validate(
+      new Uint8Array([
+        0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 10, 23, 1, 21, 0, 253, 12, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 26, 11,
+      ])
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function detectEngineCapability(probe: EngineCapabilityProbe): EngineCapability {
   const resources = selectEngineResources(probe);
   const threadedEligible = probe.crossOriginIsolated && probe.sharedArrayBuffer && probe.simd;

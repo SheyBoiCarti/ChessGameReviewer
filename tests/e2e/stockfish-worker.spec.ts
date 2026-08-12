@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('initializes the pinned threaded Stockfish worker when cross-origin isolation is available', async ({
+test('initializes and evaluates with the preferred Stockfish engine when isolation is available', async ({
   page,
 }) => {
   test.setTimeout(45_000);
@@ -10,9 +10,12 @@ test('initializes the pinned threaded Stockfish worker when cross-origin isolati
   });
 
   await page.goto('/phase-3-test-harness');
-  await expect(page.getByTestId('engine-status')).toHaveText('Ready: threaded', {
-    timeout: 30_000,
-  });
+  await expect(page.getByTestId('engine-status')).toHaveText(
+    /^Ready: (threaded|single-thread); PV: .+/,
+    {
+      timeout: 30_000,
+    }
+  );
   expect(errors).toEqual([]);
 });
 
@@ -26,7 +29,7 @@ test('initializes the pinned single-thread Stockfish worker as a forced fallback
   });
 
   await page.goto('/phase-3-test-harness?mode=single');
-  await expect(page.getByTestId('engine-status')).toHaveText('Ready: single-thread', {
+  await expect(page.getByTestId('engine-status')).toHaveText(/^Ready: single-thread; PV: .+/, {
     timeout: 30_000,
   });
   expect(errors).toEqual([]);

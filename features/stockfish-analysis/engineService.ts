@@ -1,5 +1,6 @@
 import {
   detectEngineCapability,
+  supportsWasmSimd,
   type EngineCapability,
   type EngineCapabilityProbe,
 } from '../../lib/engine/capabilities';
@@ -229,7 +230,7 @@ function browserProbe(
   const result: Omit<EngineCapabilityProbe, 'threadedInitialized' | 'singleThreadInitialized'> = {
     crossOriginIsolated: overrides?.crossOriginIsolated ?? browser?.crossOriginIsolated === true,
     sharedArrayBuffer: overrides?.sharedArrayBuffer ?? typeof SharedArrayBuffer !== 'undefined',
-    simd: overrides?.simd ?? typeof WebAssembly !== 'undefined',
+    simd: overrides?.simd ?? supportsWasmSimd(),
   };
   const hardwareConcurrency = overrides?.hardwareConcurrency ?? nav?.hardwareConcurrency;
   if (hardwareConcurrency !== undefined) result.hardwareConcurrency = hardwareConcurrency;

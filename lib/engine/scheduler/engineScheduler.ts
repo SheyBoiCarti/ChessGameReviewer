@@ -6,6 +6,8 @@ interface QueueEntry<TPayload, TResult> {
   reject: (reason: Error) => void;
   sequence: number;
   retries: number;
+  deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  abortListener: (() => void) | undefined;
 }
 
 interface ActiveEntry<TPayload, TResult> extends QueueEntry<TPayload, TResult> {
@@ -50,8 +52,18 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
         reject,
         sequence: this.sequence++,
         retries: 0,
+        deadlineTimer: undefined,
+        abortListener: undefined,
       };
       if (job.priority === 1) this.supersedeQueuedInteractive(entry);
+      entry.deadlineTimer = setTimeout(
+        () => this.expireQueued(entry),
+        Math.max(0, job.deadlineAt - this.now())
+      );
+      if (job.signal) {
+        entry.abortListener = () => this.cancelQueued(entry);
+        job.signal.addEventListener('abort', entry.abortListener, { once: true });
+      }
       this.queue.push(entry);
       this.requestPreemption(entry);
       void this.pump();
@@ -100,6 +112,9 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
           continue;
         }
         const controller = new AbortController();
+        clearTimeout(entry.deadlineTimer);
+        if (entry.abortListener && entry.job.signal)
+          entry.job.signal.removeEventListener('abort', entry.abortListener);
         const active: ActiveEntry<TPayload, TResult> = {
           ...entry,
           controller,
@@ -112,6 +127,12 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
           if (this.active !== active) return;
           controller.abort();
           void this.adapter.stop();
+          this.active = undefined;
+          active.reject(timeoutError());
+          // The original pump may still be awaiting a non-cooperative engine.
+          // Release the slot so the next queued job is not stranded behind it.
+          this.pumping = false;
+          void this.pump();
         }, remaining);
         try {
           const result = await this.adapter.evaluate(entry.job.payload, controller.signal);
@@ -202,13 +223,32 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
         candidate.job.relevanceToken === incoming.job.relevanceToken
       ) {
         this.queue.splice(index, 1);
-        candidate.reject(abortError());
+        this.rejectEntry(candidate, abortError());
       }
     }
   }
 
   private rejectQueued(error: Error): void {
-    for (const entry of this.queue.splice(0)) entry.reject(error);
+    for (const entry of this.queue.splice(0)) this.rejectEntry(entry, error);
+  }
+  private expireQueued(entry: QueueEntry<TPayload, TResult>): void {
+    this.removeQueued(entry, timeoutError());
+  }
+  private cancelQueued(entry: QueueEntry<TPayload, TResult>): void {
+    this.removeQueued(entry, abortError());
+  }
+  private removeQueued(entry: QueueEntry<TPayload, TResult>, error: Error): void {
+    const index = this.queue.indexOf(entry);
+    if (index >= 0) {
+      this.queue.splice(index, 1);
+      this.rejectEntry(entry, error);
+    }
+  }
+  private rejectEntry(entry: QueueEntry<TPayload, TResult>, error: Error): void {
+    clearTimeout(entry.deadlineTimer);
+    if (entry.abortListener && entry.job.signal)
+      entry.job.signal.removeEventListener('abort', entry.abortListener);
+    entry.reject(error);
   }
   private now(): number {
     return this.options.now?.() ?? Date.now();

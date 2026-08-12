@@ -159,4 +159,26 @@ describe('analyzeGame', () => {
     expect(result.status).toBe('complete');
     expect(result.annotations).toHaveLength(1);
   });
+
+  it('records terminal positions directly without requiring an engine PV', async () => {
+    const terminal = 'rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3';
+    const calls: string[] = [];
+    const game: ParsedGame = {
+      ...parsedGame,
+      plies: [{ ...parsedGame.plies[0]!, fenAfter: terminal }],
+    };
+    const result = await analyzeGame({
+      game,
+      cache: new EvaluationCache(new MemoryRepository(), () => 1),
+      settings,
+      engine: engineFor({ [initialFen]: 20 }, (fen) => calls.push(fen)),
+    });
+    expect(result.status).toBe('complete');
+    expect(calls).toEqual([initialFen]);
+    expect(result.annotations[0]?.after).toMatchObject({
+      score: { kind: 'mate', value: -1 },
+      pv: [],
+      bestMove: '(terminal)',
+    });
+  });
 });

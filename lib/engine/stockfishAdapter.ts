@@ -15,6 +15,7 @@ export type EngineState =
 export interface EnginePort {
   post(command: string): void;
   onLine(listener: (line: string) => void): () => void;
+  onError?(listener: (error: Error) => void): () => void;
   terminate(): void;
 }
 export interface EvaluationLimit {
@@ -37,6 +38,7 @@ export class StockfishAdapter {
   state: EngineState = 'new';
   private engine: EnginePort | undefined;
   private unsubscribe: (() => void) | undefined;
+  private unsubscribeError: (() => void) | undefined;
   private waiters = new Map<
     'uciok' | 'readyok',
     { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
@@ -64,6 +66,7 @@ export class StockfishAdapter {
     this.state = 'loading';
     this.engine = await this.createEngine();
     this.unsubscribe = this.engine.onLine((line) => this.handleLine(line));
+    this.unsubscribeError = this.engine.onError?.((error) => this.fail(error));
     this.state = 'uci-initializing';
     this.engine.post('uci');
     await this.waitFor('uciok', signal);
@@ -119,6 +122,7 @@ export class StockfishAdapter {
     }
     this.waiters.clear();
     this.unsubscribe?.();
+    this.unsubscribeError?.();
     this.engine?.terminate();
     this.state = 'disposed';
   }
@@ -185,7 +189,13 @@ export class StockfishAdapter {
   }
   private fail(error: Error): void {
     this.state = 'failure';
+    for (const waiter of this.waiters.values()) {
+      clearTimeout(waiter.timer);
+      waiter.reject(error);
+    }
+    this.waiters.clear();
     if (this.search) {
+      this.search.abort?.removeEventListener('abort', this.search.onAbort!);
       this.search.reject(error);
       this.search = undefined;
     }

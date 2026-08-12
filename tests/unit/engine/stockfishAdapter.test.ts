@@ -5,6 +5,7 @@ import { StockfishAdapter } from '../../../lib/engine/stockfishAdapter';
 class FakeEngine {
   readonly sent: string[] = [];
   private listener: ((line: string) => void) | undefined;
+  private errorListener: ((error: Error) => void) | undefined;
   onLine(listener: (line: string) => void): () => void {
     this.listener = listener;
     return () => {
@@ -16,6 +17,15 @@ class FakeEngine {
   }
   emit(line: string) {
     this.listener?.(line);
+  }
+  onError(listener: (error: Error) => void): () => void {
+    this.errorListener = listener;
+    return () => {
+      this.errorListener = undefined;
+    };
+  }
+  fail(message: string) {
+    this.errorListener?.(new Error(message));
   }
   terminate() {}
 }
@@ -76,5 +86,15 @@ describe('StockfishAdapter', () => {
     engine.emit('bestmove e2e4');
     await expect(result).rejects.toMatchObject({ name: 'AbortError' });
     expect(adapter.state).toBe('ready');
+  });
+
+  it('rejects an initialization waiter when the nested worker fails', async () => {
+    const engine = new FakeEngine();
+    const adapter = new StockfishAdapter(async () => engine, { timeoutMs: 100 });
+    const initialized = adapter.initialize({ hashMb: 16, threads: 1 });
+    await Promise.resolve();
+    engine.fail('nested worker crashed');
+    await expect(initialized).rejects.toThrow('nested worker crashed');
+    expect(adapter.state).toBe('failure');
   });
 });

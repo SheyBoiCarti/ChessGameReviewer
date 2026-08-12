@@ -1,4 +1,5 @@
 import type { ParsedGame } from '@/lib/chess/pgnParser';
+import { Chess } from 'chess.js';
 import { classifyMoveAccuracy, type MoveAccuracy } from '@/lib/engine/accuracy';
 import {
   normalizeUciScoreToWhite,
@@ -127,6 +128,8 @@ async function getPositionEvaluation(
   if (existing) return existing;
 
   const evaluation = (async () => {
+    const terminal = terminalPositionEvaluation(fen);
+    if (terminal) return terminal;
     let raw: EvaluationResult | null = null;
     try {
       raw = await input.cache.get(key);
@@ -150,6 +153,22 @@ async function getPositionEvaluation(
   })();
   inflight.set(serialized, evaluation);
   return evaluation;
+}
+
+function terminalPositionEvaluation(fen: string): PositionEvaluation | undefined {
+  const chess = new Chess(fen);
+  if (chess.isCheckmate()) {
+    return {
+      score: { kind: 'mate', value: chess.turn() === 'w' ? -1 : 1 },
+      depth: 0,
+      pv: [],
+      bestMove: '(terminal)',
+    };
+  }
+  if (chess.isStalemate() || chess.isInsufficientMaterial() || chess.isThreefoldRepetition()) {
+    return { score: { kind: 'cp', value: 0 }, depth: 0, pv: [], bestMove: '(terminal)' };
+  }
+  return undefined;
 }
 
 function normalizePrimaryLine(raw: EvaluationResult, fen: string): PositionEvaluation {

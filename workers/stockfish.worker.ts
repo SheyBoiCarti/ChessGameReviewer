@@ -31,6 +31,18 @@ export function createStockfishPort(
       worker.addEventListener('message', handler as EventListener);
       return () => worker.removeEventListener('message', handler as EventListener);
     },
+    onError(listener) {
+      const handler = (event: Event) => {
+        const message = event instanceof ErrorEvent ? event.message : 'Stockfish worker failed.';
+        listener(new Error(message || 'Stockfish worker failed.'));
+      };
+      worker.addEventListener('error', handler);
+      worker.addEventListener('messageerror', handler);
+      return () => {
+        worker.removeEventListener('error', handler);
+        worker.removeEventListener('messageerror', handler);
+      };
+    },
     terminate() {
       worker.terminate();
     },

@@ -108,4 +108,30 @@ describe('EngineScheduler', () => {
     await queuedExpectation;
     expect(adapter.calls).toContain('dispose');
   });
+
+  it('removes an aborted queued job before it reaches the engine', async () => {
+    const adapter = new DeferredAdapter();
+    const scheduler = new EngineScheduler(adapter);
+    const active = scheduler.schedule(job('active', 2));
+    const controller = new AbortController();
+    const queued = scheduler.schedule({ ...job('queued', 2), signal: controller.signal });
+    controller.abort();
+    await expect(queued).rejects.toMatchObject({ name: 'AbortError' });
+    adapter.finish('active');
+    await active;
+    await Promise.resolve();
+    expect(adapter.calls).not.toContain('queued');
+  });
+
+  it('settles an active timeout and continues with the next runnable job', async () => {
+    const adapter = new DeferredAdapter();
+    const scheduler = new EngineScheduler(adapter);
+    const expired = scheduler.schedule({ ...job('expired', 2), deadlineAt: Date.now() + 20 });
+    const next = scheduler.schedule(job('next', 2));
+    await expect(expired).rejects.toMatchObject({ code: 'ENGINE_TIMEOUT' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(adapter.calls).toContain('next');
+    adapter.finish('next');
+    await expect(next).resolves.toBe('next');
+  });
 });
