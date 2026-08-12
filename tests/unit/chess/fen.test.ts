@@ -39,6 +39,8 @@ describe('normalizePositionKey', () => {
   });
 
   it('rejects otherwise valid positions without all six required fields', () => {
-    expect(() => normalizePositionKey('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -')).toThrow('expected exactly six FEN fields');
+    expect(() =>
+      normalizePositionKey('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -')
+    ).toThrow('expected exactly six FEN fields');
   });
 });

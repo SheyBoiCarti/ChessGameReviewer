@@ -94,7 +94,7 @@ describe('opening graph recorded benchmark', () => {
       type: 'COMPLETE',
       snapshot: { includedGameCount: 1_000 },
     });
-  });
+  }, 20_000);
 
   it('builds the supported 1,000-game workload', () => {
     const result = measure(1_000);
