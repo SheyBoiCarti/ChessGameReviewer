@@ -63,6 +63,19 @@ describe('chesscomSchemas runtime validation', () => {
       }
     });
 
+    it.each([
+      'https://api.chess.com/pub/player/hikaru/games/2024/1',
+      'https://api.chess.com/pub/player/hikaru/games/2024/13',
+      'https://api.chess.com/pub/player/hikaru/games/archives',
+      'https://api.chess.com/pub/player/hikaru/games/2024/01?next=1',
+      'https://api.chess.com/pub/player/hikaru/games/2024/01#fragment',
+    ])('rejects archive URLs outside the exact monthly endpoint family: %s', (archive) => {
+      expect(validateArchivesResponse({ archives: [archive] })).toMatchObject({
+        success: false,
+        diagnostic: { code: 'INVALID_ARCHIVES_SCHEMA' },
+      });
+    });
+
     it('rejects a non-string archives element instead of silently dropping it', () => {
       const result = validateArchivesResponse({ archives: ['https://api.chess.com/a', 42] });
       expect(result).toMatchObject({

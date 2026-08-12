@@ -301,13 +301,21 @@ describe('pubApiCoordinator', () => {
   it('passes cancellation to Web Lock acquisition', async () => {
     const controller = new AbortController();
     const request = vi.fn((_name, options, callback) => callback());
+    const originalNavigatorLocks = navigator.locks;
     Object.defineProperty(navigator, 'locks', { configurable: true, value: { request } });
-    await new PubApiCoordinator().execute(async () => 'ok', controller.signal);
-    expect(request).toHaveBeenCalledWith(
-      'chesscom-pubapi-lock',
-      { signal: controller.signal },
-      expect.any(Function)
-    );
+    try {
+      await new PubApiCoordinator().execute(async () => 'ok', controller.signal);
+      expect(request).toHaveBeenCalledWith(
+        'chesscom-pubapi-lock',
+        { signal: controller.signal },
+        expect.any(Function)
+      );
+    } finally {
+      Object.defineProperty(navigator, 'locks', {
+        configurable: true,
+        value: originalNavigatorLocks,
+      });
+    }
   });
 });
 
@@ -317,6 +325,31 @@ describe('chesscomClient', () => {
   });
 
   describe('fetchPlayerArchives', () => {
+    it('starts the request timeout after a Web Lock has been acquired', async () => {
+      const originalLocks = navigator.locks;
+      Object.defineProperty(navigator, 'locks', {
+        configurable: true,
+        value: {
+          request: async (_name: string, callback: () => Promise<unknown>) => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            return callback();
+          },
+        },
+      });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        mockResponse('{"archives": []}', { headers: { 'content-type': 'application/json' } })
+      );
+
+      try {
+        await expect(fetchPlayerArchives('hikaru', { timeoutMs: 10 })).resolves.toEqual([]);
+      } finally {
+        Object.defineProperty(navigator, 'locks', {
+          configurable: true,
+          value: originalLocks,
+        });
+      }
+    });
+
     it('fetches archives successfully with correct fetch options', async () => {
       const mockArchives = [
         'https://api.chess.com/pub/player/hikaru/games/2023/04',
@@ -406,12 +439,17 @@ describe('chesscomClient', () => {
 
     it('parses JSON after releasing the Web Lock', async () => {
       const events: string[] = [];
+      const originalNavigatorLocks = navigator.locks;
       Object.defineProperty(navigator, 'locks', {
         configurable: true,
         value: {
-          request: vi.fn(async (_name, _options, callback) => {
+          request: vi.fn(async (_name, optionsOrCallback, callback?) => {
             events.push('lock-start');
-            const value = await callback();
+            const task =
+              typeof optionsOrCallback === 'function'
+                ? optionsOrCallback
+                : (callback as () => Promise<unknown>);
+            const value = await task();
             events.push('lock-end');
             return value;
           }),
@@ -430,9 +468,15 @@ describe('chesscomClient', () => {
       });
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
 
-      await fetchPlayerArchives('hikaru');
-
-      expect(events).toEqual(['lock-start', 'lock-end', 'parse']);
+      try {
+        await fetchPlayerArchives('hikaru');
+        expect(events).toEqual(['lock-start', 'lock-end', 'parse']);
+      } finally {
+        Object.defineProperty(navigator, 'locks', {
+          configurable: true,
+          value: originalNavigatorLocks,
+        });
+      }
     });
 
     it('UTF-8 fallback byte counting', async () => {

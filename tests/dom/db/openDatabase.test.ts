@@ -14,10 +14,10 @@ describe('openDatabase', () => {
     indexedDB.deleteDatabase(DB_NAME);
   });
 
-  it('opens IndexedDB database and initializes all V1 object stores and indexes', async () => {
+  it('opens IndexedDB database and initializes all current object stores and indexes', async () => {
     const db = await openDatabase();
     expect(db.name).toBe(DB_NAME);
-    expect(db.version).toBe(1);
+    expect(db.version).toBe(2);
 
     const storeNames = Array.from(db.objectStoreNames);
     expect(storeNames).toContain(STORES.ARCHIVE_SYNC);
@@ -31,7 +31,7 @@ describe('openDatabase', () => {
     const gamesStore = tx.objectStore(STORES.GAMES);
     expect(gamesStore.keyPath).toBe('id');
     expect(Array.from(gamesStore.indexNames)).toEqual(
-      expect.arrayContaining(['username', 'endedAt', 'timeClass', 'userColor'])
+      expect.arrayContaining(['username', 'endedAt', 'usernameEndedAt', 'timeClass', 'userColor'])
     );
 
     const archiveStore = tx.objectStore(STORES.ARCHIVE_SYNC);

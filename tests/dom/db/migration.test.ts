@@ -41,7 +41,7 @@ describe('Schema Migration & Upgrade', () => {
     const tx = db.transaction([STORES.GAMES], 'readonly');
     const gamesStore = tx.objectStore(STORES.GAMES);
     expect(Array.from(gamesStore.indexNames)).toEqual(
-      expect.arrayContaining(['username', 'endedAt', 'timeClass', 'userColor'])
+      expect.arrayContaining(['username', 'endedAt', 'usernameEndedAt', 'timeClass', 'userColor'])
     );
 
     closeDatabase(db);
