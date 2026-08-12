@@ -8,25 +8,27 @@ describe('Worker Strategy', () => {
       (global as any).window = {};
     }
 
-    // Dynamically import dom.setup to execute the conditional worker shim registration
-    await import('./dom.setup');
+    try {
+      // Dynamically import dom.setup to execute the conditional worker shim registration
+      await import('./dom.setup');
 
-    expect(window.Worker).toBeDefined();
+      expect(window.Worker).toBeDefined();
 
-    const WorkerClass = window.Worker as any;
-    const worker = new WorkerClass('dummy.js');
+      const WorkerClass = window.Worker as any;
+      const worker = new WorkerClass('dummy.js');
 
-    expect(() => {
-      worker.postMessage({ type: 'PING' });
-    }).not.toThrow();
+      expect(() => {
+        worker.postMessage({ type: 'PING' });
+      }).not.toThrow();
 
-    expect(() => {
-      worker.terminate();
-    }).not.toThrow();
-
-    // Cleanup
-    if (isNodeEnv) {
-      delete (global as any).window;
+      expect(() => {
+        worker.terminate();
+      }).not.toThrow();
+    } finally {
+      // Cleanup
+      if (isNodeEnv) {
+        delete (global as any).window;
+      }
     }
   });
 });
