@@ -17,10 +17,8 @@ export function createStockfishPort(
   mode: 'threaded' | 'single-thread',
   createWorker: (url: string) => RawWorker = (url) => new Worker(url)
 ): EnginePort {
-  const script = mode === 'threaded' ? 'stockfish-18-lite.js' : 'stockfish-18-lite-single.js';
-  const wasm = script.replace(/\.js$/, '.wasm');
-  const origin = self.location.origin;
-  const url = `${origin}/stockfish/${script}#${encodeURIComponent(`${origin}/stockfish/${wasm}`)},worker`;
+  const variant = mode === 'threaded' ? 'threaded' : 'single';
+  const url = `/stockfish/${variant}/stockfish.js`;
   const worker = createWorker(url);
   return {
     post(command) {
@@ -78,7 +76,7 @@ export async function handleEngineWorkerRequest(
     if (request.type === 'INITIALIZE') {
       adapter?.dispose();
       adapter = new StockfishAdapter(async () => createStockfishPort(request.mode), {
-        timeoutMs: 15_000,
+        timeoutMs: 30_000,
       });
       await adapter.initialize(request.resources);
       post({

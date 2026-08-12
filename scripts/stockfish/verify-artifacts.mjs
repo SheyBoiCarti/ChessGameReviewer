@@ -11,19 +11,17 @@ function fail(message) {
   throw new Error(`Stockfish artifact verification failed: ${message}`);
 }
 
-async function filesIn(directory) {
+async function filesIn(directory, prefix = '') {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = await Promise.all(
     entries.map(async (entry) => {
-      if (!entry.isFile()) {
-        fail(`unexpected non-file artifact ${entry.name}`);
-      }
-
-      return entry.name;
+      const name = `${prefix}${entry.name}`;
+      if (entry.isFile()) return [name];
+      if (entry.isDirectory()) return filesIn(path.join(directory, entry.name), `${name}/`);
+      fail(`unexpected non-file artifact ${name}`);
     })
   );
-
-  return files.sort();
+  return files.flat().sort();
 }
 
 function sha256(contents) {
@@ -56,7 +54,7 @@ async function verify() {
     if (
       !artifact ||
       typeof artifact.file !== 'string' ||
-      !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(artifact.file) ||
+      !/^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/.test(artifact.file) ||
       typeof artifact.sha256 !== 'string' ||
       !/^[a-f0-9]{64}$/.test(artifact.sha256) ||
       expected.has(artifact.file)

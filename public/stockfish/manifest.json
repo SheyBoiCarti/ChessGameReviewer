@@ -22,14 +22,14 @@
   },
   "variants": {
     "singleThread": {
-      "javascript": "stockfish-18-lite-single.js",
-      "wasm": "stockfish-18-lite-single.wasm",
+      "javascript": "single/stockfish.js",
+      "wasm": "single/stockfish.wasm",
       "buildFlags": ["--lite", "--single-threaded", "-f"],
       "features": ["wasm", "single-thread", "simd"]
     },
     "threaded": {
-      "javascript": "stockfish-18-lite.js",
-      "wasm": "stockfish-18-lite.wasm",
+      "javascript": "threaded/stockfish.js",
+      "wasm": "threaded/stockfish.wasm",
       "buildFlags": ["--lite", "-f"],
       "features": ["wasm", "pthreads", "simd", "requires-cross-origin-isolation"]
     }
@@ -59,6 +59,22 @@
     },
     {
       "file": "stockfish-18-lite.wasm",
+      "sha256": "d50136919dcd90e75eb8df78b255d47d618962b670028b38961343f6eb409174"
+    },
+    {
+      "file": "single/stockfish.js",
+      "sha256": "5243fd9b276cab7dfe3ad1d43ab9ead73568fac76468c614242977a210c4a391"
+    },
+    {
+      "file": "single/stockfish.wasm",
+      "sha256": "a8fbc05ec6920b56d7485826dcb02c5ffd2826bcbf751cf973046f237a9096f1"
+    },
+    {
+      "file": "threaded/stockfish.js",
+      "sha256": "6e64f417a642c2f2a27d33c09f069522366d1bc33ed7ee8712afcc347e109af4"
+    },
+    {
+      "file": "threaded/stockfish.wasm",
       "sha256": "d50136919dcd90e75eb8df78b255d47d618962b670028b38961343f6eb409174"
     }
   ]

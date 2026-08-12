@@ -61,6 +61,7 @@ export class EngineService {
   async initialize(): Promise<EngineCapability> {
     if (this.capability) return this.capability;
     const probe = browserProbe(this.options.capabilityProbe);
+    let failureReason: string | undefined;
     const tryMode = async (mode: 'threaded' | 'single-thread'): Promise<boolean> => {
       const candidate = new WorkerEngineAdapter(
         this.createWorker(),
@@ -71,7 +72,8 @@ export class EngineService {
         await candidate.initialize();
         this.adapter = candidate;
         return true;
-      } catch {
+      } catch (error) {
+        failureReason = error instanceof Error ? error.message : 'Engine initialization failed.';
         candidate.dispose();
         return false;
       }
@@ -85,6 +87,9 @@ export class EngineService {
       threadedInitialized,
       singleThreadInitialized,
     });
+    if (this.capability.mode === 'unavailable' && failureReason) {
+      this.capability = { ...this.capability, reason: failureReason };
+    }
     if (this.adapter && this.capability.mode !== 'unavailable') {
       this.scheduler = new EngineScheduler(this.adapter, {
         createAdapter: () => this.recreateAdapter(),
