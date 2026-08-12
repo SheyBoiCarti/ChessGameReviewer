@@ -141,20 +141,24 @@ export async function saveSyncBatch(
     }
   }
 
-  const tx = db.transaction([STORES.GAMES, STORES.ARCHIVE_SYNC], 'readwrite');
-  const gamesStore = tx.objectStore(STORES.GAMES);
-  const syncStore = tx.objectStore(STORES.ARCHIVE_SYNC);
+  try {
+    const tx = db.transaction([STORES.GAMES, STORES.ARCHIVE_SYNC], 'readwrite');
+    const gamesStore = tx.objectStore(STORES.GAMES);
+    const syncStore = tx.objectStore(STORES.ARCHIVE_SYNC);
 
-  for (const game of games) {
-    gamesStore.put(game);
+    for (const game of games) {
+      gamesStore.put(game);
+    }
+    syncStore.put(syncRecord);
+
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(wrapIDBError(tx.error));
+      tx.onabort = () => reject(wrapIDBError(tx.error));
+    });
+  } catch (err) {
+    throw wrapIDBError(err);
   }
-  syncStore.put(syncRecord);
-
-  await new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(wrapIDBError(tx.error));
-    tx.onabort = () => reject(wrapIDBError(tx.error));
-  });
 }
 
 // Evaluations Repository

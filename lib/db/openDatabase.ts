@@ -62,46 +62,61 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
       reject(new DatabaseBlockedError());
     };
 
-    request.onupgradeneeded = (_event: IDBVersionChangeEvent) => {
+    request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
       const db = request.result;
+      const tx = (event.target as IDBOpenDBRequest).transaction!;
 
-      // Create archiveSync store
-      if (!db.objectStoreNames.contains(STORES.ARCHIVE_SYNC)) {
-          const archiveStore = db.createObjectStore(STORES.ARCHIVE_SYNC, { keyPath: 'key' });
-          archiveStore.createIndex('username', 'username', { unique: false });
-          archiveStore.createIndex('month', 'month', { unique: false });
-          archiveStore.createIndex('lastSuccessfulFetchAt', 'lastSuccessfulFetchAt', { unique: false });
+      // Helper to safely ensure store and indexes exist
+      const getOrCreateStore = (
+        name: string,
+        keyPath: string
+      ): IDBObjectStore => {
+        if (Array.from(db.objectStoreNames).includes(name)) {
+          return tx.objectStore(name);
         }
+        return db.createObjectStore(name, { keyPath });
+      };
 
-        // Create games store
-        if (!db.objectStoreNames.contains(STORES.GAMES)) {
-          const gamesStore = db.createObjectStore(STORES.GAMES, { keyPath: 'id' });
-          gamesStore.createIndex('username', 'username', { unique: false });
-          gamesStore.createIndex('endedAt', 'endedAt', { unique: false });
-          gamesStore.createIndex('timeClass', 'timeClass', { unique: false });
-          gamesStore.createIndex('userColor', 'userColor', { unique: false });
-        }
-
-        // Create evaluations store
-        if (!db.objectStoreNames.contains(STORES.EVALUATIONS)) {
-          const evalStore = db.createObjectStore(STORES.EVALUATIONS, { keyPath: 'key' });
-          evalStore.createIndex('positionHash', 'positionHash', { unique: false });
-          evalStore.createIndex('engineBuild', 'engineBuild', { unique: false });
-          evalStore.createIndex('lastUsedAt', 'lastUsedAt', { unique: false });
-        }
-
-        // Create graphSnapshots store
-        if (!db.objectStoreNames.contains(STORES.GRAPH_SNAPSHOTS)) {
-          const graphStore = db.createObjectStore(STORES.GRAPH_SNAPSHOTS, { keyPath: 'key' });
-          graphStore.createIndex('username', 'username', { unique: false });
-          graphStore.createIndex('createdAt', 'createdAt', { unique: false });
-        }
-
-        // Create meta store
-        if (!db.objectStoreNames.contains(STORES.META)) {
-          db.createObjectStore(STORES.META, { keyPath: 'name' });
+      const ensureIndex = (
+        store: IDBObjectStore,
+        indexName: string,
+        keyPath: string
+      ) => {
+        const existingIndexes = Array.from(store.indexNames);
+        if (!existingIndexes.includes(indexName)) {
+          store.createIndex(indexName, keyPath, { unique: false });
         }
       };
+
+      // archiveSync store & indexes
+      const archiveStore = getOrCreateStore(STORES.ARCHIVE_SYNC, 'key');
+      ensureIndex(archiveStore, 'username', 'username');
+      ensureIndex(archiveStore, 'month', 'month');
+      ensureIndex(archiveStore, 'lastSuccessfulFetchAt', 'lastSuccessfulFetchAt');
+
+      // games store & indexes
+      const gamesStore = getOrCreateStore(STORES.GAMES, 'id');
+      ensureIndex(gamesStore, 'username', 'username');
+      ensureIndex(gamesStore, 'endedAt', 'endedAt');
+      ensureIndex(gamesStore, 'timeClass', 'timeClass');
+      ensureIndex(gamesStore, 'userColor', 'userColor');
+
+      // evaluations store & indexes
+      const evalStore = getOrCreateStore(STORES.EVALUATIONS, 'key');
+      ensureIndex(evalStore, 'positionHash', 'positionHash');
+      ensureIndex(evalStore, 'engineBuild', 'engineBuild');
+      ensureIndex(evalStore, 'lastUsedAt', 'lastUsedAt');
+
+      // graphSnapshots store & indexes
+      const graphStore = getOrCreateStore(STORES.GRAPH_SNAPSHOTS, 'key');
+      ensureIndex(graphStore, 'username', 'username');
+      ensureIndex(graphStore, 'createdAt', 'createdAt');
+
+      // meta store
+      if (!Array.from(db.objectStoreNames).includes(STORES.META)) {
+        db.createObjectStore(STORES.META, { keyPath: 'name' });
+      }
+    };
 
     request.onsuccess = () => {
       const db = request.result;
@@ -114,7 +129,8 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
       resolve(db);
     };
 
-    request.onerror = () => {
+    request.onerror = (e) => {
+      console.error('IDB open request.onerror:', request.error, e);
       reject(wrapIDBError(request.error));
     };
   });
@@ -142,13 +158,17 @@ export function wrapIDBError(err: unknown): Error {
     }
     return err;
   }
-  if (typeof err === 'object' && err !== null && 'name' in err) {
-    const name = String((err as { name: unknown }).name);
-    if (name === 'QuotaExceededError') {
-      return new QuotaExceededError();
+  if (typeof err === 'object' && err !== null) {
+    const name = 'name' in err ? String((err as { name: unknown }).name) : '';
+    const message = 'message' in err ? String((err as { message: unknown }).message) : '';
+    if (name === 'QuotaExceededError' || message.includes('Quota')) {
+      return new QuotaExceededError(message || undefined);
     }
     if (name === 'InvalidStateError' || name === 'SecurityError') {
-      return new StorageUnavailableError();
+      return new StorageUnavailableError(message || undefined);
+    }
+    if (message) {
+      return new Error(message);
     }
   }
   return new StorageUnavailableError('IndexedDB operation failed.');

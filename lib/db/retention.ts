@@ -57,32 +57,45 @@ export async function evictGraphSnapshots(
   options: EvictGraphSnapshotsOptions = {}
 ): Promise<number> {
   const maxCount = options.maxCount ?? 50;
+  const maxTotalBytes = options.maxTotalBytes;
 
   return new Promise<number>((resolve, reject) => {
     const tx = db.transaction([STORES.GRAPH_SNAPSHOTS], 'readwrite');
     const store = tx.objectStore(STORES.GRAPH_SNAPSHOTS);
-    const countReq = store.count();
+    const getAllReq = store.getAll();
 
-    countReq.onerror = () => reject(wrapIDBError(countReq.error));
-    countReq.onsuccess = () => {
-      const totalCount = countReq.result;
-      if (totalCount <= maxCount) {
+    getAllReq.onerror = () => reject(wrapIDBError(getAllReq.error));
+    getAllReq.onsuccess = () => {
+      const records = (getAllReq.result || []) as Array<{ createdAt: number; byteSize?: number }>;
+      let currentCount = records.length;
+      let currentBytes = records.reduce((sum, r) => sum + (r.byteSize || 0), 0);
+
+      const needsCountEviction = currentCount > maxCount;
+      const needsByteEviction = maxTotalBytes !== undefined && currentBytes > maxTotalBytes;
+
+      if (!needsCountEviction && !needsByteEviction) {
         return resolve(0);
       }
 
-      const excess = totalCount - maxCount;
       let evicted = 0;
-
       const index = store.index('createdAt');
       const cursorReq = index.openCursor(); // ascending by createdAt (oldest first)
 
       cursorReq.onerror = () => reject(wrapIDBError(cursorReq.error));
       cursorReq.onsuccess = () => {
         const cursor = cursorReq.result;
-        if (cursor && evicted < excess) {
-          cursor.delete();
-          evicted++;
-          cursor.continue();
+        if (cursor) {
+          const record = cursor.value as { byteSize?: number };
+          const shouldEvictCount = currentCount > maxCount;
+          const shouldEvictBytes = maxTotalBytes !== undefined && currentBytes > maxTotalBytes;
+
+          if (shouldEvictCount || shouldEvictBytes) {
+            cursor.delete();
+            evicted++;
+            currentCount--;
+            currentBytes -= record.byteSize || 0;
+            cursor.continue();
+          }
         }
       };
 

@@ -20,7 +20,7 @@ export async function deleteUserData(
 
   return new Promise<DeletionResult>((resolve, reject) => {
     const tx = db.transaction(
-      [STORES.GAMES, STORES.ARCHIVE_SYNC, STORES.GRAPH_SNAPSHOTS],
+      [STORES.GAMES, STORES.ARCHIVE_SYNC, STORES.GRAPH_SNAPSHOTS, STORES.META],
       'readwrite'
     );
 
@@ -63,6 +63,11 @@ export async function deleteUserData(
         cursor.continue();
       }
     };
+
+    // Delete user-specific meta keys (e.g., archiveList:username)
+    const metaStore = tx.objectStore(STORES.META);
+    const userMetaKey = `archiveList:${normUsername}`;
+    metaStore.delete(userMetaKey);
 
     tx.oncomplete = () => {
       resolve({
