@@ -1,0 +1,273 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { openDatabase, closeDatabase, QuotaExceededError } from '../../../lib/db/openDatabase';
+import { DB_NAME, STORES, ArchiveSyncRecord, GameRecord, EvaluationRecord, GraphSnapshotRecord } from '../../../lib/db/schema';
+import {
+  getArchiveSync,
+  getArchiveSyncsForUser,
+  putArchiveSync,
+  getGame,
+  getGamesForUser,
+  upsertGames,
+  saveSyncBatch,
+  getEvaluation,
+  putEvaluation,
+  getGraphSnapshot,
+  putGraphSnapshot,
+  getMeta,
+  setMeta,
+} from '../../../lib/db/repositories';
+
+describe('Repositories & Atomic Transactions', () => {
+  let db: IDBDatabase;
+
+  beforeEach(async () => {
+    indexedDB.deleteDatabase(DB_NAME);
+    db = await openDatabase();
+  });
+
+  afterEach(() => {
+    if (db) closeDatabase(db);
+  });
+
+  describe('ArchiveSync Repository', () => {
+    it('saves and retrieves archiveSync records', async () => {
+      const syncRecord: ArchiveSyncRecord = {
+        key: 'janedoe:2024-05',
+        username: 'janedoe',
+        month: '2024-05',
+        lastSuccessfulFetchAt: 1700000000000,
+        status: 'success',
+        observedGameIds: ['game-1'],
+        observedGameCount: 1,
+        normalizerVersion: 1,
+      };
+
+      await putArchiveSync(db, syncRecord);
+      const retrieved = await getArchiveSync(db, 'janedoe', '2024-05');
+      expect(retrieved).toEqual(syncRecord);
+
+      const allForUser = await getArchiveSyncsForUser(db, 'janedoe');
+      expect(allForUser).toHaveLength(1);
+      expect(allForUser[0]).toEqual(syncRecord);
+    });
+
+    it('returns null for non-existent archiveSync', async () => {
+      const retrieved = await getArchiveSync(db, 'nobody', '2024-01');
+      expect(retrieved).toBeNull();
+    });
+  });
+
+  describe('Games Repository', () => {
+    const sampleGame: GameRecord = {
+      id: 'https://www.chess.com/game/live/10001',
+      username: 'janedoe',
+      url: 'https://www.chess.com/game/live/10001',
+      userColor: 'white',
+      result: 'win',
+      endedAt: 1700000000,
+      timeClass: 'blitz',
+      rated: true,
+      userRating: 1500,
+      opponentRating: 1480,
+      pgn: '1. e4 e5 2. Nf3 Nc6',
+      rules: 'chess',
+    };
+
+    it('upserts games idempotently by stable ID', async () => {
+      await upsertGames(db, [sampleGame]);
+      let retrieved = await getGame(db, sampleGame.id);
+      expect(retrieved).toEqual(sampleGame);
+
+      // Re-upsert updated rating (same ID)
+      const updatedGame = { ...sampleGame, userRating: 1510 };
+      await upsertGames(db, [updatedGame]);
+
+      retrieved = await getGame(db, sampleGame.id);
+      expect(retrieved?.userRating).toBe(1510);
+
+      const userGames = await getGamesForUser(db, 'janedoe');
+      expect(userGames).toHaveLength(1); // Not duplicated
+    });
+
+    it('retrieves games for a specific user', async () => {
+      const game2: GameRecord = {
+        ...sampleGame,
+        id: 'https://www.chess.com/game/live/10002',
+        username: 'otheruser',
+      };
+
+      await upsertGames(db, [sampleGame, game2]);
+
+      const janeGames = await getGamesForUser(db, 'janedoe');
+      expect(janeGames).toHaveLength(1);
+      expect(janeGames[0]?.id).toBe(sampleGame.id);
+    });
+  });
+
+  describe('saveSyncBatch Atomic Multi-Store Transaction', () => {
+    it('commits game upserts and sync marker in ONE transaction', async () => {
+      const game: GameRecord = {
+        id: 'game-100',
+        username: 'janedoe',
+        url: 'https://www.chess.com/game/live/100',
+        userColor: 'black',
+        result: 'draw',
+        endedAt: 1700001000,
+        timeClass: 'rapid',
+        rated: false,
+        userRating: null,
+        opponentRating: null,
+        pgn: '1. d4 d5 1/2-1/2',
+        rules: 'chess',
+      };
+
+      const syncMarker: ArchiveSyncRecord = {
+        key: 'janedoe:2024-06',
+        username: 'janedoe',
+        month: '2024-06',
+        lastSuccessfulFetchAt: 1700001050,
+        status: 'success',
+        observedGameIds: ['game-100'],
+        observedGameCount: 1,
+        normalizerVersion: 1,
+      };
+
+      await saveSyncBatch(db, [game], syncMarker);
+
+      const savedGame = await getGame(db, 'game-100');
+      const savedSync = await getArchiveSync(db, 'janedoe', '2024-06');
+
+      expect(savedGame).toEqual(game);
+      expect(savedSync).toEqual(syncMarker);
+    });
+
+    it('rolls back completely if game validation fails or transaction aborts', async () => {
+      const invalidGame = {
+        id: 'bad-game',
+        username: 'janedoe',
+        // missing required fields: userColor, result, pgn, etc.
+      } as unknown as GameRecord;
+
+      const syncMarker: ArchiveSyncRecord = {
+        key: 'janedoe:2024-07',
+        username: 'janedoe',
+        month: '2024-07',
+        lastSuccessfulFetchAt: 1700002000,
+        status: 'success',
+        observedGameIds: ['bad-game'],
+        observedGameCount: 1,
+        normalizerVersion: 1,
+      };
+
+      await expect(saveSyncBatch(db, [invalidGame], syncMarker)).rejects.toThrow();
+
+      // Verify NEITHER game nor sync marker persisted
+      const savedGame = await getGame(db, 'bad-game');
+      const savedSync = await getArchiveSync(db, 'janedoe', '2024-07');
+      expect(savedGame).toBeNull();
+      expect(savedSync).toBeNull();
+    });
+  });
+
+  describe('Evaluations & Graph Snapshots Repositories', () => {
+    it('saves and reads evaluations', async () => {
+      const evalRecord: EvaluationRecord = {
+        key: 'fen_123:stockfish-16',
+        positionHash: 'fen_123',
+        engineBuild: 'stockfish-16',
+        lastUsedAt: 1700000000,
+        evaluation: { score: 0.45 },
+      };
+
+      await putEvaluation(db, evalRecord);
+      const retrieved = await getEvaluation(db, evalRecord.key);
+      expect(retrieved).toEqual(evalRecord);
+    });
+
+    it('saves and reads graph snapshots', async () => {
+      const graphRecord: GraphSnapshotRecord = {
+        key: 'graph_janedoe_q1',
+        username: 'janedoe',
+        createdAt: 1700000000,
+        lastUsedAt: 1700000000,
+        snapshotData: { data: 'test' },
+        byteSize: 256,
+      };
+
+      await putGraphSnapshot(db, graphRecord);
+      const retrieved = await getGraphSnapshot(db, graphRecord.key);
+      expect(retrieved).toEqual(graphRecord);
+    });
+  });
+
+  describe('Meta Repository', () => {
+    it('sets and gets metadata values', async () => {
+      await setMeta(db, 'schemaVersion', 1);
+      const meta = await getMeta(db, 'schemaVersion');
+      expect(meta).not.toBeNull();
+      expect(meta?.value).toBe(1);
+    });
+  });
+
+  describe('PGN Storage Isolation Proof', () => {
+    it('proves PGN exists ONLY in games store and never in archiveSync or meta', async () => {
+      const game: GameRecord = {
+        id: 'game-pgn-test',
+        username: 'janedoe',
+        url: 'https://www.chess.com/game/live/9999',
+        userColor: 'white',
+        result: 'win',
+        endedAt: 1700000000,
+        timeClass: 'blitz',
+        rated: true,
+        userRating: 1500,
+        opponentRating: 1400,
+        pgn: '1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6 4. Qxf7# 1-0',
+        rules: 'chess',
+      };
+
+      const syncMarker: ArchiveSyncRecord = {
+        key: 'janedoe:2024-08',
+        username: 'janedoe',
+        month: '2024-08',
+        lastSuccessfulFetchAt: 1700000000,
+        status: 'success',
+        observedGameIds: [game.id],
+        observedGameCount: 1,
+        normalizerVersion: 1,
+      };
+
+      await saveSyncBatch(db, [game], syncMarker);
+      await setMeta(db, 'archiveList:janedoe', ['2024-08']);
+
+      // Check archiveSync raw record in IDB
+      const tx = db.transaction([STORES.ARCHIVE_SYNC, STORES.META], 'readonly');
+      const rawSync = await new Promise((resolve) => {
+        const req = tx.objectStore(STORES.ARCHIVE_SYNC).get(syncMarker.key);
+        req.onsuccess = () => resolve(req.result);
+      });
+      expect(rawSync).not.toHaveProperty('pgn');
+
+      const rawMeta = await new Promise((resolve) => {
+        const req = tx.objectStore(STORES.META).get('archiveList:janedoe');
+        req.onsuccess = () => resolve(req.result);
+      });
+      expect(rawMeta).not.toHaveProperty('pgn');
+    });
+  });
+
+  describe('Invalid Record Handling', () => {
+    it('returns null and filters out corrupted or invalid records when read', async () => {
+      // Manually insert an invalid game into IndexedDB
+      const tx = db.transaction([STORES.GAMES], 'readwrite');
+      tx.objectStore(STORES.GAMES).put({ id: 'corrupted-game', badField: true });
+      await new Promise((res) => (tx.oncomplete = res));
+
+      const game = await getGame(db, 'corrupted-game');
+      expect(game).toBeNull();
+
+      const games = await getGamesForUser(db, 'janedoe');
+      expect(games).toEqual([]);
+    });
+  });
+});
