@@ -8,9 +8,12 @@ export function Phase3EngineHarness() {
   const [status, setStatus] = useState('Starting engine…');
 
   useEffect(() => {
-    const service = new EngineService({
-      capabilityProbe: { crossOriginIsolated: false, sharedArrayBuffer: false, simd: false },
-    });
+    const forceSingle = new URLSearchParams(window.location.search).get('mode') === 'single';
+    const service = new EngineService(
+      forceSingle
+        ? { capabilityProbe: { crossOriginIsolated: false, sharedArrayBuffer: false, simd: false } }
+        : {}
+    );
     void service
       .initialize()
       .then((capability) => {
