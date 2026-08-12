@@ -143,7 +143,15 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
       }
     } finally {
       this.pumping = false;
-      if (!this.active && this.queue.length && !this.disposed && !this.disabled) void this.pump();
+      if (
+        !this.active &&
+        this.queue.length &&
+        !this.disposed &&
+        !this.disabled &&
+        (!this.hidden ||
+          this.queue.some((entry) => entry.job.priority === 1 && this.userActivityWhileHidden))
+      )
+        void this.pump();
     }
   }
 

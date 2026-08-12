@@ -134,4 +134,20 @@ describe('EngineScheduler', () => {
     adapter.finish('next');
     await expect(next).resolves.toBe('next');
   });
+
+  it('does not run batch work while hidden until relevant user activity occurs', async () => {
+    const adapter = new DeferredAdapter();
+    const scheduler = new EngineScheduler(adapter);
+    scheduler.setDocumentHidden(true);
+    const batch = scheduler.schedule(job('batch', 2));
+    await Promise.resolve();
+    expect(adapter.calls).toEqual([]);
+    scheduler.notifyUserActivity();
+    await Promise.resolve();
+    expect(adapter.calls).toEqual([]);
+    scheduler.setDocumentHidden(false);
+    await Promise.resolve();
+    adapter.finish('batch');
+    await expect(batch).resolves.toBe('batch');
+  });
 });

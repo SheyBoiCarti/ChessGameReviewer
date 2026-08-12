@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { detectEngineCapability, supportsWasmSimd } from '../../../lib/engine/capabilities';
+import {
+  detectEngineCapability,
+  probeEngineCapability,
+  supportsWasmSimd,
+} from '../../../lib/engine/capabilities';
 import { selectEngineResources } from '../../../lib/engine/resourcePolicy';
 
 describe('engine capability and resource policy', () => {
@@ -58,5 +62,38 @@ describe('engine capability and resource policy', () => {
 
   it('uses WebAssembly validation for SIMD capability rather than feature presence', () => {
     expect(typeof supportsWasmSimd()).toBe('boolean');
+  });
+
+  it('probes threaded initialization before accepting a threaded engine', async () => {
+    const attempts: string[] = [];
+    await expect(
+      probeEngineCapability(
+        { crossOriginIsolated: true, sharedArrayBuffer: true, simd: true },
+        async (mode) => void attempts.push(mode)
+      )
+    ).resolves.toMatchObject({ mode: 'threaded' });
+    expect(attempts).toEqual(['threaded']);
+  });
+
+  it('falls back after a failed threaded probe and reports total startup failure', async () => {
+    const modes: string[] = [];
+    await expect(
+      probeEngineCapability(
+        { crossOriginIsolated: true, sharedArrayBuffer: true, simd: true },
+        async (mode) => {
+          modes.push(mode);
+          if (mode === 'threaded') throw new Error('pthread unavailable');
+        }
+      )
+    ).resolves.toMatchObject({ mode: 'single-thread' });
+    expect(modes).toEqual(['threaded', 'single-thread']);
+    await expect(
+      probeEngineCapability(
+        { crossOriginIsolated: false, sharedArrayBuffer: false, simd: false },
+        async () => {
+          throw new Error('unavailable');
+        }
+      )
+    ).resolves.toMatchObject({ mode: 'unavailable' });
   });
 });

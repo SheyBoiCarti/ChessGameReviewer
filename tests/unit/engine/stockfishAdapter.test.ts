@@ -97,4 +97,32 @@ describe('StockfishAdapter', () => {
     await expect(initialized).rejects.toThrow('nested worker crashed');
     expect(adapter.state).toBe('failure');
   });
+
+  it('rejects invalid evaluation inputs and supports each legal search limit', async () => {
+    const engine = new FakeEngine();
+    const adapter = new StockfishAdapter(async () => engine, { timeoutMs: 100 });
+    const initialized = adapter.initialize({ hashMb: 16, threads: 1 });
+    await Promise.resolve();
+    engine.emit('uciok');
+    await Promise.resolve();
+    engine.emit('readyok');
+    await initialized;
+    await expect(adapter.evaluate('invalid', { depth: 1 }, 1)).rejects.toThrow(
+      'complete valid FEN'
+    );
+    await expect(
+      adapter.evaluate('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', { depth: 1 }, 0)
+    ).rejects.toThrow('multiPv');
+    for (const limit of [{ movetimeMs: 1 }, { nodes: 1 }]) {
+      const evaluation = adapter.evaluate(
+        'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        limit,
+        1
+      );
+      engine.emit('bestmove e2e4');
+      await evaluation;
+    }
+    expect(engine.sent).toContain('go movetime 1');
+    expect(engine.sent).toContain('go nodes 1');
+  });
 });

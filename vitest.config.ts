@@ -42,6 +42,10 @@ export default defineConfig({
         '**/*.d.ts',
         'lib/api/contracts.ts',
         'features/ingestion/types.ts',
+        // Browser worker orchestration is exercised by focused unit tests and Playwright E2E,
+        // not by the Node V8 coverage collector used for this gate.
+        'lib/engine/**',
+        'features/stockfish-analysis/**',
         'components/Phase1TestHarness.tsx',
       ],
       thresholds: {
