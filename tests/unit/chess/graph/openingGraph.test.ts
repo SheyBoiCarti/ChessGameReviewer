@@ -127,6 +127,18 @@ describe('OpeningGraphBuilder', () => {
       });
 
     expect(serialize(games)).toEqual(serialize([...games].reverse()));
+
+    const expected = serialize(games);
+    for (let seed = 1; seed <= 10; seed += 1) {
+      let state = seed;
+      const shuffled = [...games];
+      for (let index = shuffled.length - 1; index > 0; index -= 1) {
+        state = (state * 1_103_515_245 + 12_345) >>> 0;
+        const swapIndex = state % (index + 1);
+        [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex]!, shuffled[index]!];
+      }
+      expect(serialize(shuffled)).toEqual(expected);
+    }
   });
 
   it('stops at a game boundary when a structural limit is crossed', () => {
