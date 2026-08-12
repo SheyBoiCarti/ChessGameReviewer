@@ -31,6 +31,9 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      - name: Verify Stockfish artifact provenance
+        run: npm run verify:stockfish
+
       - name: Run Vitest unit & DOM tests
         run: npm run test:coverage
 

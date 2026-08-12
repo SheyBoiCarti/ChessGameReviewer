@@ -44,6 +44,9 @@ describe('planArchiveMonths', () => {
     expect(
       parseArchiveMonth('https://api.chess.com/pub/player/janedoe/games/2026/08', 'JaneDoe')
     ).toBe('2026-08');
+    expect(
+      parseArchiveMonth('https://api.chess.com/pub/player/JaneDoe/games/2026/08', 'JaneDoe')
+    ).toBe('2026-08');
     expect(() =>
       parseArchiveMonth('https://example.com/pub/player/janedoe/games/2026/08', 'janedoe')
     ).toThrow('INVALID_ARCHIVE_URL');

@@ -88,7 +88,11 @@ export function isValidRedirectUrl(
       expectedPath = `/pub/player/${encodeURIComponent(cleanUser)}/games/${yearStr}/${monthStr}`;
     }
 
-    return parsed.pathname.toLowerCase() === expectedPath.toLowerCase();
+    const trimTrailingSlashes = (path: string) => path.replace(/\/+$/, '');
+    return (
+      trimTrailingSlashes(parsed.pathname.toLowerCase()) ===
+      trimTrailingSlashes(expectedPath.toLowerCase())
+    );
   } catch {
     return false;
   }

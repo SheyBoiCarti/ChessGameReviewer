@@ -155,96 +155,94 @@ async function executePubApiRequest<T>(
   let composed: ReturnType<typeof createComposedSignal> | undefined;
 
   try {
-    responseText = await pubApiCoordinator.execute(async () => {
+    const response = await pubApiCoordinator.execute(async () => {
       composed = createComposedSignal(options?.signal, timeoutMs);
-      try {
-        if (composed.signal.aborted) {
-          if (composed.isTimeout()) {
-            throw createTimeoutError();
-          }
-          throw createAbortError();
+      if (composed.signal.aborted) {
+        if (composed.isTimeout()) {
+          throw createTimeoutError();
+        }
+        throw createAbortError();
+      }
+
+      const response = await fetch(url, {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit',
+        redirect: 'follow',
+        cache: 'default',
+        signal: composed.signal,
+      });
+
+      // Check redirect safety
+      if (response.url && response.url.length > 0) {
+        if (!isValidRedirectUrl(response.url, expectedType, username, year, month)) {
+          throw createPubApiError(
+            'REDIRECT_DISALLOWED',
+            'Redirect target was outside allowed origin or path family',
+            false
+          );
+        }
+        const finalUrl = new URL(response.url);
+        if (finalUrl.search !== '' || finalUrl.hash !== '') {
+          throw createPubApiError(
+            'REDIRECT_DISALLOWED',
+            'Final URL contained search query or hash fragment',
+            false
+          );
+        }
+      } else {
+        throw createInvalidResponseError('Response URL is absent or empty');
+      }
+
+      // Handle HTTP error statuses
+      if (!response.ok) {
+        const upstreamErr = parseUpstreamHttpError(response.status);
+
+        let retryable = false;
+        let retryAfterMs: number | undefined;
+
+        if (response.status === 502 || response.status === 503 || response.status === 504) {
+          retryable = true;
+        } else if (response.status === 429) {
+          retryable = true;
         }
 
-        const response = await fetch(url, {
-          method: 'GET',
-          mode: 'cors',
-          credentials: 'omit',
-          redirect: 'follow',
-          cache: 'default',
-          signal: composed.signal,
-        });
-
-        // Check redirect safety
-        if (response.url && response.url.length > 0) {
-          if (!isValidRedirectUrl(response.url, expectedType, username, year, month)) {
-            throw createPubApiError(
-              'REDIRECT_DISALLOWED',
-              'Redirect target was outside allowed origin or path family',
-              false
-            );
-          }
-          const finalUrl = new URL(response.url);
-          if (finalUrl.search !== '' || finalUrl.hash !== '') {
-            throw createPubApiError(
-              'REDIRECT_DISALLOWED',
-              'Final URL contained search query or hash fragment',
-              false
-            );
-          }
-        } else {
-          throw createInvalidResponseError('Response URL is absent or empty');
-        }
-
-        // Handle HTTP error statuses
-        if (!response.ok) {
-          const upstreamErr = parseUpstreamHttpError(response.status);
-
-          let retryable = false;
-          let retryAfterMs: number | undefined;
-
-          if (response.status === 502 || response.status === 503 || response.status === 504) {
-            retryable = true;
-          } else if (response.status === 429) {
-            retryable = true;
-          }
-
-          if (retryable) {
-            const retryAfter = response.headers.get('retry-after');
-            if (retryAfter) {
-              const seconds = parseInt(retryAfter, 10);
-              if (!Number.isNaN(seconds)) {
-                retryAfterMs = seconds * 1000;
-              } else {
-                const date = new Date(retryAfter).getTime();
-                if (!Number.isNaN(date)) {
-                  retryAfterMs = Math.max(0, date - Date.now());
-                }
+        if (retryable) {
+          const retryAfter = response.headers.get('retry-after');
+          if (retryAfter) {
+            const seconds = parseInt(retryAfter, 10);
+            if (!Number.isNaN(seconds)) {
+              retryAfterMs = seconds * 1000;
+            } else {
+              const date = new Date(retryAfter).getTime();
+              if (!Number.isNaN(date)) {
+                retryAfterMs = Math.max(0, date - Date.now());
               }
             }
           }
-
-          throw createPubApiError(
-            upstreamErr.code,
-            upstreamErr.message,
-            retryable,
-            upstreamErr.status,
-            retryAfterMs
-          );
         }
 
-        // Validate JSON media type
-        const contentType = response.headers.get('content-type') || '';
-        const mediaType = (contentType.split(';')[0] ?? '').trim().toLowerCase();
-        if (mediaType !== 'application/json' && !mediaType.endsWith('+json')) {
-          throw createPubApiError('WRONG_CONTENT_TYPE', `Expected JSON, got ${mediaType}`, false);
-        }
-
-        // Read stream with size protection
-        return await readResponseBody(response, composed);
-      } finally {
-        composed.cleanup();
+        throw createPubApiError(
+          upstreamErr.code,
+          upstreamErr.message,
+          retryable,
+          upstreamErr.status,
+          retryAfterMs
+        );
       }
+
+      // Validate JSON media type
+      const contentType = response.headers.get('content-type') || '';
+      const mediaType = (contentType.split(';')[0] ?? '').trim().toLowerCase();
+      if (mediaType !== 'application/json' && !mediaType.endsWith('+json')) {
+        throw createPubApiError('WRONG_CONTENT_TYPE', `Expected JSON, got ${mediaType}`, false);
+      }
+
+      return response;
     }, options?.signal);
+
+    // Body streaming can be lengthy, so it intentionally occurs after the Web Lock is released.
+    responseText = await readResponseBody(response, composed!);
   } catch (err: unknown) {
     if (err instanceof PubApiError) {
       throw err;
@@ -269,6 +267,8 @@ async function executePubApiRequest<T>(
     }
 
     throw createCorsError();
+  } finally {
+    composed?.cleanup();
   }
 
   // Parse JSON

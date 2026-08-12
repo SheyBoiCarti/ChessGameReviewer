@@ -481,6 +481,27 @@ describe('runIngestion', () => {
     expect(new Set(progress.map((event) => event.diagnostics)).size).toBe(progress.length);
   });
 
+  it('never reports more accepted games than the query limit during a network fetch', async () => {
+    const progress: IngestionProgress[] = [];
+
+    const result = await runIngestion(makeQuery({ maxGames: 1 }), {
+      deps: fakeDependencies({
+        fetchMonthlyGames: vi
+          .fn()
+          .mockResolvedValue([
+            makeRawGame({ uuid: 'accepted' }),
+            makeRawGame({ uuid: 'overflow' }),
+          ]),
+      }),
+      now: () => NOW,
+      onProgress: (event) => progress.push(event),
+    });
+
+    expect(result.games.map((game) => game.id)).toEqual(['accepted']);
+    expect(progress.every((event) => event.recordsAccepted <= 1)).toBe(true);
+    expect(progress.at(-1)).toMatchObject({ recordsExcluded: 1 });
+  });
+
   it('reports retry attempt and delay for the active month', async () => {
     const progress: IngestionProgress[] = [];
     const fetchMonthlyGames = vi
