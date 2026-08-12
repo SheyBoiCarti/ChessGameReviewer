@@ -15,7 +15,7 @@ export default defineConfig({
       '**/*.spec.ts',
       '**/*.spec.tsx',
     ],
-    workspace: [
+    projects: [
       {
         extends: true,
         test: {

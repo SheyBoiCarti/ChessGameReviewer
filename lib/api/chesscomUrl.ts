@@ -9,7 +9,10 @@ export function normalizeUsername(username: string): string {
   return trimmed.toLowerCase();
 }
 
-export function formatYearMonth(year: string | number, month: string | number): { yearStr: string; monthStr: string } {
+export function formatYearMonth(
+  year: string | number,
+  month: string | number
+): { yearStr: string; monthStr: string } {
   const yearStr = String(year).trim();
   if (!YEAR_REGEX.test(yearStr)) {
     throw new Error('Invalid year parameter: must be 4 digits');
@@ -40,13 +43,23 @@ export function formatYearMonth(year: string | number, month: string | number): 
 
 export function buildArchivesUrl(username: string): URL {
   const cleanUser = normalizeUsername(username);
-  return new URL(`/pub/player/${encodeURIComponent(cleanUser)}/games/archives`, 'https://api.chess.com');
+  return new URL(
+    `/pub/player/${encodeURIComponent(cleanUser)}/games/archives`,
+    'https://api.chess.com'
+  );
 }
 
-export function buildMonthlyUrl(username: string, year: string | number, month: string | number): URL {
+export function buildMonthlyUrl(
+  username: string,
+  year: string | number,
+  month: string | number
+): URL {
   const cleanUser = normalizeUsername(username);
   const { yearStr, monthStr } = formatYearMonth(year, month);
-  return new URL(`/pub/player/${encodeURIComponent(cleanUser)}/games/${yearStr}/${monthStr}`, 'https://api.chess.com');
+  return new URL(
+    `/pub/player/${encodeURIComponent(cleanUser)}/games/${yearStr}/${monthStr}`,
+    'https://api.chess.com'
+  );
 }
 
 export function isValidRedirectUrl(

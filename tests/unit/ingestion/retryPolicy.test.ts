@@ -78,4 +78,33 @@ describe('executeWithRetry', () => {
     await expect(promise).rejects.toMatchObject({ code: 'ABORTED' });
     expect(wait).toHaveBeenCalledWith(4000, controller.signal);
   });
+
+  it('does not retry primitives, misleading retry flags, or mismatched statuses', async () => {
+    const errors = [
+      null,
+      'network failed',
+      { code: 'CORS_ERROR', retryable: false },
+      { code: 'UPSTREAM_RATE_LIMITED', retryable: true, status: 400 },
+      { code: 'UPSTREAM_UNAVAILABLE', retryable: true, status: 501 },
+    ];
+
+    for (const error of errors) {
+      const operation = vi.fn().mockRejectedValue(error);
+      await expect(executeWithRetry(operation, fakeOptions())).rejects.toBe(error);
+      expect(operation).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('uses jitter when retry-after metadata is absent and reports retry progress', async () => {
+    const onRetry = vi.fn();
+    const wait = vi.fn().mockResolvedValue(undefined);
+    const operation = vi.fn().mockRejectedValueOnce(pubError('TIMEOUT')).mockResolvedValue('ok');
+
+    await expect(executeWithRetry(operation, { ...fakeOptions(), onRetry, wait })).resolves.toBe(
+      'ok'
+    );
+
+    expect(onRetry).toHaveBeenCalledWith({ attempt: 2, delayMs: 50 });
+    expect(wait).toHaveBeenCalledWith(50, expect.any(AbortSignal));
+  });
 });

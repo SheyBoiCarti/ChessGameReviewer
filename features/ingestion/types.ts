@@ -4,11 +4,7 @@ import { RawChesscomGame } from '../../lib/api/chesscomSchemas';
 import { GameRecord, ArchiveSyncRecord } from '../../lib/db/schema';
 import { ArchiveListMeta } from '../../lib/db/repositories';
 
-export type IngestionPhase =
-  | 'planning'
-  | 'loading-cache'
-  | 'fetching'
-  | 'filtering';
+export type IngestionPhase = 'planning' | 'loading-cache' | 'fetching' | 'filtering';
 export type IngestionTerminalStatus = 'complete' | 'partial' | 'cancelled' | 'failed';
 export type IngestionDataSource = 'indexeddb' | 'browser-fetch';
 
@@ -61,11 +57,7 @@ export interface IngestionDependencies {
   writeArchiveList(record: ArchiveListMeta): Promise<void>;
   readArchiveSyncs(username: string): Promise<ArchiveSyncRecord[]>;
   readMonthGames(username: string, month: string): Promise<GameRecord[]>;
-  persistMonth(
-    games: GameRecord[],
-    marker: ArchiveSyncRecord,
-    signal?: AbortSignal
-  ): Promise<void>;
+  persistMonth(games: GameRecord[], marker: ArchiveSyncRecord, signal?: AbortSignal): Promise<void>;
 }
 
 export interface RunIngestionOptions {

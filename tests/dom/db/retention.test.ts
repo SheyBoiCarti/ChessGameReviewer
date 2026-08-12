@@ -1,8 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openDatabase, closeDatabase } from '../../../lib/db/openDatabase';
 import { DB_NAME, STORES, EvaluationRecord, GraphSnapshotRecord } from '../../../lib/db/schema';
-import { putEvaluation, putGraphSnapshot, setMeta, getGraphSnapshot } from '../../../lib/db/repositories';
-import { evictEvaluations, evictGraphSnapshots, checkSchemaCompatibility } from '../../../lib/db/retention';
+import {
+  putEvaluation,
+  putGraphSnapshot,
+  setMeta,
+  getGraphSnapshot,
+} from '../../../lib/db/repositories';
+import {
+  evictEvaluations,
+  evictGraphSnapshots,
+  checkSchemaCompatibility,
+} from '../../../lib/db/retention';
 
 function transactionDone(tx: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -11,7 +20,6 @@ function transactionDone(tx: IDBTransaction): Promise<void> {
     tx.onabort = () => reject(tx.error);
   });
 }
-
 
 describe('Retention & LRU Eviction', () => {
   let db: IDBDatabase;
@@ -26,6 +34,10 @@ describe('Retention & LRU Eviction', () => {
   });
 
   describe('evictEvaluations', () => {
+    it('uses the default limit and leaves a small cache untouched', async () => {
+      await expect(evictEvaluations(db)).resolves.toBe(0);
+    });
+
     it('evicts oldest evaluation records when count exceeds maxCount', async () => {
       const record1: EvaluationRecord = {
         key: 'fen-1',
@@ -59,6 +71,10 @@ describe('Retention & LRU Eviction', () => {
   });
 
   describe('evictGraphSnapshots', () => {
+    it('uses default limits and leaves an empty cache untouched', async () => {
+      await expect(evictGraphSnapshots(db)).resolves.toBe(0);
+    });
+
     it('evicts oldest snapshots when maxCount is exceeded', async () => {
       const snap1: GraphSnapshotRecord = {
         key: 'snap-1',
@@ -114,20 +130,50 @@ describe('Retention & LRU Eviction', () => {
       const tx = db.transaction(STORES.GRAPH_SNAPSHOTS, 'readwrite');
       const store = tx.objectStore(STORES.GRAPH_SNAPSHOTS);
       store.put({
-        key: 'old-created-recent-use', username: 'janedoe', createdAt: 1,
-        lastUsedAt: 30, snapshotData: {}, byteSize: 2,
+        key: 'old-created-recent-use',
+        username: 'janedoe',
+        createdAt: 1,
+        lastUsedAt: 30,
+        snapshotData: {},
+        byteSize: 2,
       });
       store.put({
-        key: 'new-created-old-use', username: 'janedoe', createdAt: 20,
-        lastUsedAt: 2, snapshotData: {}, byteSize: 2,
+        key: 'new-created-old-use',
+        username: 'janedoe',
+        createdAt: 20,
+        lastUsedAt: 2,
+        snapshotData: {},
+        byteSize: 2,
       });
       await transactionDone(tx);
       await evictGraphSnapshots(db, { maxCount: 1 });
       expect(await getGraphSnapshot(db, 'new-created-old-use')).toBeNull();
     });
+
+    it('treats a missing byte size as zero while enforcing the count limit', async () => {
+      const tx = db.transaction(STORES.GRAPH_SNAPSHOTS, 'readwrite');
+      tx.objectStore(STORES.GRAPH_SNAPSHOTS).put({
+        key: 'no-size',
+        username: 'janedoe',
+        createdAt: 1,
+        lastUsedAt: 1,
+        snapshotData: {},
+      });
+      await transactionDone(tx);
+
+      await expect(evictGraphSnapshots(db, { maxCount: 0, maxTotalBytes: 0 })).resolves.toBe(1);
+    });
   });
 
   describe('checkSchemaCompatibility', () => {
+    it('uses current versions when compatibility metadata is absent', async () => {
+      await expect(checkSchemaCompatibility(db)).resolves.toMatchObject({
+        compatible: true,
+        schemaVersion: 1,
+        normalizerVersion: 1,
+      });
+    });
+
     it('detects compatible schema and normalizer version', async () => {
       await setMeta(db, 'schemaVersion', 1);
       await setMeta(db, 'normalizerVersion', 1);
@@ -144,6 +190,14 @@ describe('Retention & LRU Eviction', () => {
 
       const status = await checkSchemaCompatibility(db);
       expect(status.compatible).toBe(false);
+    });
+
+    it('detects a database schema newer than this build', async () => {
+      await setMeta(db, 'schemaVersion', 99);
+
+      const status = await checkSchemaCompatibility(db);
+      expect(status).toMatchObject({ compatible: false, schemaVersion: 99 });
+      expect(status.reason).toContain('newer than code schema version');
     });
   });
 });

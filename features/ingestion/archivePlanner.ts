@@ -38,7 +38,7 @@ export function planArchiveMonths(months: readonly string[], query: GameQuery): 
     toMillis = Date.parse(`${query.dateTo}T23:59:59.999Z`);
   }
 
-  const valid = months.filter(m => {
+  const valid = months.filter((m) => {
     if (!/^\d{4}-\d{2}$/.test(m)) return false;
 
     const monthStart = Date.parse(`${m}-01T00:00:00.000Z`);

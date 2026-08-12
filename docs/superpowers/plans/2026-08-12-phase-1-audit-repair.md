@@ -129,6 +129,7 @@ Task 2 creates the query/raw/record/sync factories when its first tests need the
 ### Task 1: Make Quality Gates Truthful
 
 **Files:**
+
 - Modify: `package.json`
 - Modify: `package-lock.json`
 - Modify: `vitest.config.ts`
@@ -140,6 +141,7 @@ Task 2 creates the query/raw/record/sync factories when its first tests need the
 - Create: `tests/setup/worker-strategy.test.ts`
 
 **Interfaces:**
+
 - Consumes: existing npm/Vitest/ESLint/Next.js configuration.
 - Produces: `npm test` discovers `tests/unit`, `tests/dom`, `tests/setup`, and `tests/api`; `npm run test:coverage` enforces branch thresholds; `npm run lint` checks all source/config files; CI runs production Playwright.
 
@@ -247,6 +249,7 @@ git commit -m "fix(tooling): make Phase 1 quality gates comprehensive"
 ### Task 2: Harden Shared Contracts and Query Validation
 
 **Files:**
+
 - Modify: `lib/api/contracts.ts`
 - Modify: `lib/validation/gameQuery.ts`
 - Modify: `lib/api/chesscomSchemas.ts`
@@ -256,6 +259,7 @@ git commit -m "fix(tooling): make Phase 1 quality gates comprehensive"
 - Create: `tests/helpers/phase1Fixtures.ts`
 
 **Interfaces:**
+
 - Consumes: `unknown` query and upstream values.
 - Produces: `validateGameQuery(input: unknown): ValidationResult<GameQuery>`; strict endpoint schema results; safe diagnostic codes.
 
@@ -337,6 +341,7 @@ git commit -m "fix(validation): enforce canonical Phase 1 contracts"
 ### Task 3: Make PubAPI Attempts Typed, Abortable, and Lock-Scoped
 
 **Files:**
+
 - Modify: `lib/api/contracts.ts`
 - Modify: `lib/api/errors.ts`
 - Modify: `lib/api/pubApiCoordinator.ts`
@@ -345,6 +350,7 @@ git commit -m "fix(validation): enforce canonical Phase 1 contracts"
 - Modify: `tests/helpers/phase1Fixtures.ts`
 
 **Interfaces:**
+
 - Consumes: approved `URL`, `AbortSignal`, endpoint discriminator.
 - Produces: `PubApiError` with `code`, `retryable`, optional `status`, optional `retryAfterMs`; `PubApiCoordinator.execute<T>(task, signal?)`; endpoint fetch functions.
 
@@ -457,6 +463,7 @@ git commit -m "fix(api): harden direct PubAPI request boundary"
 ### Task 4: Make IndexedDB Schema and Recovery Explicit
 
 **Files:**
+
 - Modify: `lib/db/schema.ts`
 - Modify: `lib/db/openDatabase.ts`
 - Modify: `tests/dom/db/schema.test.ts`
@@ -464,6 +471,7 @@ git commit -m "fix(api): harden direct PubAPI request boundary"
 - Modify: `tests/dom/db/migration.test.ts`
 
 **Interfaces:**
+
 - Consumes: persisted `unknown` records and browser IndexedDB lifecycle events.
 - Produces: canonical database/stores/indexes; `CorruptRecordError`, `SchemaVersionError`, `DatabaseBlockedError`, and `StorageUnavailableError`.
 
@@ -539,6 +547,7 @@ git commit -m "fix(db): enforce canonical schema and recovery behavior"
 ### Task 5: Add Cache Repositories, Explicit Corruption, and True LRU
 
 **Files:**
+
 - Modify: `lib/db/repositories.ts`
 - Modify: `lib/db/retention.ts`
 - Modify: `lib/db/deleteLocalData.ts`
@@ -547,8 +556,10 @@ git commit -m "fix(db): enforce canonical schema and recovery behavior"
 - Modify: `tests/dom/db/deleteLocalData.test.ts`
 
 **Interfaces:**
+
 - Consumes: records from Task 4.
 - Produces:
+
   - `getGamesForMonth(db, username, month): Promise<GameRecord[]>`
   - `getArchiveListMeta(db, username): Promise<ArchiveListMeta | null>`
   - `putArchiveListMeta(db, record): Promise<void>`
@@ -599,12 +610,20 @@ it('evicts snapshots by least-recently-used time, not creation time', async () =
   const tx = db.transaction(STORES.GRAPH_SNAPSHOTS, 'readwrite');
   const store = tx.objectStore(STORES.GRAPH_SNAPSHOTS);
   store.put({
-    key: 'old-created-recent-use', username: 'janedoe', createdAt: 1,
-    lastUsedAt: 30, snapshotData: {}, byteSize: 2,
+    key: 'old-created-recent-use',
+    username: 'janedoe',
+    createdAt: 1,
+    lastUsedAt: 30,
+    snapshotData: {},
+    byteSize: 2,
   });
   store.put({
-    key: 'new-created-old-use', username: 'janedoe', createdAt: 20,
-    lastUsedAt: 2, snapshotData: {}, byteSize: 2,
+    key: 'new-created-old-use',
+    username: 'janedoe',
+    createdAt: 20,
+    lastUsedAt: 2,
+    snapshotData: {},
+    byteSize: 2,
   });
   await transactionDone(tx);
   await evictGraphSnapshots(db, { maxCount: 1 });
@@ -671,13 +690,16 @@ git commit -m "feat(db): support safe ingestion cache and true LRU retention"
 ### Task 6: Define Ingestion Contracts, Fingerprinting, and Archive Planning
 
 **Files:**
+
 - Create: `features/ingestion/types.ts`
 - Create: `features/ingestion/archivePlanner.ts`
 - Create: `tests/unit/ingestion/archivePlanner.test.ts`
 
 **Interfaces:**
+
 - Consumes: validated `GameQuery`, normalized `YYYY-MM` archive values.
 - Produces:
+
   - `fingerprintQuery(query: GameQuery): string`
   - `parseArchiveMonth(url: string, username: string): string`
   - `planArchiveMonths(months: readonly string[], query: GameQuery): string[]`
@@ -718,11 +740,7 @@ Expected: FAIL because modules do not exist.
 Use:
 
 ```ts
-export type IngestionPhase =
-  | 'planning'
-  | 'loading-cache'
-  | 'fetching'
-  | 'filtering';
+export type IngestionPhase = 'planning' | 'loading-cache' | 'fetching' | 'filtering';
 export type IngestionTerminalStatus = 'complete' | 'partial' | 'cancelled' | 'failed';
 export type IngestionDataSource = 'indexeddb' | 'browser-fetch';
 
@@ -775,11 +793,7 @@ export interface IngestionDependencies {
   writeArchiveList(record: ArchiveListMeta): Promise<void>;
   readArchiveSyncs(username: string): Promise<ArchiveSyncRecord[]>;
   readMonthGames(username: string, month: string): Promise<GameRecord[]>;
-  persistMonth(
-    games: GameRecord[],
-    marker: ArchiveSyncRecord,
-    signal?: AbortSignal
-  ): Promise<void>;
+  persistMonth(games: GameRecord[], marker: ArchiveSyncRecord, signal?: AbortSignal): Promise<void>;
 }
 
 export interface RunIngestionOptions {
@@ -815,10 +829,12 @@ git commit -m "feat(ingestion): add query fingerprint and archive planner"
 ### Task 7: Implement Bounded Abort-Aware Retry Policy
 
 **Files:**
+
 - Create: `features/ingestion/retryPolicy.ts`
 - Create: `tests/unit/ingestion/retryPolicy.test.ts`
 
 **Interfaces:**
+
 - Consumes: `PubApiError`, operation callback, abort signal, injected clock/random.
 - Produces: `executeWithRetry<T>(operation, options): Promise<T>` and retry progress callbacks.
 
@@ -843,7 +859,8 @@ it.each([
   ['UPSTREAM_UNAVAILABLE', 503],
   ['UPSTREAM_UNAVAILABLE', 504],
 ])('retries %s/%s at most three total attempts', async (code, status) => {
-  const operation = vi.fn()
+  const operation = vi
+    .fn()
     .mockRejectedValueOnce(pubError(code, status))
     .mockRejectedValueOnce(pubError(code, status))
     .mockResolvedValue('ok');
@@ -857,13 +874,17 @@ it('does not retry 500, offline, abort, schema, or size errors', async () => {
 
 it('honors readable Retry-After and aborts during the wait', async () => {
   const controller = new AbortController();
-  const wait = vi.fn((_ms, signal) => new Promise((_, reject) => {
-    signal.addEventListener('abort', () => reject(createAbortError()), { once: true });
-  }));
-  const promise = executeWithRetry(
-    () => Promise.reject(rateLimitError({ retryAfterMs: 4000 })),
-    { ...fakeOptions(), signal: controller.signal, wait }
+  const wait = vi.fn(
+    (_ms, signal) =>
+      new Promise((_, reject) => {
+        signal.addEventListener('abort', () => reject(createAbortError()), { once: true });
+      })
   );
+  const promise = executeWithRetry(() => Promise.reject(rateLimitError({ retryAfterMs: 4000 })), {
+    ...fakeOptions(),
+    signal: controller.signal,
+    wait,
+  });
   controller.abort();
   await expect(promise).rejects.toMatchObject({ code: 'ABORTED' });
   expect(wait).toHaveBeenCalledWith(4000, controller.signal);
@@ -916,12 +937,14 @@ git commit -m "feat(ingestion): add bounded abort-aware retry policy"
 ### Task 8: Implement Complete One-Job Ingestion State Machine
 
 **Files:**
+
 - Create: `features/ingestion/ingestionService.ts`
 - Create: `tests/dom/ingestion/ingestionService.test.ts`
 - Delete: `lib/ingestion/syncOrchestrator.ts`
 - Delete: `tests/dom/ingestion/syncOrchestrator.test.ts`
 
 **Interfaces:**
+
 - Consumes: Tasks 2–7 contracts and injected dependencies.
 - Produces: `runIngestion(input: unknown, options: RunIngestionOptions): Promise<IngestionResult>`.
 
@@ -959,13 +982,11 @@ function terminal(
 - [ ] **Step 1: Add failing planning/cache tests**
 
 ```ts
-function fakeDependencies(
-  overrides: Partial<IngestionDependencies> = {}
-): IngestionDependencies {
+function fakeDependencies(overrides: Partial<IngestionDependencies> = {}): IngestionDependencies {
   return {
-    fetchArchives: vi.fn().mockResolvedValue([
-      'https://api.chess.com/pub/player/janedoe/games/2026/08',
-    ]),
+    fetchArchives: vi
+      .fn()
+      .mockResolvedValue(['https://api.chess.com/pub/player/janedoe/games/2026/08']),
     fetchMonthlyGames: vi.fn().mockResolvedValue([]),
     readArchiveList: vi.fn().mockResolvedValue(null),
     writeArchiveList: vi.fn().mockResolvedValue(undefined),
@@ -980,7 +1001,9 @@ it('uses fresh cached archive metadata and normalized games without a browser fe
   const cachedGame = makeGameRecord();
   const deps = fakeDependencies({
     readArchiveList: vi.fn().mockResolvedValue({
-      username: 'janedoe', months: ['2026-08'], fetchedAt: NOW - 60_000,
+      username: 'janedoe',
+      months: ['2026-08'],
+      fetchedAt: NOW - 60_000,
     }),
     readArchiveSyncs: vi.fn().mockResolvedValue([makeArchiveSync()]),
     readMonthGames: vi.fn().mockResolvedValue([cachedGame]),
@@ -994,7 +1017,9 @@ it('uses fresh cached archive metadata and normalized games without a browser fe
 it('manual refresh bypasses application freshness but retains browser cache mode', async () => {
   const deps = fakeDependencies({
     readArchiveList: vi.fn().mockResolvedValue({
-      username: 'janedoe', months: ['2026-08'], fetchedAt: NOW - 60_000,
+      username: 'janedoe',
+      months: ['2026-08'],
+      fetchedAt: NOW - 60_000,
     }),
     readArchiveSyncs: vi.fn().mockResolvedValue([makeArchiveSync()]),
   });
@@ -1007,17 +1032,21 @@ it('uses stale cached data while offline and reports freshness explicitly', asyn
   const cachedGame = makeGameRecord();
   const deps = fakeDependencies({
     readArchiveList: vi.fn().mockResolvedValue({
-      username: 'janedoe', months: ['2026-08'], fetchedAt: NOW - 60 * 60_000,
+      username: 'janedoe',
+      months: ['2026-08'],
+      fetchedAt: NOW - 60 * 60_000,
     }),
-    readArchiveSyncs: vi.fn().mockResolvedValue([
-      makeArchiveSync({ lastSuccessfulFetchAt: NOW - 60 * 60_000 }),
-    ]),
+    readArchiveSyncs: vi
+      .fn()
+      .mockResolvedValue([makeArchiveSync({ lastSuccessfulFetchAt: NOW - 60 * 60_000 })]),
     readMonthGames: vi.fn().mockResolvedValue([cachedGame]),
     fetchArchives: vi.fn().mockRejectedValue(createOfflineError()),
   });
   const result = await runIngestion(makeQuery(), { deps, now: () => NOW });
   expect(result).toMatchObject({ status: 'complete', offlineCacheOnly: true });
-  expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: 'OFFLINE_STALE_CACHE' }));
+  expect(result.diagnostics).toContainEqual(
+    expect.objectContaining({ code: 'OFFLINE_STALE_CACHE' })
+  );
 });
 ```
 
@@ -1044,7 +1073,11 @@ async function resolveArchiveMonths(
   options: RequiredRuntimeOptions
 ): Promise<{ months: string[]; offlineCacheOnly: boolean }> {
   const cached = await options.deps.readArchiveList(query.username);
-  if (!options.manualRefresh && cached && isFresh(cached.fetchedAt, ARCHIVE_LIST_FRESH_MS, options.now())) {
+  if (
+    !options.manualRefresh &&
+    cached &&
+    isFresh(cached.fetchedAt, ARCHIVE_LIST_FRESH_MS, options.now())
+  ) {
     return { months: planArchiveMonths(cached.months, query), offlineCacheOnly: false };
   }
   try {
@@ -1053,7 +1086,11 @@ async function resolveArchiveMonths(
       options.retry
     );
     const months = archives.map((archive) => parseArchiveMonth(archive, query.username));
-    await options.deps.writeArchiveList({ username: query.username, months, fetchedAt: options.now() });
+    await options.deps.writeArchiveList({
+      username: query.username,
+      months,
+      fetchedAt: options.now(),
+    });
     return { months: planArchiveMonths(months, query), offlineCacheOnly: false };
   } catch (error) {
     if (isOfflineError(error) && cached) {
@@ -1112,7 +1149,10 @@ it.each([
   {
     name: 'rated',
     query: makeQuery({ rated: true }),
-    games: [makeRawGame({ uuid: 'rated', rated: true }), makeRawGame({ uuid: 'casual', rated: false })],
+    games: [
+      makeRawGame({ uuid: 'rated', rated: true }),
+      makeRawGame({ uuid: 'casual', rated: false }),
+    ],
     expected: ['rated'],
   },
 ])('applies the $name filter', async ({ query, games, expected }) => {
@@ -1138,14 +1178,17 @@ it('matches the player case-insensitively and verifies exactly one colour', asyn
 });
 
 it('deduplicates a stable game ID across fetched months', async () => {
-  const fetchMonthlyGames = vi.fn()
+  const fetchMonthlyGames = vi
+    .fn()
     .mockResolvedValueOnce([makeRawGame({ uuid: 'duplicate' })])
     .mockResolvedValueOnce([makeRawGame({ uuid: 'duplicate' })]);
   const deps = fakeDependencies({
-    fetchArchives: vi.fn().mockResolvedValue([
-      'https://api.chess.com/pub/player/janedoe/games/2026/08',
-      'https://api.chess.com/pub/player/janedoe/games/2026/07',
-    ]),
+    fetchArchives: vi
+      .fn()
+      .mockResolvedValue([
+        'https://api.chess.com/pub/player/janedoe/games/2026/08',
+        'https://api.chess.com/pub/player/janedoe/games/2026/07',
+      ]),
     fetchMonthlyGames,
   });
   const result = await runIngestion(makeQuery(), { deps, now: () => NOW });
@@ -1154,15 +1197,16 @@ it('deduplicates a stable game ID across fetched months', async () => {
 });
 
 it('stops fetching as soon as maxGames is reached newest first', async () => {
-  const fetchMonthlyGames = vi.fn().mockResolvedValue([
-    makeRawGame({ uuid: 'newest' }),
-    makeRawGame({ uuid: 'second-newest' }),
-  ]);
+  const fetchMonthlyGames = vi
+    .fn()
+    .mockResolvedValue([makeRawGame({ uuid: 'newest' }), makeRawGame({ uuid: 'second-newest' })]);
   const deps = fakeDependencies({
-    fetchArchives: vi.fn().mockResolvedValue([
-      'https://api.chess.com/pub/player/janedoe/games/2026/08',
-      'https://api.chess.com/pub/player/janedoe/games/2026/07',
-    ]),
+    fetchArchives: vi
+      .fn()
+      .mockResolvedValue([
+        'https://api.chess.com/pub/player/janedoe/games/2026/08',
+        'https://api.chess.com/pub/player/janedoe/games/2026/07',
+      ]),
     fetchMonthlyGames,
   });
   const result = await runIngestion(makeQuery({ maxGames: 2 }), { deps, now: () => NOW });
@@ -1216,20 +1260,26 @@ for (const raw of rawGames) {
 
 ```ts
 it('returns partial with accepted data and retryable failed months', async () => {
-  const fetchMonthlyGames = vi.fn()
+  const fetchMonthlyGames = vi
+    .fn()
     .mockResolvedValueOnce([makeRawGame({ uuid: 'accepted' })])
-    .mockRejectedValue(createPubApiError(
-      'UPSTREAM_UNAVAILABLE', 'Upstream temporarily unavailable', true, 503
-    ));
+    .mockRejectedValue(
+      createPubApiError('UPSTREAM_UNAVAILABLE', 'Upstream temporarily unavailable', true, 503)
+    );
   const deps = fakeDependencies({
-    fetchArchives: vi.fn().mockResolvedValue([
-      'https://api.chess.com/pub/player/janedoe/games/2026/08',
-      'https://api.chess.com/pub/player/janedoe/games/2026/07',
-    ]),
+    fetchArchives: vi
+      .fn()
+      .mockResolvedValue([
+        'https://api.chess.com/pub/player/janedoe/games/2026/08',
+        'https://api.chess.com/pub/player/janedoe/games/2026/07',
+      ]),
     fetchMonthlyGames,
   });
   const result = await runIngestion(makeQuery(), {
-    deps, now: () => NOW, random: () => 0, wait: async () => undefined,
+    deps,
+    now: () => NOW,
+    random: () => 0,
+    wait: async () => undefined,
   });
   expect(result).toMatchObject({
     status: 'partial',
@@ -1240,15 +1290,18 @@ it('returns partial with accepted data and retryable failed months', async () =>
 
 it('distinguishes empty complete from total failure', async () => {
   await expect(runWithFetchedGames(makeQuery(), [])).resolves.toMatchObject({
-    status: 'complete', games: [], failedMonths: [],
+    status: 'complete',
+    games: [],
+    failedMonths: [],
   });
   const deps = fakeDependencies({
-    fetchArchives: vi.fn().mockRejectedValue(
-      createPubApiError('PLAYER_NOT_FOUND', 'Player not found', false, 404)
-    ),
+    fetchArchives: vi
+      .fn()
+      .mockRejectedValue(createPubApiError('PLAYER_NOT_FOUND', 'Player not found', false, 404)),
   });
   await expect(runIngestion(makeQuery(), { deps, now: () => NOW })).resolves.toMatchObject({
-    status: 'failed', games: [],
+    status: 'failed',
+    games: [],
   });
 });
 
@@ -1352,6 +1405,7 @@ git commit -m "feat(ingestion): implement resilient Phase 1 ingestion service"
 ### Task 9: Add Active-Job Supersession and Remove the Legacy Queue
 
 **Files:**
+
 - Modify: `features/ingestion/ingestionService.ts`
 - Modify: `features/ingestion/types.ts`
 - Modify: `tests/dom/ingestion/ingestionService.test.ts`
@@ -1359,6 +1413,7 @@ git commit -m "feat(ingestion): implement resilient Phase 1 ingestion service"
 - Delete: `tests/dom/ingestion/jobQueue.test.ts`
 
 **Interfaces:**
+
 - Consumes: `runIngestion` from Task 8.
 - Produces: `IngestionManager.start(input, options): Promise<IngestionResult>` and `IngestionManager.cancel(): void`.
 
@@ -1381,7 +1436,8 @@ function deferred<T>(): {
 
 it('cancels the previous query and ignores its late progress/result', async () => {
   const oldArchives = deferred<string[]>();
-  const fetchArchives = vi.fn()
+  const fetchArchives = vi
+    .fn()
     .mockImplementationOnce(() => oldArchives.promise)
     .mockResolvedValueOnce([]);
   const deps = fakeDependencies({ fetchArchives });
@@ -1473,6 +1529,7 @@ git commit -m "feat(ingestion): supersede stale browser ingestion jobs"
 ### Task 10: Add Deterministic Production Browser Evidence
 
 **Files:**
+
 - Modify: `tests/e2e/csp.spec.ts`
 - Modify: `tests/e2e/server-headers.spec.ts`
 - Modify: `tests/e2e/smoke.spec.ts`
@@ -1484,6 +1541,7 @@ git commit -m "feat(ingestion): supersede stale browser ingestion jobs"
 - Modify: `vitest.config.ts`
 
 **Interfaces:**
+
 - Consumes: production Next.js shell, IndexedDB repositories, `IngestionManager`.
 - Produces: deterministic browser proof for headers/CSP/isolation, reload persistence/deletion, and all ingestion terminal states.
 
@@ -1530,16 +1588,15 @@ Expected: FAIL because the test harness and deterministic journeys do not exist;
 ```tsx
 'use client';
 
-type FixtureMode =
-  | 'complete'
-  | 'partial'
-  | 'cancelled'
-  | 'empty'
-  | 'offline-cache-only'
-  | 'failed';
+type FixtureMode = 'complete' | 'partial' | 'cancelled' | 'empty' | 'offline-cache-only' | 'failed';
 
 const FIXTURE_MODES = new Set<FixtureMode>([
-  'complete', 'partial', 'cancelled', 'empty', 'offline-cache-only', 'failed',
+  'complete',
+  'partial',
+  'cancelled',
+  'empty',
+  'offline-cache-only',
+  'failed',
 ]);
 
 export function Phase1TestHarness() {
@@ -1614,11 +1671,13 @@ git commit -m "test(e2e): prove Phase 1 browser persistence and terminal states"
 ### Task 11: Raise Coverage and Complete Requirement-by-Requirement Verification
 
 **Files:**
+
 - Modify: tests identified by uncovered domain branches.
 - Create: `docs/verification/phase-1-local-verification.md`
 - Modify: `.superpowers/sdd/phase-1-direct-ingestion-persistence/progress.md`
 
 **Interfaces:**
+
 - Consumes: all prior tasks and the authoritative Phase 1 plan.
 - Produces: passing fresh gates and an evidence matrix for every Phase 1 requirement/exit criterion.
 
@@ -1662,10 +1721,10 @@ Expected: no server PubAPI proxy, disallowed header, general unsafe eval, raw mo
 Create `docs/verification/phase-1-local-verification.md` with a row for every Task 1.1–1.5 requirement and Phase 1 exit-gate item:
 
 ```markdown
-| Requirement | Evidence | Status |
-| --- | --- | --- |
-| Direct approved PubAPI URLs, omitted credentials, timeout, streamed size cap | `tests/api/chesscomClient.test.ts`; fresh Vitest output | Proven locally |
-| Preview deployed revision and controlled live CORS | Requires exact preview URL/revision | External verification pending |
+| Requirement                                                                  | Evidence                                                | Status                        |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------- | ----------------------------- |
+| Direct approved PubAPI URLs, omitted credentials, timeout, streamed size cap | `tests/api/chesscomClient.test.ts`; fresh Vitest output | Proven locally                |
+| Preview deployed revision and controlled live CORS                           | Requires exact preview URL/revision                     | External verification pending |
 ```
 
 Only deployed-preview/MCP and controlled-live checks may remain external; do not label them locally proven.

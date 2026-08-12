@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openDatabase, closeDatabase, QuotaExceededError } from '../../../lib/db/openDatabase';
-import { DB_NAME, STORES, ArchiveSyncRecord, GameRecord, EvaluationRecord, GraphSnapshotRecord } from '../../../lib/db/schema';
+import {
+  DB_NAME,
+  STORES,
+  ArchiveSyncRecord,
+  GameRecord,
+  EvaluationRecord,
+  GraphSnapshotRecord,
+} from '../../../lib/db/schema';
 import {
   getArchiveSync,
   getArchiveSyncsForUser,
@@ -45,7 +52,6 @@ function makeGameRecord(overrides: Partial<GameRecord> = {}): GameRecord {
     ...overrides,
   };
 }
-
 
 describe('Repositories & Atomic Transactions', () => {
   let db: IDBDatabase;
@@ -333,7 +339,6 @@ describe('Repositories & Atomic Transactions', () => {
   });
 
   describe('Invalid Record Handling', () => {
-
     it('surfaces corrupt persisted records rather than silently dropping them', async () => {
       const tx = db.transaction(STORES.GAMES, 'readwrite');
       tx.objectStore(STORES.GAMES).put({

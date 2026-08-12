@@ -7,6 +7,9 @@ import {
   createOfflineError,
   createCorsError,
   createResponseTooLargeError,
+  createInvalidResponseError,
+  sanitizeMessage,
+  throwIfAborted,
 } from '../../lib/api/errors';
 import { PubApiCoordinator } from '../../lib/api/pubApiCoordinator';
 import { fetchPlayerArchives, fetchMonthlyGames } from '../../lib/api/chesscomClient';
@@ -16,7 +19,7 @@ function mockResponse(body: any, init?: any) {
   Object.defineProperty(res, 'url', {
     value: 'https://api.chess.com/pub/player/hikaru/games/archives',
     configurable: true,
-    writable: true
+    writable: true,
   });
   return res;
 }
@@ -26,7 +29,7 @@ function mockResponseMonthly(body: any, init?: any) {
   Object.defineProperty(res, 'url', {
     value: 'https://api.chess.com/pub/player/hikaru/games/2023/05',
     configurable: true,
-    writable: true
+    writable: true,
   });
   return res;
 }
@@ -70,27 +73,50 @@ describe('chesscomUrl', () => {
       expect(() => buildMonthlyUrl('hikaru', '2023', '00')).toThrow();
       expect(() => buildMonthlyUrl('hikaru', '2023', '13')).toThrow();
       expect(() => buildMonthlyUrl('hikaru', 'invalid', '05')).toThrow();
+      expect(() => buildMonthlyUrl('hikaru', 1899, 5)).toThrow();
+      expect(() => buildMonthlyUrl('hikaru', 2101, 5)).toThrow();
+      expect(() => buildMonthlyUrl('hikaru', 2023, 'May')).toThrow();
+      expect(() => buildMonthlyUrl('hikaru', 2023, 1.5)).toThrow();
+      expect(buildMonthlyUrl('hikaru', 2023, 12).pathname.endsWith('/2023/12')).toBe(true);
     });
   });
 
   describe('isValidRedirectUrl', () => {
     it('returns true for exact matching origin and path family', () => {
       expect(
-        isValidRedirectUrl('https://api.chess.com/pub/player/hikaru/games/archives', 'archives', 'hikaru')
+        isValidRedirectUrl(
+          'https://api.chess.com/pub/player/hikaru/games/archives',
+          'archives',
+          'hikaru'
+        )
       ).toBe(true);
 
       expect(
-        isValidRedirectUrl('https://api.chess.com/pub/player/hikaru/games/2023/05', 'monthly', 'hikaru', '2023', '05')
+        isValidRedirectUrl(
+          'https://api.chess.com/pub/player/hikaru/games/2023/05',
+          'monthly',
+          'hikaru',
+          '2023',
+          '05'
+        )
       ).toBe(true);
     });
 
     it('rejects origin mismatches (HTTP or third party origin)', () => {
       expect(
-        isValidRedirectUrl('http://api.chess.com/pub/player/hikaru/games/archives', 'archives', 'hikaru')
+        isValidRedirectUrl(
+          'http://api.chess.com/pub/player/hikaru/games/archives',
+          'archives',
+          'hikaru'
+        )
       ).toBe(false);
 
       expect(
-        isValidRedirectUrl('https://evil.com/pub/player/hikaru/games/archives', 'archives', 'hikaru')
+        isValidRedirectUrl(
+          'https://evil.com/pub/player/hikaru/games/archives',
+          'archives',
+          'hikaru'
+        )
       ).toBe(false);
     });
 
@@ -100,11 +126,36 @@ describe('chesscomUrl', () => {
       ).toBe(false);
 
       expect(
-        isValidRedirectUrl('https://api.chess.com/pub/player/otheruser/games/archives', 'archives', 'hikaru')
+        isValidRedirectUrl(
+          'https://api.chess.com/pub/player/otheruser/games/archives',
+          'archives',
+          'hikaru'
+        )
       ).toBe(false);
 
       expect(
-        isValidRedirectUrl('https://api.chess.com/pub/player/hikaru/games/2023/06', 'monthly', 'hikaru', '2023', '05')
+        isValidRedirectUrl(
+          'https://api.chess.com/pub/player/hikaru/games/2023/06',
+          'monthly',
+          'hikaru',
+          '2023',
+          '05'
+        )
+      ).toBe(false);
+      expect(
+        isValidRedirectUrl(
+          'https://api.chess.com/pub/player/hikaru/games/2023/05',
+          'monthly',
+          'hikaru'
+        )
+      ).toBe(false);
+      expect(isValidRedirectUrl('not a URL', 'archives', 'hikaru')).toBe(false);
+      expect(
+        isValidRedirectUrl(
+          'https://api.chess.com/pub/player/hikaru/games/archives',
+          'archives',
+          '../bad'
+        )
       ).toBe(false);
     });
   });
@@ -112,7 +163,12 @@ describe('chesscomUrl', () => {
 
 describe('PubApiError', () => {
   it('creates typed errors with sanitized messages', () => {
-    const err = createPubApiError('PLAYER_NOT_FOUND', 'Player hikaru not found at https://api.chess.com/pub/player/hikaru/games/archives', false, 404);
+    const err = createPubApiError(
+      'PLAYER_NOT_FOUND',
+      'Player hikaru not found at https://api.chess.com/pub/player/hikaru/games/archives',
+      false,
+      404
+    );
     expect(err.code).toBe('PLAYER_NOT_FOUND');
     expect(err.status).toBe(404);
     expect(err.retryable).toBe(false);
@@ -135,6 +191,24 @@ describe('PubApiError', () => {
 
     expect(createResponseTooLargeError().code).toBe('RESPONSE_TOO_LARGE');
     expect(createResponseTooLargeError().retryable).toBe(false);
+    expect(createResponseTooLargeError('specific size failure').message).toBe(
+      'specific size failure'
+    );
+    expect(createInvalidResponseError().message).toBe('Upstream response was invalid or malformed');
+    expect(createInvalidResponseError('specific invalid response').message).toBe(
+      'specific invalid response'
+    );
+  });
+
+  it('sanitizes empty messages and throws only for aborted signals', () => {
+    expect(sanitizeMessage('')).toBe('An error occurred during PubAPI request');
+    expect(() => throwIfAborted(new AbortController().signal)).not.toThrow();
+
+    const controller = new AbortController();
+    controller.abort();
+    expect(() => throwIfAborted(controller.signal)).toThrowError(
+      expect.objectContaining({ code: 'ABORTED' })
+    );
   });
 });
 
@@ -169,15 +243,17 @@ describe('pubApiCoordinator', () => {
     let lockReleased = false;
 
     const mockLocks = {
-      request: vi.fn().mockImplementation(async (name: string, callback: () => Promise<unknown>) => {
-        expect(name).toBe('chesscom-pubapi-lock');
-        lockAcquired = true;
-        try {
-          return await callback();
-        } finally {
-          lockReleased = true;
-        }
-      }),
+      request: vi
+        .fn()
+        .mockImplementation(async (name: string, callback: () => Promise<unknown>) => {
+          expect(name).toBe('chesscom-pubapi-lock');
+          lockAcquired = true;
+          try {
+            return await callback();
+          } finally {
+            lockReleased = true;
+          }
+        }),
     };
 
     const originalNavigatorLocks = navigator.locks;
@@ -269,7 +345,9 @@ describe('chesscomClient', () => {
 
     it('maps 404 to PLAYER_NOT_FOUND', async () => {
       const res = mockResponse(JSON.stringify({ message: 'User not found' }), { status: 404 });
-      Object.defineProperty(res, 'url', { value: 'https://api.chess.com/pub/player/nonexistentuser/games/archives' });
+      Object.defineProperty(res, 'url', {
+        value: 'https://api.chess.com/pub/player/nonexistentuser/games/archives',
+      });
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
 
       await expect(fetchPlayerArchives('nonexistentuser')).rejects.toThrowError(
@@ -279,7 +357,9 @@ describe('chesscomClient', () => {
 
     it('maps 410 to PLAYER_NOT_FOUND', async () => {
       const res = mockResponse(JSON.stringify({ message: 'Account closed' }), { status: 410 });
-      Object.defineProperty(res, 'url', { value: 'https://api.chess.com/pub/player/closeduser/games/archives' });
+      Object.defineProperty(res, 'url', {
+        value: 'https://api.chess.com/pub/player/closeduser/games/archives',
+      });
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
 
       await expect(fetchPlayerArchives('closeduser')).rejects.toThrowError(
@@ -310,10 +390,16 @@ describe('chesscomClient', () => {
     it('distinguishes wrong content type, malformed JSON, and invalid schema', async () => {
       vi.spyOn(globalThis, 'fetch')
         .mockResolvedValueOnce(mockResponse('{}', { headers: { 'content-type': 'text/html' } }))
-        .mockResolvedValueOnce(mockResponse('{', { headers: { 'content-type': 'application/json' } }))
-        .mockResolvedValueOnce(mockResponse('{}', { headers: { 'content-type': 'application/json' } }));
+        .mockResolvedValueOnce(
+          mockResponse('{', { headers: { 'content-type': 'application/json' } })
+        )
+        .mockResolvedValueOnce(
+          mockResponse('{}', { headers: { 'content-type': 'application/json' } })
+        );
 
-      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'WRONG_CONTENT_TYPE' });
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({
+        code: 'WRONG_CONTENT_TYPE',
+      });
       await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'MALFORMED_JSON' });
       await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'INVALID_SCHEMA' });
     });
@@ -359,8 +445,10 @@ describe('chesscomClient', () => {
       vi.spyOn(response, 'text').mockResolvedValue('a'.repeat(33 * 1024 * 1024));
       Object.defineProperty(response, 'body', { value: null });
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
-      
-      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE' });
+
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({
+        code: 'RESPONSE_TOO_LARGE',
+      });
     });
 
     it('empty/malformed Content-Length is ignored', async () => {
@@ -371,7 +459,7 @@ describe('chesscomClient', () => {
         value: 'https://api.chess.com/pub/player/hikaru/games/archives',
       });
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
-      
+
       await expect(fetchPlayerArchives('hikaru')).resolves.toEqual([]);
     });
 
@@ -381,8 +469,10 @@ describe('chesscomClient', () => {
       });
       Object.defineProperty(response, 'url', { value: '' });
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
-      
-      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'INVALID_UPSTREAM_RESPONSE' });
+
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({
+        code: 'INVALID_UPSTREAM_RESPONSE',
+      });
     });
 
     it('final URL query/hash rejection', async () => {
@@ -398,48 +488,84 @@ describe('chesscomClient', () => {
       Object.defineProperty(response2, 'url', {
         value: 'https://api.chess.com/pub/player/hikaru/games/archives#hash',
       });
-      
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(response1).mockResolvedValueOnce(response2);
-      
-      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'REDIRECT_DISALLOWED' });
-      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'REDIRECT_DISALLOWED' });
+
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(response1)
+        .mockResolvedValueOnce(response2);
+
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({
+        code: 'REDIRECT_DISALLOWED',
+      });
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({
+        code: 'REDIRECT_DISALLOWED',
+      });
     });
 
     it('application/json and application/*+json acceptance', async () => {
-      const res1 = mockResponse('{"archives": []}', { headers: { 'content-type': 'application/ld+json' } });
-      Object.defineProperty(res1, 'url', { value: 'https://api.chess.com/pub/player/hikaru/games/archives' });
-      
-      const res2 = mockResponse('{"archives": []}', { headers: { 'content-type': 'application/vnd.api+json' } });
-      Object.defineProperty(res2, 'url', { value: 'https://api.chess.com/pub/player/hikaru/games/archives' });
-      
+      const res1 = mockResponse('{"archives": []}', {
+        headers: { 'content-type': 'application/ld+json' },
+      });
+      Object.defineProperty(res1, 'url', {
+        value: 'https://api.chess.com/pub/player/hikaru/games/archives',
+      });
+
+      const res2 = mockResponse('{"archives": []}', {
+        headers: { 'content-type': 'application/vnd.api+json' },
+      });
+      Object.defineProperty(res2, 'url', {
+        value: 'https://api.chess.com/pub/player/hikaru/games/archives',
+      });
+
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(res1).mockResolvedValueOnce(res2);
-        
+
       await expect(fetchPlayerArchives('hikaru')).resolves.toEqual([]);
       await expect(fetchPlayerArchives('hikaru')).resolves.toEqual([]);
     });
 
     it('502/503/504-only retryability', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(mockResponse('error', { status: 500 }));
-      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE', retryable: false });
-      
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({
+        code: 'UPSTREAM_UNAVAILABLE',
+        retryable: false,
+      });
+
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(mockResponse('error', { status: 502 }));
-      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE', retryable: true });
-      
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({
+        code: 'UPSTREAM_UNAVAILABLE',
+        retryable: true,
+      });
+
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(mockResponse('error', { status: 503 }));
-      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE', retryable: true });
-      
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({
+        code: 'UPSTREAM_UNAVAILABLE',
+        retryable: true,
+      });
+
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(mockResponse('error', { status: 504 }));
-      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE', retryable: true });
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({
+        code: 'UPSTREAM_UNAVAILABLE',
+        retryable: true,
+      });
     });
 
     it('Retry-After seconds/date parsing', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(mockResponse('error', { status: 429, headers: { 'retry-after': '120' } }));
-      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'UPSTREAM_RATE_LIMITED', retryAfterMs: 120000 });
-      
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        mockResponse('error', { status: 429, headers: { 'retry-after': '120' } })
+      );
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({
+        code: 'UPSTREAM_RATE_LIMITED',
+        retryAfterMs: 120000,
+      });
+
       const date = new Date(Date.now() + 60000).toUTCString();
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(mockResponse('error', { status: 429, headers: { 'retry-after': date } }));
-      
-      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'UPSTREAM_RATE_LIMITED', retryAfterMs: expect.any(Number) });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        mockResponse('error', { status: 429, headers: { 'retry-after': date } })
+      );
+
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({
+        code: 'UPSTREAM_RATE_LIMITED',
+        retryAfterMs: expect.any(Number),
+      });
     });
   });
 
@@ -471,7 +597,10 @@ describe('chesscomClient', () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
         mockResponseMonthly(JSON.stringify({ games: [] }), {
           status: 200,
-          headers: { 'Content-Length': (33 * 1024 * 1024).toString(), 'content-type': 'application/json' },
+          headers: {
+            'Content-Length': (33 * 1024 * 1024).toString(),
+            'content-type': 'application/json',
+          },
         })
       );
 
@@ -491,7 +620,10 @@ describe('chesscomClient', () => {
       });
 
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        mockResponseMonthly(JSON.stringify({ games: hugeGamesList }), { status: 200, headers: { 'content-type': 'application/json' } })
+        mockResponseMonthly(JSON.stringify({ games: hugeGamesList }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
       );
 
       await expect(fetchMonthlyGames('hikaru', '2023', '05')).rejects.toThrowError(
@@ -598,7 +730,9 @@ describe('chesscomClient', () => {
     it('asserts error messages never expose full usernames, username-bearing URLs, response bodies, or PGNs', async () => {
       const rawUser = 'SuperSecretUser';
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        mockResponseMonthly('Invalid json body with PGN 1. e4 e5 [Event "Secret Game"]', { status: 200 })
+        mockResponseMonthly('Invalid json body with PGN 1. e4 e5 [Event "Secret Game"]', {
+          status: 200,
+        })
       );
 
       try {

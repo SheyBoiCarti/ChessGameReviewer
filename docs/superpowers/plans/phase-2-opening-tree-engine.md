@@ -29,7 +29,8 @@ At completion:
 
 ```typescript
 type ParseResult =
-  { ok: true; game: ParsedGame } | { ok: false; gameId: string; errors: ParseDiagnostic[] };
+  | { ok: true; game: ParsedGame }
+  | { ok: false; gameId: string; errors: ParseDiagnostic[] };
 ```
 
 No catch block may return partial plies as a successful parse. Recoverable PGN warnings are attached to an otherwise valid game; illegal move sequences are failures.

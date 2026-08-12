@@ -113,9 +113,7 @@ export interface CompatibilityResult {
   reason?: string;
 }
 
-export async function checkSchemaCompatibility(
-  db: IDBDatabase
-): Promise<CompatibilityResult> {
+export async function checkSchemaCompatibility(db: IDBDatabase): Promise<CompatibilityResult> {
   const schemaMeta = await getMeta(db, 'schemaVersion');
   const normalizerMeta = await getMeta(db, 'normalizerVersion');
 

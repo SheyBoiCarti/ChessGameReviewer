@@ -30,7 +30,6 @@ export class CorruptRecordError extends Error {
   }
 }
 
-
 // Helper to run a promise on IDBRequest
 function reqToPromise<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -76,10 +75,7 @@ export async function getArchiveSyncsForUser(
   return results;
 }
 
-export async function putArchiveSync(
-  db: IDBDatabase,
-  record: ArchiveSyncRecord
-): Promise<void> {
+export async function putArchiveSync(db: IDBDatabase, record: ArchiveSyncRecord): Promise<void> {
   if (!isValidArchiveSyncRecord(record)) {
     throw new Error('Invalid ArchiveSyncRecord provided to putArchiveSync.');
   }
@@ -95,10 +91,7 @@ export async function putArchiveSync(
 }
 
 // Games Repository
-export async function getGame(
-  db: IDBDatabase,
-  id: string
-): Promise<GameRecord | null> {
+export async function getGame(db: IDBDatabase, id: string): Promise<GameRecord | null> {
   const tx = db.transaction([STORES.GAMES], 'readonly');
   const store = tx.objectStore(STORES.GAMES);
   const result = await reqToPromise(store.get(id));
@@ -110,10 +103,7 @@ export async function getGame(
   return result;
 }
 
-export async function getGamesForUser(
-  db: IDBDatabase,
-  username: string
-): Promise<GameRecord[]> {
+export async function getGamesForUser(db: IDBDatabase, username: string): Promise<GameRecord[]> {
   const normUsername = username.toLowerCase();
   const tx = db.transaction([STORES.GAMES], 'readonly');
   const store = tx.objectStore(STORES.GAMES);
@@ -160,13 +150,12 @@ export async function getGamesForMonth(
   return validRecords;
 }
 
-export async function upsertGames(
-  db: IDBDatabase,
-  games: GameRecord[]
-): Promise<void> {
+export async function upsertGames(db: IDBDatabase, games: GameRecord[]): Promise<void> {
   for (const game of games) {
     if (!isValidGameRecord(game)) {
-      throw new Error(`Invalid GameRecord provided to upsertGames (id: ${(game as GameRecord)?.id})`);
+      throw new Error(
+        `Invalid GameRecord provided to upsertGames (id: ${(game as GameRecord)?.id})`
+      );
     }
   }
 
@@ -254,10 +243,7 @@ export async function getEvaluation(
   return result;
 }
 
-export async function putEvaluation(
-  db: IDBDatabase,
-  record: EvaluationRecord
-): Promise<void> {
+export async function putEvaluation(db: IDBDatabase, record: EvaluationRecord): Promise<void> {
   if (!isValidEvaluationRecord(record)) {
     throw new Error('Invalid EvaluationRecord provided to putEvaluation');
   }
@@ -309,10 +295,7 @@ export async function putGraphSnapshot(
 }
 
 // Meta Repository
-export async function getMeta(
-  db: IDBDatabase,
-  name: string
-): Promise<MetaRecord | null> {
+export async function getMeta(db: IDBDatabase, name: string): Promise<MetaRecord | null> {
   const tx = db.transaction([STORES.META], 'readonly');
   const store = tx.objectStore(STORES.META);
   const result = await reqToPromise(store.get(name));
@@ -324,11 +307,7 @@ export async function getMeta(
   return result;
 }
 
-export async function setMeta(
-  db: IDBDatabase,
-  name: string,
-  value: unknown
-): Promise<void> {
+export async function setMeta(db: IDBDatabase, name: string, value: unknown): Promise<void> {
   const record: MetaRecord = {
     name,
     value,
@@ -357,16 +336,17 @@ export async function getArchiveListMeta(
   const meta = await getMeta(db, `archiveList:${username.toLowerCase()}`);
   if (!meta || !meta.value) return null;
   const val = meta.value as any;
-  if (typeof val.username !== 'string' || !Array.isArray(val.months) || typeof val.fetchedAt !== 'number') {
+  if (
+    typeof val.username !== 'string' ||
+    !Array.isArray(val.months) ||
+    typeof val.fetchedAt !== 'number'
+  ) {
     throw new CorruptRecordError(STORES.META);
   }
   return val as ArchiveListMeta;
 }
 
-export async function putArchiveListMeta(
-  db: IDBDatabase,
-  record: ArchiveListMeta
-): Promise<void> {
+export async function putArchiveListMeta(db: IDBDatabase, record: ArchiveListMeta): Promise<void> {
   const safeRecord: ArchiveListMeta = {
     username: record.username,
     months: record.months,
@@ -374,4 +354,3 @@ export async function putArchiveListMeta(
   };
   await setMeta(db, `archiveList:${record.username.toLowerCase()}`, safeRecord);
 }
-
