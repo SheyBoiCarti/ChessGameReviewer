@@ -10,10 +10,15 @@ export interface RetryOptions {
 }
 
 function isRetryable(error: unknown): boolean {
-  if (error && typeof error === 'object' && 'retryable' in error) {
-    return (error as any).retryable === true;
-  }
-  return false;
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { code?: unknown; retryable?: unknown; status?: unknown };
+  if (candidate.retryable !== true) return false;
+  if (candidate.code === 'CORS_ERROR' || candidate.code === 'TIMEOUT') return true;
+  if (candidate.code === 'UPSTREAM_RATE_LIMITED') return candidate.status === 429;
+  return (
+    candidate.code === 'UPSTREAM_UNAVAILABLE' &&
+    (candidate.status === 502 || candidate.status === 503 || candidate.status === 504)
+  );
 }
 
 export async function executeWithRetry<T>(
@@ -26,11 +31,12 @@ export async function executeWithRetry<T>(
       return await operation(attempt);
     } catch (error) {
       if (!isRetryable(error) || attempt === 3) throw error;
-      const exponentialCap = options.baseDelayMs * (2 ** (attempt - 1));
+      const exponentialCap = options.baseDelayMs * 2 ** (attempt - 1);
       const jitter = Math.floor(options.random() * exponentialCap);
-      const retryAfterMs = typeof error === 'object' && error !== null && 'retryAfterMs' in error 
-        ? (error as any).retryAfterMs as number | undefined 
-        : undefined;
+      const retryAfterMs =
+        typeof error === 'object' && error !== null && 'retryAfterMs' in error
+          ? ((error as any).retryAfterMs as number | undefined)
+          : undefined;
       const delayMs = retryAfterMs ?? jitter;
       options.onRetry?.({ attempt: attempt + 1, delayMs });
       await options.wait(delayMs, options.signal);
