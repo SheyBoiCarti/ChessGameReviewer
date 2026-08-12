@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { openDatabase, closeDatabase } from '../../../lib/db/openDatabase';
+import { openDatabase, closeDatabase, SchemaVersionError } from '../../../lib/db/openDatabase';
 import { DB_NAME, STORES } from '../../../lib/db/schema';
 
 describe('Schema Migration & Upgrade', () => {
@@ -45,5 +45,28 @@ describe('Schema Migration & Upgrade', () => {
     );
 
     closeDatabase(db);
+  });
+
+  it('aborts a failed upgrade and surfaces a recoverable schema error', async () => {
+    const name = 'Phase1IncompatibleUpgrade';
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open(name, 1);
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore(STORES.GAMES, { keyPath: 'wrongKey' });
+      };
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        request.result.close();
+        resolve();
+      };
+    });
+
+    await expect(openDatabase({ name, version: 2 })).rejects.toBeInstanceOf(SchemaVersionError);
+
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(name);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
   });
 });
