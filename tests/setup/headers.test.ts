@@ -48,6 +48,12 @@ describe('Security Headers Configuration', () => {
     expect(val).toContain("frame-ancestors 'none'");
   });
 
+  it('does not permit general unsafe eval', () => {
+    const csp = securityHeaders.find((header) => header.key === 'Content-Security-Policy');
+    expect(csp?.value).toContain("'wasm-unsafe-eval'");
+    expect(csp?.value).not.toMatch(/(?:^|\s)'unsafe-eval'(?:\s|;|$)/);
+  });
+
   it('configures headers async method for Next.js routes matching /:path*', async () => {
     expect(typeof nextConfig.headers).toBe('function');
     if (nextConfig.headers) {
