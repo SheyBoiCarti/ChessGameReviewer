@@ -27,6 +27,7 @@ describe('MoveOrderDialog', () => {
     );
 
     expect(screen.getByRole('dialog', { name: /move orders/i })).toHaveFocus();
+    expect(returnFocusRef.current).toHaveAttribute('inert');
     expect(screen.getByText('e4 e5 Nf3')).toBeInTheDocument();
     expect(screen.getByText('d4 d5 Nf3')).toBeInTheDocument();
     expect(screen.getByText(/3 games/)).toBeInTheDocument();

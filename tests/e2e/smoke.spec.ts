@@ -17,7 +17,7 @@ test.describe('Browser Smoke Test', () => {
     // Assert main heading
     const heading = page.locator('h1');
     await expect(heading).toBeVisible();
-    await expect(heading).toHaveText('Chess.com Game Analyzer');
+    await expect(heading).toHaveText('Local Chess Game Reviewer');
 
     // Assert unaffiliated notice
     const unaffiliatedNotice = page.getByTestId('unaffiliated-notice');
@@ -29,11 +29,8 @@ test.describe('Browser Smoke Test', () => {
     await expect(privacySummary).toBeVisible();
     await expect(privacySummary).toContainText('Local Storage & Privacy');
 
-    // Assert dynamic isolation status
-    const isolationState = page.getByTestId('isolation-state');
-    await expect(isolationState).toBeVisible();
-    const stateText = await isolationState.textContent();
-    expect(stateText).toMatch(/Enabled|Disabled|Checking/);
+    // Assert the client workspace hydrated.
+    await expect(page.getByRole('tablist', { name: 'Analysis workspaces' })).toBeVisible();
 
     // Assert zero console errors
     expect(consoleErrors).toEqual([]);

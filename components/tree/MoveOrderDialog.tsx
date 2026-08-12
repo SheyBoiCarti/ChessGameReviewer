@@ -36,6 +36,14 @@ export function MoveOrderDialog({
 
   useEffect(() => {
     dialogRef.current?.focus();
+    const backdrop = dialogRef.current?.closest('.modal-backdrop');
+    const siblings = backdrop?.parentElement
+      ? [...backdrop.parentElement.children].filter((element) => element !== backdrop)
+      : [];
+    for (const sibling of siblings) sibling.setAttribute('inert', '');
+    return () => {
+      for (const sibling of siblings) sibling.removeAttribute('inert');
+    };
   }, []);
 
   const close = () => {
