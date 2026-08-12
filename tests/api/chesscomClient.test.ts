@@ -1,23 +1,3 @@
-
-function mockResponse(body, init) {
-  const res = new Response(body, init);
-  Object.defineProperty(res, 'url', {
-    value: 'https://api.chess.com/pub/player/hikaru/games/archives',
-    configurable: true,
-    writable: true
-  });
-  return res;
-}
-
-function mockResponseMonthly(body, init) {
-  const res = new Response(body, init);
-  Object.defineProperty(res, 'url', {
-    value: 'https://api.chess.com/pub/player/hikaru/games/2023/05',
-    configurable: true,
-    writable: true
-  });
-  return res;
-}
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildArchivesUrl, buildMonthlyUrl, isValidRedirectUrl } from '../../lib/api/chesscomUrl';
 import {
@@ -30,6 +10,26 @@ import {
 } from '../../lib/api/errors';
 import { PubApiCoordinator } from '../../lib/api/pubApiCoordinator';
 import { fetchPlayerArchives, fetchMonthlyGames } from '../../lib/api/chesscomClient';
+
+function mockResponse(body: any, init?: any) {
+  const res = new Response(body, init);
+  Object.defineProperty(res, 'url', {
+    value: 'https://api.chess.com/pub/player/hikaru/games/archives',
+    configurable: true,
+    writable: true
+  });
+  return res;
+}
+
+function mockResponseMonthly(body: any, init?: any) {
+  const res = new Response(body, init);
+  Object.defineProperty(res, 'url', {
+    value: 'https://api.chess.com/pub/player/hikaru/games/2023/05',
+    configurable: true,
+    writable: true
+  });
+  return res;
+}
 
 describe('chesscomUrl', () => {
   describe('buildArchivesUrl', () => {
