@@ -1,4 +1,4 @@
-import type { Diagnostic, GameQuery, PlayerColor, TimeClass } from '../api/contracts';
+import type { Diagnostic, GameQuery, PlayerColor, TimeClass, ValidationResult } from '../api/contracts';
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_-]{3,25}$/;
 const DATE_FORMAT_REGEX = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
@@ -28,7 +28,7 @@ function isValidUtcDateString(dateStr: string): boolean {
 
 export function validateGameQuery(
   input: unknown
-): { success: true; data: GameQuery } | { success: false; diagnostics: Diagnostic[] } {
+): ValidationResult<GameQuery> {
   if (typeof input !== 'object' || input === null) {
     return {
       success: false,
@@ -184,11 +184,13 @@ export function validateGameQuery(
     return { success: false, diagnostics };
   }
 
+  const unique = <T>(values: T[]): T[] => [...new Set(values)];
+
   const query: GameQuery = {
-    username,
+    username: username.toLowerCase(),
     maxGames,
-    timeClasses,
-    colors,
+    timeClasses: unique(timeClasses),
+    colors: unique(colors),
   };
 
   if (dateFrom !== undefined) {

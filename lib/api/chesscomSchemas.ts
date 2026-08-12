@@ -54,6 +54,15 @@ export function validateArchivesResponse(
   for (const item of obj['archives']) {
     if (typeof item === 'string' && item.trim().length > 0) {
       validArchives.push(item);
+    } else {
+      return {
+        success: false,
+        diagnostic: {
+          code: 'INVALID_ARCHIVES_SCHEMA',
+          message: 'Archives array contains invalid elements',
+          severity: 'error',
+        },
+      };
     }
   }
 
@@ -105,10 +114,10 @@ export function validateRawGame(
   const obj = data as Record<string, unknown>;
 
   const gameIdCandidate =
-    typeof obj['url'] === 'string' && obj['url'].length > 0
-      ? obj['url']
-      : typeof obj['uuid'] === 'string' && obj['uuid'].length > 0
-        ? obj['uuid']
+    typeof obj['uuid'] === 'string' && obj['uuid'].length > 0
+      ? obj['uuid']
+      : typeof obj['@id'] === 'string' && obj['@id'].length > 0
+        ? obj['@id']
         : fallbackIndex !== undefined
           ? `game_index_${fallbackIndex}`
           : undefined;

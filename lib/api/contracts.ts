@@ -58,6 +58,10 @@ export interface Diagnostic {
   details?: Record<string, unknown> | undefined;
 }
 
+export type ValidationResult<T> =
+  | { success: true; data: T }
+  | { success: false; diagnostics: Diagnostic[] };
+
 export type GameResult = 'win' | 'draw' | 'loss';
 
 export interface NormalizedGameSummary {
