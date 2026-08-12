@@ -131,6 +131,7 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
       const graphStore = getOrCreateStore(STORES.GRAPH_SNAPSHOTS, 'key');
       ensureIndex(graphStore, 'username', 'username');
       ensureIndex(graphStore, 'createdAt', 'createdAt');
+      ensureIndex(graphStore, 'lastUsedAt', 'lastUsedAt');
 
       // meta store
       if (!upgradeError && !Array.from(db.objectStoreNames).includes(STORES.META)) {

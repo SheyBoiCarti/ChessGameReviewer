@@ -8,10 +8,29 @@ import {
   isValidArchiveSyncRecord,
   isValidGameRecord,
   isValidEvaluationRecord,
+  isValidEvaluationRecord,
   isValidGraphSnapshotRecord,
   isValidMetaRecord,
+  StoreName,
 } from './schema';
 import { wrapIDBError } from './openDatabase';
+import { throwIfAborted } from '../api/errors';
+
+export interface ArchiveListMeta {
+  username: string;
+  months: string[];
+  fetchedAt: number;
+}
+
+export class CorruptRecordError extends Error {
+  readonly store: StoreName;
+  constructor(store: StoreName) {
+    super(`Stored ${store} data is incompatible. Clear local data and retry.`);
+    this.name = 'CorruptRecordError';
+    this.store = store;
+  }
+}
+
 
 // Helper to run a promise on IDBRequest
 function reqToPromise<T>(req: IDBRequest<T>): Promise<T> {
@@ -32,8 +51,9 @@ export async function getArchiveSync(
   const store = tx.objectStore(STORES.ARCHIVE_SYNC);
   const result = await reqToPromise(store.get(key));
 
-  if (!result || !isValidArchiveSyncRecord(result)) {
-    return null;
+  if (!result) return null;
+  if (!isValidArchiveSyncRecord(result)) {
+    throw new CorruptRecordError(STORES.ARCHIVE_SYNC);
   }
   return result;
 }
@@ -49,7 +69,12 @@ export async function getArchiveSyncsForUser(
   const results = await reqToPromise(index.getAll(normUsername));
 
   if (!Array.isArray(results)) return [];
-  return results.filter(isValidArchiveSyncRecord);
+  for (const result of results) {
+    if (!isValidArchiveSyncRecord(result)) {
+      throw new CorruptRecordError(STORES.ARCHIVE_SYNC);
+    }
+  }
+  return results;
 }
 
 export async function putArchiveSync(
@@ -79,8 +104,9 @@ export async function getGame(
   const store = tx.objectStore(STORES.GAMES);
   const result = await reqToPromise(store.get(id));
 
-  if (!result || !isValidGameRecord(result)) {
-    return null;
+  if (!result) return null;
+  if (!isValidGameRecord(result)) {
+    throw new CorruptRecordError(STORES.GAMES);
   }
   return result;
 }
@@ -96,7 +122,42 @@ export async function getGamesForUser(
   const results = await reqToPromise(index.getAll(normUsername));
 
   if (!Array.isArray(results)) return [];
-  return results.filter(isValidGameRecord);
+  for (const result of results) {
+    if (!isValidGameRecord(result)) {
+      throw new CorruptRecordError(STORES.GAMES);
+    }
+  }
+  return results;
+}
+
+export async function getGamesForMonth(
+  db: IDBDatabase,
+  username: string,
+  month: string
+): Promise<GameRecord[]> {
+  const normUsername = username.toLowerCase();
+  const tx = db.transaction([STORES.GAMES], 'readonly');
+  const store = tx.objectStore(STORES.GAMES);
+  const index = store.index('username');
+  const results = await reqToPromise(index.getAll(normUsername));
+
+  if (!Array.isArray(results)) return [];
+
+  const [yearStr, monthStr] = month.split('-');
+  const targetYear = parseInt(yearStr, 10);
+  const targetMonth = parseInt(monthStr, 10) - 1; // 0-indexed months in UTC
+
+  const validRecords: GameRecord[] = [];
+  for (const record of results) {
+    if (!isValidGameRecord(record)) {
+      throw new CorruptRecordError(STORES.GAMES);
+    }
+    const date = new Date(record.endedAt * 1000);
+    if (date.getUTCFullYear() === targetYear && date.getUTCMonth() === targetMonth) {
+      validRecords.push(record);
+    }
+  }
+  return validRecords;
 }
 
 export async function upsertGames(
@@ -129,8 +190,10 @@ export async function upsertGames(
 export async function saveSyncBatch(
   db: IDBDatabase,
   games: GameRecord[],
-  syncRecord: ArchiveSyncRecord
+  syncRecord: ArchiveSyncRecord,
+  signal?: AbortSignal
 ): Promise<void> {
+  throwIfAborted(signal);
   // Pre-validate inputs before initiating transaction
   if (!isValidArchiveSyncRecord(syncRecord)) {
     throw new Error('Invalid ArchiveSyncRecord in saveSyncBatch');
@@ -151,10 +214,24 @@ export async function saveSyncBatch(
     }
     syncStore.put(syncRecord);
 
+    const abortHandler = () => tx.abort();
+    if (signal) {
+      signal.addEventListener('abort', abortHandler, { once: true });
+    }
+
     await new Promise<void>((resolve, reject) => {
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(wrapIDBError(tx.error));
-      tx.onabort = () => reject(wrapIDBError(tx.error));
+      tx.oncomplete = () => {
+        if (signal) signal.removeEventListener('abort', abortHandler);
+        resolve();
+      };
+      tx.onerror = () => {
+        if (signal) signal.removeEventListener('abort', abortHandler);
+        reject(wrapIDBError(tx.error));
+      };
+      tx.onabort = () => {
+        if (signal) signal.removeEventListener('abort', abortHandler);
+        reject(wrapIDBError(tx.error));
+      };
     });
   } catch (err) {
     throw wrapIDBError(err);
@@ -170,8 +247,9 @@ export async function getEvaluation(
   const store = tx.objectStore(STORES.EVALUATIONS);
   const result = await reqToPromise(store.get(key));
 
-  if (!result || !isValidEvaluationRecord(result)) {
-    return null;
+  if (!result) return null;
+  if (!isValidEvaluationRecord(result)) {
+    throw new CorruptRecordError(STORES.EVALUATIONS);
   }
   return result;
 }
@@ -204,8 +282,9 @@ export async function getGraphSnapshot(
   const store = tx.objectStore(STORES.GRAPH_SNAPSHOTS);
   const result = await reqToPromise(store.get(key));
 
-  if (!result || !isValidGraphSnapshotRecord(result)) {
-    return null;
+  if (!result) return null;
+  if (!isValidGraphSnapshotRecord(result)) {
+    throw new CorruptRecordError(STORES.GRAPH_SNAPSHOTS);
   }
   return result;
 }
@@ -238,8 +317,9 @@ export async function getMeta(
   const store = tx.objectStore(STORES.META);
   const result = await reqToPromise(store.get(name));
 
-  if (!result || !isValidMetaRecord(result)) {
-    return null;
+  if (!result) return null;
+  if (!isValidMetaRecord(result)) {
+    throw new CorruptRecordError(STORES.META);
   }
   return result;
 }
@@ -269,3 +349,29 @@ export async function setMeta(
     tx.onabort = () => reject(wrapIDBError(tx.error));
   });
 }
+
+export async function getArchiveListMeta(
+  db: IDBDatabase,
+  username: string
+): Promise<ArchiveListMeta | null> {
+  const meta = await getMeta(db, `archiveList:${username.toLowerCase()}`);
+  if (!meta || !meta.value) return null;
+  const val = meta.value as any;
+  if (typeof val.username !== 'string' || !Array.isArray(val.months) || typeof val.fetchedAt !== 'number') {
+    throw new CorruptRecordError(STORES.META);
+  }
+  return val as ArchiveListMeta;
+}
+
+export async function putArchiveListMeta(
+  db: IDBDatabase,
+  record: ArchiveListMeta
+): Promise<void> {
+  const safeRecord: ArchiveListMeta = {
+    username: record.username,
+    months: record.months,
+    fetchedAt: record.fetchedAt,
+  };
+  await setMeta(db, `archiveList:${record.username.toLowerCase()}`, safeRecord);
+}
+

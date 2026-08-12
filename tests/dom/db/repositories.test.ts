@@ -15,7 +15,37 @@ import {
   putGraphSnapshot,
   getMeta,
   setMeta,
+  getGamesForMonth,
+  getArchiveListMeta,
+  putArchiveListMeta,
 } from '../../../lib/db/repositories';
+
+function transactionDone(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+function makeGameRecord(overrides: Partial<GameRecord> = {}): GameRecord {
+  return {
+    id: 'https://www.chess.com/game/live/10001',
+    username: 'janedoe',
+    url: 'https://www.chess.com/game/live/10001',
+    userColor: 'white',
+    result: 'win',
+    endedAt: 1700000000,
+    timeClass: 'blitz',
+    rated: true,
+    userRating: 1500,
+    opponentRating: 1480,
+    pgn: '1. e4 e5 2. Nf3 Nc6',
+    rules: 'chess',
+    ...overrides,
+  };
+}
+
 
 describe('Repositories & Atomic Transactions', () => {
   let db: IDBDatabase;
@@ -102,6 +132,19 @@ describe('Repositories & Atomic Transactions', () => {
       expect(janeGames).toHaveLength(1);
       expect(janeGames[0]?.id).toBe(sampleGame.id);
     });
+
+    it('loads only games in the requested UTC month', async () => {
+      const julyGame = makeGameRecord({
+        id: 'july',
+        endedAt: Date.UTC(2026, 6, 15) / 1000,
+      });
+      const augustGame = makeGameRecord({
+        id: 'august',
+        endedAt: Date.UTC(2026, 7, 15) / 1000,
+      });
+      await upsertGames(db, [julyGame, augustGame]);
+      await expect(getGamesForMonth(db, 'JaneDoe', '2026-08')).resolves.toEqual([augustGame]);
+    });
   });
 
   describe('saveSyncBatch Atomic Multi-Store Transaction', () => {
@@ -167,6 +210,28 @@ describe('Repositories & Atomic Transactions', () => {
       expect(savedGame).toBeNull();
       expect(savedSync).toBeNull();
     });
+
+    it('writes neither games nor marker if aborted before transaction commits', async () => {
+      const game = makeGameRecord({ id: 'game-abort-test' });
+      const syncMarker: ArchiveSyncRecord = {
+        key: 'janedoe:2024-08',
+        username: 'janedoe',
+        month: '2024-08',
+        lastSuccessfulFetchAt: 1700003000,
+        status: 'success',
+        observedGameIds: ['game-abort-test'],
+        observedGameCount: 1,
+        normalizerVersion: 1,
+      };
+
+      const controller = new AbortController();
+      controller.abort(new Error('Already aborted'));
+
+      await expect(saveSyncBatch(db, [game], syncMarker, controller.signal)).rejects.toThrow();
+
+      expect(await getGame(db, 'game-abort-test')).toBeNull();
+      expect(await getArchiveSync(db, 'janedoe', '2024-08')).toBeNull();
+    });
   });
 
   describe('Evaluations & Graph Snapshots Repositories', () => {
@@ -206,6 +271,17 @@ describe('Repositories & Atomic Transactions', () => {
       const meta = await getMeta(db, 'schemaVersion');
       expect(meta).not.toBeNull();
       expect(meta?.value).toBe(1);
+    });
+
+    it('round-trips normalized archive-list metadata without PGN or raw payloads', async () => {
+      const record = {
+        username: 'janedoe',
+        months: ['2026-08', '2026-07'],
+        fetchedAt: 123,
+      };
+      await putArchiveListMeta(db, record);
+      expect(await getArchiveListMeta(db, 'janedoe')).toEqual(record);
+      expect(JSON.stringify(record)).not.toMatch(/pgn|rawMonthly/i);
     });
   });
 
@@ -257,17 +333,18 @@ describe('Repositories & Atomic Transactions', () => {
   });
 
   describe('Invalid Record Handling', () => {
-    it('returns null and filters out corrupted or invalid records when read', async () => {
-      // Manually insert an invalid game into IndexedDB
-      const tx = db.transaction([STORES.GAMES], 'readwrite');
-      tx.objectStore(STORES.GAMES).put({ id: 'corrupted-game', badField: true });
-      await new Promise((res) => (tx.oncomplete = res));
 
-      const game = await getGame(db, 'corrupted-game');
-      expect(game).toBeNull();
-
-      const games = await getGamesForUser(db, 'janedoe');
-      expect(games).toEqual([]);
+    it('surfaces corrupt persisted records rather than silently dropping them', async () => {
+      const tx = db.transaction(STORES.GAMES, 'readwrite');
+      tx.objectStore(STORES.GAMES).put({
+        ...makeGameRecord(),
+        id: 'corrupt',
+        endedAt: Number.NaN,
+      });
+      await transactionDone(tx);
+      await expect(getGamesForUser(db, 'janedoe')).rejects.toMatchObject({
+        name: 'CorruptRecordError',
+      });
     });
   });
 

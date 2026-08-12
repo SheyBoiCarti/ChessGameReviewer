@@ -1,8 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openDatabase, closeDatabase } from '../../../lib/db/openDatabase';
-import { DB_NAME, EvaluationRecord, GraphSnapshotRecord } from '../../../lib/db/schema';
-import { putEvaluation, putGraphSnapshot, setMeta } from '../../../lib/db/repositories';
+import { DB_NAME, STORES, EvaluationRecord, GraphSnapshotRecord } from '../../../lib/db/schema';
+import { putEvaluation, putGraphSnapshot, setMeta, getGraphSnapshot } from '../../../lib/db/repositories';
 import { evictEvaluations, evictGraphSnapshots, checkSchemaCompatibility } from '../../../lib/db/retention';
+
+function transactionDone(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
 
 describe('Retention & LRU Eviction', () => {
   let db: IDBDatabase;
@@ -99,6 +108,22 @@ describe('Retention & LRU Eviction', () => {
       // Total bytes = 1200. Max = 1000. snap1 (600 bytes) should be evicted.
       const evicted = await evictGraphSnapshots(db, { maxTotalBytes: 1000 });
       expect(evicted).toBe(1);
+    });
+
+    it('evicts snapshots by least-recently-used time, not creation time', async () => {
+      const tx = db.transaction(STORES.GRAPH_SNAPSHOTS, 'readwrite');
+      const store = tx.objectStore(STORES.GRAPH_SNAPSHOTS);
+      store.put({
+        key: 'old-created-recent-use', username: 'janedoe', createdAt: 1,
+        lastUsedAt: 30, snapshotData: {}, byteSize: 2,
+      });
+      store.put({
+        key: 'new-created-old-use', username: 'janedoe', createdAt: 20,
+        lastUsedAt: 2, snapshotData: {}, byteSize: 2,
+      });
+      await transactionDone(tx);
+      await evictGraphSnapshots(db, { maxCount: 1 });
+      expect(await getGraphSnapshot(db, 'new-created-old-use')).toBeNull();
     });
   });
 
