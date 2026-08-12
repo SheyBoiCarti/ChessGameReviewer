@@ -16,7 +16,7 @@ export function fingerprintQuery(query: GameQuery): string {
 export function parseArchiveMonth(url: string, username: string): string {
   const normUser = username.toLowerCase();
   const prefix = `https://api.chess.com/pub/player/${normUser}/games/`;
-  if (!url.startsWith(prefix)) {
+  if (!url.toLowerCase().startsWith(prefix)) {
     throw new Error('INVALID_ARCHIVE_URL');
   }
   const suffix = url.substring(prefix.length);
