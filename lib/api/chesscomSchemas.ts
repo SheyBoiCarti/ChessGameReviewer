@@ -52,7 +52,11 @@ export function validateArchivesResponse(
 
   const validArchives: string[] = [];
   for (const item of obj['archives']) {
-    if (typeof item === 'string' && item.trim().length > 0) {
+    if (
+      typeof item === 'string' &&
+      item.trim().length > 0 &&
+      item.startsWith('https://api.chess.com/')
+    ) {
       validArchives.push(item);
     } else {
       return {

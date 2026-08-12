@@ -43,6 +43,16 @@ describe('chesscomSchemas runtime validation', () => {
       }
     });
 
+    it('fails the entire response if it contains non-approved archive URLs', () => {
+      const result = validateArchivesResponse({
+        archives: ['https://api.chess.com/pub/player/hikaru/games/2024/01', 'https://malicious.com/api'],
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.diagnostic.code).toBe('INVALID_ARCHIVES_SCHEMA');
+      }
+    });
+
     it('rejects a non-string archives element instead of silently dropping it', () => {
       const result = validateArchivesResponse({ archives: ['https://api.chess.com/a', 42] });
       expect(result).toMatchObject({
