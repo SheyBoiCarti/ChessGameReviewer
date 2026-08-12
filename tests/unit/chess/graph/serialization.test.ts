@@ -26,6 +26,17 @@ describe('opening graph serialization', () => {
     expect(serializedGraphByteSize(snapshot)).toBeGreaterThan(1);
     expect(snapshotPersistenceNotice(snapshot, 1)).toBe('SNAPSHOT_TOO_LARGE_TO_PERSIST');
   });
+
+  it('round-trips an empty graph with a valid root reference', () => {
+    const graph = new OpeningGraphBuilder({ maxOpeningPlies: 2 }).build([]);
+    const snapshot = serializeOpeningGraph(graph, {
+      queryFingerprint: 'empty',
+      sourceGameCount: 0,
+      buildTimestamp: 0,
+    });
+
+    expect(() => deserializeOpeningGraph(snapshot)).not.toThrow();
+  });
   it('round-trips a graph with deterministic position, edge, and path ordering', () => {
     const parsed = parseGamePgn({
       game: {

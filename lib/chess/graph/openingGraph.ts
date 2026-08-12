@@ -55,8 +55,7 @@ export class OpeningGraphBuilder {
 
     for (let gameIndex = 0; gameIndex < games.length; gameIndex += 1) {
       const limit = this.addGame(state, games[gameIndex]);
-      if (limit)
-        return snapshotFor(state, 'limited', games.length - state.includedGameCount, limit);
+      if (limit) return snapshotFor(state, 'limited', games.length - gameIndex, limit);
     }
 
     return snapshotFor(state, 'complete', 0);
@@ -79,8 +78,7 @@ export class OpeningGraphBuilder {
         processedGameCount: gameIndex + 1,
         includedGameCount: state.includedGameCount,
       });
-      if (limit)
-        return snapshotFor(state, 'limited', games.length - state.includedGameCount, limit);
+      if (limit) return snapshotFor(state, 'limited', games.length - gameIndex, limit);
       if ((gameIndex + 1) % yieldEveryGames === 0) {
         await yieldToWorkerEventLoop();
         if (runtime.shouldCancel?.()) return undefined;
@@ -97,15 +95,14 @@ export class OpeningGraphBuilder {
     if (!game || game.plies.length === 0 || !isContinuous(game)) return undefined;
     const firstPly = game.plies[0];
     if (!firstPly) return undefined;
+    const rootKey = state.root?.key ?? firstPly.positionBefore;
     if (state.root && firstPly.positionBefore !== state.root.key) return undefined;
     if (!hasConsistentExistingEdges(game, state.positions)) return undefined;
-    if (!state.root) {
-      state.root = createNode(firstPly.positionBefore);
-      state.positions.set(state.root.key, state.root);
-    }
 
     const plies = game.plies.slice(0, this.options.maxOpeningPlies);
-    const additions = countAdditions(plies, state.positions, state.paths, state.root.key);
+    const additions = countAdditions(plies, state.positions, state.paths, rootKey);
+    if (!state.root && !plies.some((ply) => ply.positionAfter === rootKey))
+      additions.positions += 1;
     const limit = this.exceedsLimit(
       state.positions.size,
       state.edgeCount,
@@ -113,6 +110,11 @@ export class OpeningGraphBuilder {
       additions
     );
     if (limit) return limit;
+
+    if (!state.root) {
+      state.root = createNode(rootKey);
+      state.positions.set(state.root.key, state.root);
+    }
 
     const visit = {
       result: game.result,
@@ -180,9 +182,13 @@ function snapshotFor(
   remainingGameCount: number,
   reachedLimit?: keyof GraphBuildLimits
 ): OpeningGraphSnapshot {
+  if (!state.root) {
+    state.root = createNode('');
+    state.positions.set(state.root.key, state.root);
+  }
   return {
     status,
-    root: state.root ?? createNode(''),
+    root: state.root,
     positions: state.positions,
     paths: state.paths,
     includedGameCount: state.includedGameCount,

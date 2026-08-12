@@ -49,7 +49,8 @@ describe('OpeningGraphBuilder', () => {
       corrupt,
     ]);
     expect(graph.includedGameCount).toBe(0);
-    expect(graph.positions.size).toBe(0);
+    expect(graph.positions.size).toBe(1);
+    expect(graph.root.aggregate.games).toBe(0);
   });
 
   it('rejects an inconsistent existing edge before mutating any aggregate', () => {
@@ -122,5 +123,18 @@ describe('OpeningGraphBuilder', () => {
     expect(graph.includedGameCount).toBe(1);
     expect(graph.remainingGameCount).toBe(1);
     expect(graph.root.aggregate.games).toBe(1);
+  });
+
+  it('reports all unprocessed games as remaining after a limit', () => {
+    const valid = parse('valid-after-invalid', '1. e4 e5 1-0');
+    const corrupt: typeof valid = { ...valid, id: 'invalid', plies: [] };
+    const graph = new OpeningGraphBuilder(
+      { maxOpeningPlies: 2 },
+      { maxPositions: 3, maxEdges: 2, maxPathNodes: 3 }
+    ).build([corrupt, valid, parse('limited', '1. d4 d5 1-0')]);
+
+    expect(graph.status).toBe('limited');
+    expect(graph.includedGameCount).toBe(1);
+    expect(graph.remainingGameCount).toBe(1);
   });
 });
