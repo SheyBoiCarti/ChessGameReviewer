@@ -1,6 +1,7 @@
 import type { GameQuery, NormalizedGameSummary } from '@/lib/api/contracts';
 import type { GraphBuildOptions } from '@/lib/chess/graph/types';
 import type { EngineCapability } from '@/lib/engine/capabilities';
+import type { ClearAllResult, DeletionResult } from '@/lib/db/deleteLocalData';
 
 import type { GraphBuildWorkerResult } from '../opening-tree/graphWorkerClient';
 import type { IngestionProgress, IngestionResult } from '../ingestion/types';
@@ -30,6 +31,10 @@ export interface WorkspaceServices {
     initialize(): Promise<EngineCapability>;
     dispose(): void;
   };
+  data: {
+    deleteUsername(username: string): Promise<DeletionResult>;
+    clearAll(): Promise<ClearAllResult>;
+  };
 }
 
 export interface WorkspaceController {
@@ -41,6 +46,8 @@ export interface WorkspaceController {
   selectGame(gameId: string | null): void;
   navigateGraph(positionKey: string, pathId: number | null): void;
   selectPly(ply: number): void;
+  deleteUserData(username: string): Promise<DeletionResult>;
+  clearAllData(): Promise<ClearAllResult>;
   dispatch(action: WorkspaceAction): void;
   dispose(): void;
 }
@@ -126,6 +133,17 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
     },
     selectPly(ply) {
       dispatch({ type: 'selection/ply', ply });
+    },
+    async deleteUserData(username) {
+      const normalized = username.toLowerCase();
+      const result = await services.data.deleteUsername(normalized);
+      dispatch({ type: 'data/userDeleted', username: normalized });
+      return result;
+    },
+    async clearAllData() {
+      const result = await services.data.clearAll();
+      dispatch({ type: 'data/allCleared' });
+      return result;
     },
     dispatch,
     dispose() {

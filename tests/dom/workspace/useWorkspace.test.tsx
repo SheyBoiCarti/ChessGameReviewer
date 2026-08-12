@@ -11,6 +11,7 @@ describe('useWorkspace', () => {
       ingestion: { start: vi.fn(), cancel: vi.fn() },
       graph: { build: vi.fn(), cancel: vi.fn(), dispose },
       engine: { initialize: vi.fn(), dispose: vi.fn() },
+      data: { deleteUsername: vi.fn(), clearAll: vi.fn() },
     };
     const createServices = vi.fn(() => services);
 

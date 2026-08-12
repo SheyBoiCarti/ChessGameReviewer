@@ -100,6 +100,18 @@ describe('workspace controller', () => {
       engineDispose: 1,
     });
   });
+
+  it('invalidates the active in-memory snapshot after deleting that username', async () => {
+    const services = createServices(async () => result(secondQuery, [game]));
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+
+    await controller.deleteUserData('SECOND-PLAYER');
+
+    expect(controller.getState().query.active).toBeNull();
+    expect(controller.getState().graph.snapshot).toBeNull();
+    expect(controller.getState().selection.gameId).toBeNull();
+  });
 });
 
 function createServices(
@@ -152,6 +164,15 @@ function createServices(
       dispose: () => {
         counters.engineDispose += 1;
       },
+    },
+    data: {
+      deleteUsername: async (username) => ({
+        username: username.toLowerCase(),
+        gamesDeleted: 1,
+        archiveSyncDeleted: 1,
+        graphSnapshotsDeleted: 1,
+      }),
+      clearAll: async () => ({ clearedStores: ['games'] }),
     },
   };
 }

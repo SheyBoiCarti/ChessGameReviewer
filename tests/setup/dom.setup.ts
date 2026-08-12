@@ -1,5 +1,9 @@
 import '@testing-library/jest-dom/vitest';
 import 'fake-indexeddb/auto';
+import { cleanup } from '@testing-library/react';
+import { afterEach } from 'vitest';
+
+afterEach(() => cleanup());
 
 // Mock Web Worker if needed for worker-test strategy in DOM env
 if (typeof window !== 'undefined' && !window.Worker) {
