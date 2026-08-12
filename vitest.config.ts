@@ -15,7 +15,7 @@ export default defineConfig({
       '**/*.spec.ts',
       '**/*.spec.tsx',
     ],
-    projects: [
+    workspace: [
       {
         extends: true,
         test: {
@@ -37,6 +37,16 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
+      include: ['lib/**/*.ts', 'features/**/*.ts', 'components/**/*.tsx'],
+      exclude: ['**/*.d.ts', 'lib/api/contracts.ts', 'features/ingestion/types.ts'],
+      thresholds: {
+        branches: 80,
+        functions: 80,
+        lines: 80,
+        statements: 80,
+        'lib/**/*.ts': { branches: 90 },
+        'features/**/*.ts': { branches: 90 },
+      },
     },
   },
 });

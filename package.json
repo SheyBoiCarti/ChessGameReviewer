@@ -7,33 +7,37 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint app components tests",
+    "lint": "eslint .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run tests/unit tests/dom tests/setup",
-    "test:coverage": "vitest run tests/unit tests/dom tests/setup --coverage",
-    "test:e2e": "playwright test"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run test:e2e"
   },
   "dependencies": {
-    "next": "^16.3.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "next": "16.3.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.50.1",
-    "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/react": "^16.2.0",
-    "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^22.13.4",
-    "@types/react": "^19.0.10",
-    "@types/react-dom": "^19.0.4",
-    "@vitest/coverage-v8": "^3.0.6",
-    "eslint": "^9.21.0",
-    "eslint-config-next": "^16.3.0",
-    "fake-indexeddb": "^6.0.0",
-    "jsdom": "^26.0.0",
-    "prettier": "^3.5.1",
-    "typescript": "^5.7.3",
-    "vitest": "^3.0.6"
+    "@playwright/test": "1.50.1",
+    "@testing-library/jest-dom": "6.6.3",
+    "@testing-library/react": "16.2.0",
+    "@testing-library/user-event": "14.6.1",
+    "@types/node": "22.13.4",
+    "@types/react": "19.0.10",
+    "@types/react-dom": "19.0.4",
+    "@vitest/coverage-v8": "3.0.6",
+    "eslint": "9.21.0",
+    "eslint-config-next": "16.3.0",
+    "fake-indexeddb": "6.0.0",
+    "jsdom": "26.0.0",
+    "prettier": "3.5.1",
+    "typescript": "5.7.3",
+    "vitest": "3.0.6"
+  },
+  "engines": {
+    "node": ">=20.9.0"
   }
 }
