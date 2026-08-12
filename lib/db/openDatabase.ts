@@ -62,6 +62,8 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
       reject(new DatabaseBlockedError());
     };
 
+    let upgradeError: Error | null = null;
+
     request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
       const db = request.result;
       const tx = (event.target as IDBOpenDBRequest).transaction!;
@@ -70,20 +72,38 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
       const getOrCreateStore = (
         name: string,
         keyPath: string
-      ): IDBObjectStore => {
+      ): IDBObjectStore | null => {
+        if (upgradeError) return null;
         if (Array.from(db.objectStoreNames).includes(name)) {
-          return tx.objectStore(name);
+          const store = tx.objectStore(name);
+          if (store.keyPath !== keyPath) {
+             upgradeError = new SchemaVersionError(`Store ${name} has incompatible keyPath. Reset the database.`);
+             db.close();
+             tx.abort();
+             reject(upgradeError);
+             return null;
+          }
+          return store;
         }
         return db.createObjectStore(name, { keyPath });
       };
 
       const ensureIndex = (
-        store: IDBObjectStore,
+        store: IDBObjectStore | null,
         indexName: string,
         keyPath: string
       ) => {
+        if (upgradeError || !store) return;
         const existingIndexes = Array.from(store.indexNames);
-        if (!existingIndexes.includes(indexName)) {
+        if (existingIndexes.includes(indexName)) {
+           const idx = store.index(indexName);
+           if (idx.keyPath !== keyPath) {
+               upgradeError = new SchemaVersionError(`Index ${indexName} on store ${store.name} has incompatible keyPath. Reset the database.`);
+               db.close();
+               tx.abort();
+               reject(upgradeError);
+           }
+        } else {
           store.createIndex(indexName, keyPath, { unique: false });
         }
       };
@@ -113,7 +133,7 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
       ensureIndex(graphStore, 'createdAt', 'createdAt');
 
       // meta store
-      if (!Array.from(db.objectStoreNames).includes(STORES.META)) {
+      if (!upgradeError && !Array.from(db.objectStoreNames).includes(STORES.META)) {
         db.createObjectStore(STORES.META, { keyPath: 'name' });
       }
     };
@@ -130,7 +150,12 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
     };
 
     request.onerror = (e) => {
-      console.error('IDB open request.onerror:', request.error, e);
+      if (request.result) {
+        request.result.close();
+      }
+      if (upgradeError) {
+        return reject(upgradeError);
+      }
       reject(wrapIDBError(request.error));
     };
   });
@@ -147,29 +172,26 @@ export function closeDatabase(db: IDBDatabase): void {
 export function wrapIDBError(err: unknown): Error {
   if (err instanceof Error) {
     if (err.name === 'QuotaExceededError' || err.message.includes('Quota')) {
-      return new QuotaExceededError(err.message);
+      return new QuotaExceededError();
     }
     if (
       err.name === 'InvalidStateError' ||
       err.name === 'SecurityError' ||
       err.name === 'UnknownError'
     ) {
-      return new StorageUnavailableError(err.message);
+      return new StorageUnavailableError();
     }
-    return err;
+    return new StorageUnavailableError();
   }
   if (typeof err === 'object' && err !== null) {
     const name = 'name' in err ? String((err as { name: unknown }).name) : '';
     const message = 'message' in err ? String((err as { message: unknown }).message) : '';
     if (name === 'QuotaExceededError' || message.includes('Quota')) {
-      return new QuotaExceededError(message || undefined);
+      return new QuotaExceededError();
     }
     if (name === 'InvalidStateError' || name === 'SecurityError') {
-      return new StorageUnavailableError(message || undefined);
-    }
-    if (message) {
-      return new Error(message);
+      return new StorageUnavailableError();
     }
   }
-  return new StorageUnavailableError('IndexedDB operation failed.');
+  return new StorageUnavailableError();
 }

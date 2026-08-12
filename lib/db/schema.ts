@@ -1,6 +1,6 @@
 import type { PlayerColor, TimeClass, GameResult } from '../api/contracts';
 
-export const DB_NAME = 'ChessGameReviewerDB';
+export const DB_NAME = 'ChessGameAnalyzerDB';
 export const SCHEMA_VERSION = 1;
 export const NORMALIZER_VERSION = 1;
 
@@ -69,18 +69,25 @@ function isObject(val: unknown): val is Record<string, unknown> {
   return typeof val === 'object' && val !== null;
 }
 
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+const isMonth = (value: unknown): value is string =>
+  typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+
 export function isValidArchiveSyncRecord(data: unknown): data is ArchiveSyncRecord {
   if (!isObject(data)) return false;
   if ('pgn' in data || 'rawMonthlyJson' in data || 'raw' in data) return false;
   return (
     typeof data['key'] === 'string' &&
     typeof data['username'] === 'string' &&
-    typeof data['month'] === 'string' &&
-    typeof data['lastSuccessfulFetchAt'] === 'number' &&
+    isMonth(data['month']) &&
+    isFiniteNumber(data['lastSuccessfulFetchAt']) &&
     (data['status'] === 'success' || data['status'] === 'failed' || data['status'] === 'partial') &&
     Array.isArray(data['observedGameIds']) &&
-    typeof data['observedGameCount'] === 'number' &&
-    typeof data['normalizerVersion'] === 'number'
+    isFiniteNumber(data['observedGameCount']) &&
+    data['observedGameCount'] >= 0 &&
+    isFiniteNumber(data['normalizerVersion'])
   );
 }
 
@@ -92,14 +99,14 @@ export function isValidGameRecord(data: unknown): data is GameRecord {
     typeof data['url'] === 'string' &&
     (data['userColor'] === 'white' || data['userColor'] === 'black') &&
     (data['result'] === 'win' || data['result'] === 'draw' || data['result'] === 'loss') &&
-    typeof data['endedAt'] === 'number' &&
+    isFiniteNumber(data['endedAt']) &&
     (data['timeClass'] === 'bullet' ||
       data['timeClass'] === 'blitz' ||
       data['timeClass'] === 'rapid' ||
       data['timeClass'] === 'daily') &&
     typeof data['rated'] === 'boolean' &&
-    (typeof data['userRating'] === 'number' || data['userRating'] === null) &&
-    (typeof data['opponentRating'] === 'number' || data['opponentRating'] === null) &&
+    (isFiniteNumber(data['userRating']) || data['userRating'] === null) &&
+    (isFiniteNumber(data['opponentRating']) || data['opponentRating'] === null) &&
     typeof data['pgn'] === 'string' &&
     data['rules'] === 'chess'
   );
@@ -111,7 +118,7 @@ export function isValidEvaluationRecord(data: unknown): data is EvaluationRecord
     typeof data['key'] === 'string' &&
     typeof data['positionHash'] === 'string' &&
     typeof data['engineBuild'] === 'string' &&
-    typeof data['lastUsedAt'] === 'number' &&
+    isFiniteNumber(data['lastUsedAt']) &&
     'evaluation' in data
   );
 }
@@ -121,9 +128,9 @@ export function isValidGraphSnapshotRecord(data: unknown): data is GraphSnapshot
   return (
     typeof data['key'] === 'string' &&
     typeof data['username'] === 'string' &&
-    typeof data['createdAt'] === 'number' &&
-    typeof data['lastUsedAt'] === 'number' &&
-    typeof data['byteSize'] === 'number' &&
+    isFiniteNumber(data['createdAt']) &&
+    isFiniteNumber(data['lastUsedAt']) &&
+    isFiniteNumber(data['byteSize']) &&
     'snapshotData' in data
   );
 }
@@ -134,6 +141,6 @@ export function isValidMetaRecord(data: unknown): data is MetaRecord {
   return (
     typeof data['name'] === 'string' &&
     'value' in data &&
-    typeof data['updatedAt'] === 'number'
+    isFiniteNumber(data['updatedAt'])
   );
 }

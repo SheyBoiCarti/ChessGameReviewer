@@ -18,7 +18,7 @@ import {
 
 describe('Schema & Runtime Validation', () => {
   it('exports schema version and store name constants', () => {
-    expect(DB_NAME).toBe('ChessGameReviewerDB');
+    expect(DB_NAME).toBe('ChessGameAnalyzerDB');
     expect(SCHEMA_VERSION).toBe(1);
     expect(NORMALIZER_VERSION).toBe(1);
     expect(STORES.ARCHIVE_SYNC).toBe('archiveSync');
@@ -151,6 +151,40 @@ describe('Schema & Runtime Validation', () => {
         pgn: '1. e4 e5',
       };
       expect(isValidMetaRecord(record)).toBe(false);
+    });
+  });
+
+  describe('strict validation', () => {
+    const makeGameRecord = (): GameRecord => ({
+      id: 'https://www.chess.com/game/live/12345',
+      username: 'janedoe',
+      url: 'https://www.chess.com/game/live/12345',
+      userColor: 'white',
+      result: 'win',
+      endedAt: 1700000000,
+      timeClass: 'blitz',
+      rated: true,
+      userRating: 1500,
+      opponentRating: 1480,
+      pgn: '1. e4 e5 2. Nf3 Nc6',
+      rules: 'chess',
+    });
+
+    const makeArchiveSync = (): ArchiveSyncRecord => ({
+      key: 'janedoe:2024-05',
+      username: 'janedoe',
+      month: '2024-05',
+      lastSuccessfulFetchAt: 1700000000000,
+      status: 'success',
+      observedGameIds: ['https://www.chess.com/game/live/12345'],
+      observedGameCount: 1,
+      normalizerVersion: 1,
+    });
+
+    it('rejects non-finite numeric and malformed key fields', () => {
+      expect(isValidGameRecord({ ...makeGameRecord(), endedAt: Number.NaN })).toBe(false);
+      expect(isValidArchiveSyncRecord({ ...makeArchiveSync(), month: '2026-13' })).toBe(false);
+      expect(isValidArchiveSyncRecord({ ...makeArchiveSync(), observedGameCount: -1 })).toBe(false);
     });
   });
 });
