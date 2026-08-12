@@ -270,4 +270,73 @@ describe('Repositories & Atomic Transactions', () => {
       expect(games).toEqual([]);
     });
   });
+
+  describe('QuotaExceededError In-Memory Preservation', () => {
+    it('preserves in-memory game records intact when storage quota is exceeded during write', async () => {
+      const inMemoryGames: GameRecord[] = [
+        {
+          id: 'quota-game-1',
+          username: 'janedoe',
+          url: 'https://www.chess.com/game/live/1',
+          userColor: 'white',
+          result: 'win',
+          endedAt: 1700000000,
+          timeClass: 'blitz',
+          rated: true,
+          userRating: 1500,
+          opponentRating: 1450,
+          pgn: '1. e4 e5',
+          rules: 'chess',
+        },
+      ];
+
+      const syncMarker: ArchiveSyncRecord = {
+        key: 'janedoe:2024-09',
+        username: 'janedoe',
+        month: '2024-09',
+        lastSuccessfulFetchAt: 1700000000,
+        status: 'success',
+        observedGameIds: ['quota-game-1'],
+        observedGameCount: 1,
+        normalizerVersion: 1,
+      };
+
+      // Mock transaction to throw QuotaExceededError
+      const quotaDomErr = new DOMException('QuotaExceededError', 'QuotaExceededError');
+      const originalTx = db.transaction.bind(db);
+      db.transaction = () => {
+        const txMock = {
+          objectStore: () => ({
+            put: () => {
+              throw quotaDomErr;
+            },
+          }),
+          oncomplete: null,
+          onerror: null as ((ev?: Event) => void) | null,
+          onabort: null,
+          error: quotaDomErr,
+        };
+        setTimeout(() => {
+          if (txMock.onerror) txMock.onerror();
+        }, 0);
+        return txMock as unknown as IDBTransaction;
+      };
+
+      let caughtError: unknown;
+      try {
+        await saveSyncBatch(db, inMemoryGames, syncMarker);
+      } catch (err) {
+        caughtError = err;
+      }
+
+      db.transaction = originalTx;
+
+      expect(caughtError).toBeInstanceOf(QuotaExceededError);
+
+      // Verify in-memory records preserved without corruption
+      expect(inMemoryGames).toHaveLength(1);
+      expect(inMemoryGames[0]?.id).toBe('quota-game-1');
+      expect(syncMarker.key).toBe('janedoe:2024-09');
+    });
+  });
 });

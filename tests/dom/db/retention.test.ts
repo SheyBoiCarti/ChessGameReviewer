@@ -50,7 +50,7 @@ describe('Retention & LRU Eviction', () => {
   });
 
   describe('evictGraphSnapshots', () => {
-    it('evicts oldest snapshots when count or byte limits are exceeded', async () => {
+    it('evicts oldest snapshots when maxCount is exceeded', async () => {
       const snap1: GraphSnapshotRecord = {
         key: 'snap-1',
         username: 'janedoe',
@@ -72,6 +72,32 @@ describe('Retention & LRU Eviction', () => {
       await putGraphSnapshot(db, snap2);
 
       const evicted = await evictGraphSnapshots(db, { maxCount: 1 });
+      expect(evicted).toBe(1);
+    });
+
+    it('evicts oldest snapshots when cumulative byte size exceeds maxTotalBytes', async () => {
+      const snap1: GraphSnapshotRecord = {
+        key: 'snap-1',
+        username: 'janedoe',
+        createdAt: 1000,
+        lastUsedAt: 1000,
+        snapshotData: { data: 'a' },
+        byteSize: 600,
+      };
+      const snap2: GraphSnapshotRecord = {
+        key: 'snap-2',
+        username: 'janedoe',
+        createdAt: 2000,
+        lastUsedAt: 2000,
+        snapshotData: { data: 'b' },
+        byteSize: 600,
+      };
+
+      await putGraphSnapshot(db, snap1);
+      await putGraphSnapshot(db, snap2);
+
+      // Total bytes = 1200. Max = 1000. snap1 (600 bytes) should be evicted.
+      const evicted = await evictGraphSnapshots(db, { maxTotalBytes: 1000 });
       expect(evicted).toBe(1);
     });
   });
