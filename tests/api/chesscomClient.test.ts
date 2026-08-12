@@ -1,3 +1,23 @@
+
+function mockResponse(body, init) {
+  const res = new Response(body, init);
+  Object.defineProperty(res, 'url', {
+    value: 'https://api.chess.com/pub/player/hikaru/games/archives',
+    configurable: true,
+    writable: true
+  });
+  return res;
+}
+
+function mockResponseMonthly(body, init) {
+  const res = new Response(body, init);
+  Object.defineProperty(res, 'url', {
+    value: 'https://api.chess.com/pub/player/hikaru/games/2023/05',
+    configurable: true,
+    writable: true
+  });
+  return res;
+}
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildArchivesUrl, buildMonthlyUrl, isValidRedirectUrl } from '../../lib/api/chesscomUrl';
 import {
@@ -201,6 +221,18 @@ describe('pubApiCoordinator', () => {
       });
     }
   });
+
+  it('passes cancellation to Web Lock acquisition', async () => {
+    const controller = new AbortController();
+    const request = vi.fn((_name, options, callback) => callback());
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: { request } });
+    await new PubApiCoordinator().execute(async () => 'ok', controller.signal);
+    expect(request).toHaveBeenCalledWith(
+      'chesscom-pubapi-lock',
+      { signal: controller.signal },
+      expect.any(Function)
+    );
+  });
 });
 
 describe('chesscomClient', () => {
@@ -224,7 +256,7 @@ describe('chesscomClient', () => {
         expect(init?.cache).toBe('default');
         expect(init?.headers).toBeUndefined();
 
-        return new Response(JSON.stringify({ archives: mockArchives }), {
+        return mockResponse(JSON.stringify({ archives: mockArchives }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
@@ -236,9 +268,9 @@ describe('chesscomClient', () => {
     });
 
     it('maps 404 to PLAYER_NOT_FOUND', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ message: 'User not found' }), { status: 404 })
-      );
+      const res = mockResponse(JSON.stringify({ message: 'User not found' }), { status: 404 });
+      Object.defineProperty(res, 'url', { value: 'https://api.chess.com/pub/player/nonexistentuser/games/archives' });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
 
       await expect(fetchPlayerArchives('nonexistentuser')).rejects.toThrowError(
         expect.objectContaining({ code: 'PLAYER_NOT_FOUND', status: 404, retryable: false })
@@ -246,9 +278,9 @@ describe('chesscomClient', () => {
     });
 
     it('maps 410 to PLAYER_NOT_FOUND', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ message: 'Account closed' }), { status: 410 })
-      );
+      const res = mockResponse(JSON.stringify({ message: 'Account closed' }), { status: 410 });
+      Object.defineProperty(res, 'url', { value: 'https://api.chess.com/pub/player/closeduser/games/archives' });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
 
       await expect(fetchPlayerArchives('closeduser')).rejects.toThrowError(
         expect.objectContaining({ code: 'PLAYER_NOT_FOUND', status: 410, retryable: false })
@@ -257,7 +289,7 @@ describe('chesscomClient', () => {
 
     it('maps 429 to UPSTREAM_RATE_LIMITED', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ message: 'Too many requests' }), { status: 429 })
+        mockResponse(JSON.stringify({ message: 'Too many requests' }), { status: 429 })
       );
 
       await expect(fetchPlayerArchives('hikaru')).rejects.toThrowError(
@@ -267,12 +299,147 @@ describe('chesscomClient', () => {
 
     it('maps 503 to UPSTREAM_UNAVAILABLE', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ message: 'Server error' }), { status: 503 })
+        mockResponse(JSON.stringify({ message: 'Server error' }), { status: 503 })
       );
 
       await expect(fetchPlayerArchives('hikaru')).rejects.toThrowError(
         expect.objectContaining({ code: 'UPSTREAM_UNAVAILABLE', status: 503, retryable: true })
       );
+    });
+
+    it('distinguishes wrong content type, malformed JSON, and invalid schema', async () => {
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(mockResponse('{}', { headers: { 'content-type': 'text/html' } }))
+        .mockResolvedValueOnce(mockResponse('{', { headers: { 'content-type': 'application/json' } }))
+        .mockResolvedValueOnce(mockResponse('{}', { headers: { 'content-type': 'application/json' } }));
+
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'WRONG_CONTENT_TYPE' });
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'MALFORMED_JSON' });
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'INVALID_SCHEMA' });
+    });
+
+    it('parses JSON after releasing the Web Lock', async () => {
+      const events: string[] = [];
+      Object.defineProperty(navigator, 'locks', {
+        configurable: true,
+        value: {
+          request: vi.fn(async (_name, _options, callback) => {
+            events.push('lock-start');
+            const value = await callback();
+            events.push('lock-end');
+            return value;
+          }),
+        },
+      });
+      const originalParse = JSON.parse;
+      vi.spyOn(JSON, 'parse').mockImplementation((text: string) => {
+        events.push('parse');
+        return originalParse(text);
+      });
+      const response = mockResponse(JSON.stringify({ archives: [] }), {
+        headers: { 'content-type': 'application/json' },
+      });
+      Object.defineProperty(response, 'url', {
+        value: 'https://api.chess.com/pub/player/hikaru/games/archives',
+      });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+
+      await fetchPlayerArchives('hikaru');
+
+      expect(events).toEqual(['lock-start', 'lock-end', 'parse']);
+    });
+
+    it('UTF-8 fallback byte counting', async () => {
+      const response = mockResponse('{"archives": []}', {
+        headers: { 'content-type': 'application/json' },
+      });
+      Object.defineProperty(response, 'url', {
+        value: 'https://api.chess.com/pub/player/hikaru/games/archives',
+      });
+      vi.spyOn(response, 'text').mockResolvedValue('a'.repeat(33 * 1024 * 1024));
+      Object.defineProperty(response, 'body', { value: null });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+      
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE' });
+    });
+
+    it('empty/malformed Content-Length is ignored', async () => {
+      const response = mockResponse(JSON.stringify({ archives: [] }), {
+        headers: { 'content-type': 'application/json', 'content-length': 'invalid' },
+      });
+      Object.defineProperty(response, 'url', {
+        value: 'https://api.chess.com/pub/player/hikaru/games/archives',
+      });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+      
+      await expect(fetchPlayerArchives('hikaru')).resolves.toEqual([]);
+    });
+
+    it('absent/empty final response URL', async () => {
+      const response = mockResponse(JSON.stringify({ archives: [] }), {
+        headers: { 'content-type': 'application/json' },
+      });
+      Object.defineProperty(response, 'url', { value: '' });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+      
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'INVALID_UPSTREAM_RESPONSE' });
+    });
+
+    it('final URL query/hash rejection', async () => {
+      const response1 = mockResponse(JSON.stringify({ archives: [] }), {
+        headers: { 'content-type': 'application/json' },
+      });
+      Object.defineProperty(response1, 'url', {
+        value: 'https://api.chess.com/pub/player/hikaru/games/archives?foo=bar',
+      });
+      const response2 = mockResponse(JSON.stringify({ archives: [] }), {
+        headers: { 'content-type': 'application/json' },
+      });
+      Object.defineProperty(response2, 'url', {
+        value: 'https://api.chess.com/pub/player/hikaru/games/archives#hash',
+      });
+      
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(response1).mockResolvedValueOnce(response2);
+      
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'REDIRECT_DISALLOWED' });
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'REDIRECT_DISALLOWED' });
+    });
+
+    it('application/json and application/*+json acceptance', async () => {
+      const res1 = mockResponse('{"archives": []}', { headers: { 'content-type': 'application/ld+json' } });
+      Object.defineProperty(res1, 'url', { value: 'https://api.chess.com/pub/player/hikaru/games/archives' });
+      
+      const res2 = mockResponse('{"archives": []}', { headers: { 'content-type': 'application/vnd.api+json' } });
+      Object.defineProperty(res2, 'url', { value: 'https://api.chess.com/pub/player/hikaru/games/archives' });
+      
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(res1).mockResolvedValueOnce(res2);
+        
+      await expect(fetchPlayerArchives('hikaru')).resolves.toEqual([]);
+      await expect(fetchPlayerArchives('hikaru')).resolves.toEqual([]);
+    });
+
+    it('502/503/504-only retryability', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(mockResponse('error', { status: 500 }));
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE', retryable: false });
+      
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(mockResponse('error', { status: 502 }));
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE', retryable: true });
+      
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(mockResponse('error', { status: 503 }));
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE', retryable: true });
+      
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(mockResponse('error', { status: 504 }));
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE', retryable: true });
+    });
+
+    it('Retry-After seconds/date parsing', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(mockResponse('error', { status: 429, headers: { 'retry-after': '120' } }));
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'UPSTREAM_RATE_LIMITED', retryAfterMs: 120000 });
+      
+      const date = new Date(Date.now() + 60000).toUTCString();
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(mockResponse('error', { status: 429, headers: { 'retry-after': date } }));
+      
+      await expect(fetchPlayerArchives('hikaru')).rejects.toMatchObject({ code: 'UPSTREAM_RATE_LIMITED', retryAfterMs: expect.any(Number) });
     });
   });
 
@@ -289,7 +456,7 @@ describe('chesscomClient', () => {
 
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
         expect(input.toString()).toBe('https://api.chess.com/pub/player/hikaru/games/2023/05');
-        return new Response(JSON.stringify({ games: [mockGame] }), {
+        return mockResponseMonthly(JSON.stringify({ games: [mockGame] }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
@@ -302,9 +469,9 @@ describe('chesscomClient', () => {
 
     it('rejects responses with declared Content-Length > 32 MiB', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ games: [] }), {
+        mockResponseMonthly(JSON.stringify({ games: [] }), {
           status: 200,
-          headers: { 'Content-Length': (33 * 1024 * 1024).toString() },
+          headers: { 'Content-Length': (33 * 1024 * 1024).toString(), 'content-type': 'application/json' },
         })
       );
 
@@ -324,7 +491,7 @@ describe('chesscomClient', () => {
       });
 
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ games: hugeGamesList }), { status: 200 })
+        mockResponseMonthly(JSON.stringify({ games: hugeGamesList }), { status: 200, headers: { 'content-type': 'application/json' } })
       );
 
       await expect(fetchMonthlyGames('hikaru', '2023', '05')).rejects.toThrowError(
@@ -333,7 +500,7 @@ describe('chesscomClient', () => {
     });
 
     it('handles unexpected redirect targets safely', async () => {
-      const response = new Response(JSON.stringify({ archives: [] }), { status: 200 });
+      const response = mockResponseMonthly(JSON.stringify({ archives: [] }), { status: 200 });
       Object.defineProperty(response, 'url', {
         value: 'https://evil-domain.com/pub/player/hikaru/games/archives',
       });
@@ -431,7 +598,7 @@ describe('chesscomClient', () => {
     it('asserts error messages never expose full usernames, username-bearing URLs, response bodies, or PGNs', async () => {
       const rawUser = 'SuperSecretUser';
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response('Invalid json body with PGN 1. e4 e5 [Event "Secret Game"]', { status: 200 })
+        mockResponseMonthly('Invalid json body with PGN 1. e4 e5 [Event "Secret Game"]', { status: 200 })
       );
 
       try {
@@ -460,7 +627,7 @@ describe('chesscomClient', () => {
       });
 
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(stream, {
+        mockResponse(stream, {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -482,7 +649,7 @@ describe('chesscomClient', () => {
       });
 
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(stream, {
+        mockResponse(stream, {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -495,8 +662,3 @@ describe('chesscomClient', () => {
     });
   });
 });
-
-
-
-
-

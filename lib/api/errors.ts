@@ -8,20 +8,23 @@ export type ExtendedErrorCode =
   | 'ABORTED'
   | 'MALFORMED_JSON'
   | 'INVALID_SCHEMA'
-  | 'REDIRECT_DISALLOWED';
+  | 'REDIRECT_DISALLOWED'
+  | 'WRONG_CONTENT_TYPE';
 
 export class PubApiError extends Error implements UpstreamError {
   readonly code: ExtendedErrorCode;
   readonly retryable: boolean;
   readonly status?: number | undefined;
+  readonly retryAfterMs?: number | undefined;
 
-  constructor(code: ExtendedErrorCode, rawMessage: string, retryable: boolean, status?: number) {
+  constructor(code: ExtendedErrorCode, rawMessage: string, retryable: boolean, status?: number, retryAfterMs?: number) {
     const sanitizedMsg = sanitizeMessage(rawMessage);
     super(sanitizedMsg);
     this.name = 'PubApiError';
     this.code = code;
     this.retryable = retryable;
     this.status = status;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -55,9 +58,10 @@ export function createPubApiError(
   code: ExtendedErrorCode,
   message: string,
   retryable: boolean,
-  status?: number
+  status?: number,
+  retryAfterMs?: number
 ): PubApiError {
-  return new PubApiError(code, message, retryable, status);
+  return new PubApiError(code, message, retryable, status, retryAfterMs);
 }
 
 export function createTimeoutError(): PubApiError {
@@ -66,6 +70,10 @@ export function createTimeoutError(): PubApiError {
 
 export function createAbortError(): PubApiError {
   return new PubApiError('ABORTED', 'Request was cancelled by caller', false);
+}
+
+export function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw createAbortError();
 }
 
 export function createOfflineError(): PubApiError {
