@@ -1,7 +1,7 @@
 # Phase 4 Local Verification
 
 Date: 2026-08-12  
-Implementation revision: `e84658097eeccea7f811ba6e2f4047495053de5f`  
+Implementation revision verified by `npm run verify`: `87f1321`  
 Branch: `phase-4-ui-workspace-components`
 
 ## Exit-gate evidence
