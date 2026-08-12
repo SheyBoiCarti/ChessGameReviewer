@@ -26,6 +26,7 @@ export type WorkerResponse =
       parsedCount: number;
       builtCount: number;
       diagnosticsCount: number;
+      diagnosticCodes: readonly string[];
     }
   | {
       protocolVersion: typeof PROTOCOL_VERSION;

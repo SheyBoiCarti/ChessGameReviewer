@@ -19,6 +19,11 @@ describe('describeOutcome', () => {
       userScore: 0.625,
       whiteScore: 0.375,
       drawRate: 0.25,
+      userWinRate: 0.5,
+      userDrawRate: 0.25,
+      userLossRate: 0.25,
+      whiteWinRate: 0.25,
+      blackWinRate: 0.5,
       averageOpponentRating: 1500,
       missingOpponentRatings: 2,
     });
@@ -34,7 +39,14 @@ describe('describeOutcome', () => {
         blackWins: 0,
         opponentRatingSum: 0,
         opponentRatingCount: 0,
-      }).userScore
-    ).toBeNull();
+      })
+    ).toMatchObject({
+      userScore: null,
+      userWinRate: null,
+      userDrawRate: null,
+      userLossRate: null,
+      whiteWinRate: null,
+      blackWinRate: null,
+    });
   });
 });

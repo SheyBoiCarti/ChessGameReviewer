@@ -4,6 +4,7 @@ import {
   ratingTierFor,
   selectArrivalOrders,
   selectCandidateMoves,
+  selectOutcomeBreakdown,
 } from '@/features/opening-tree/selectors';
 import { PathStore } from '@/lib/chess/graph/pathStore';
 import type { PositionNode } from '@/lib/chess/graph/types';
@@ -93,5 +94,18 @@ describe('opening-tree selectors', () => {
         (move) => move.san
       )
     ).toEqual(['e4']);
+  });
+
+  it('selects user and board-colour outcome perspectives with one denominator', () => {
+    expect(selectOutcomeBreakdown(aggregate, 'user')).toEqual({
+      sampleSize: 2,
+      wins: 1,
+      draws: 0,
+      losses: 1,
+      winRate: 0.5,
+      drawRate: 0,
+      lossRate: 0.5,
+    });
+    expect(selectOutcomeBreakdown(aggregate, 'board')).toMatchObject({ wins: 1, losses: 1 });
   });
 });

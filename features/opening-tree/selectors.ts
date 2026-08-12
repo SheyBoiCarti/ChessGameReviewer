@@ -1,5 +1,6 @@
 import { describeOutcome, type DescriptiveMetrics } from '../../lib/metrics/descriptive';
 import type { PositionNode } from '../../lib/chess/graph/types';
+import type { OutcomeAggregate } from '../../lib/chess/graph/types';
 import { PathStore } from '../../lib/chess/graph/pathStore';
 import type { ParsedGame } from '../../lib/chess/pgnParser';
 
@@ -9,6 +10,35 @@ export interface CandidateMove {
   san: string;
   targetKey: string;
   metrics: DescriptiveMetrics;
+}
+
+export type OutcomePerspective = 'user' | 'board';
+export interface OutcomeBreakdown {
+  sampleSize: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  winRate: number | null;
+  drawRate: number | null;
+  lossRate: number | null;
+}
+
+export function selectOutcomeBreakdown(
+  aggregate: OutcomeAggregate,
+  perspective: OutcomePerspective
+): OutcomeBreakdown {
+  const wins = perspective === 'user' ? aggregate.userWins : aggregate.whiteWins;
+  const losses = perspective === 'user' ? aggregate.userLosses : aggregate.blackWins;
+  const denominator = aggregate.games;
+  return {
+    sampleSize: denominator,
+    wins,
+    draws: aggregate.draws,
+    losses,
+    winRate: denominator === 0 ? null : wins / denominator,
+    drawRate: denominator === 0 ? null : aggregate.draws / denominator,
+    lossRate: denominator === 0 ? null : losses / denominator,
+  };
 }
 
 export interface RatingTier {

@@ -72,7 +72,7 @@ describe('analysis data worker', () => {
         protocolVersion: 1,
         jobId: 'parse-in-worker',
         type: 'BUILD_GRAPH',
-        games: [game(), game({ id: 'bad-pgn', pgn: '1. e4 e5 2. NotAMove' })],
+        games: [game({ id: 'bad-pgn', pgn: '1. e4 e5 2. NotAMove' }), game()],
         options: { maxOpeningPlies: 30, includeRepeatedPositions: true },
         queryFingerprint: 'parse-query',
       },
@@ -82,6 +82,10 @@ describe('analysis data worker', () => {
     expect(responses.at(-1)).toMatchObject({
       type: 'COMPLETE',
       snapshot: { sourceGameCount: 2, includedGameCount: 1 },
+    });
+    expect(responses.find((response) => response.type === 'PROGRESS')).toMatchObject({
+      diagnosticsCount: 1,
+      diagnosticCodes: ['ILLEGAL_PGN'],
     });
   });
 });
