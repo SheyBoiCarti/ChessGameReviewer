@@ -41,10 +41,14 @@ export function Phase2WorkerHarness() {
     setMainThreadHeartbeat(false);
     setTimeout(() => setMainThreadHeartbeat(true), 0);
     try {
-      const result = await client.current.build(WORKER_FIXTURE_GAMES, {
-        maxOpeningPlies: 30,
-        includeRepeatedPositions: true,
-      });
+      const result = await client.current.build(
+        WORKER_FIXTURE_GAMES,
+        {
+          maxOpeningPlies: 30,
+          includeRepeatedPositions: true,
+        },
+        'phase-2-worker-harness'
+      );
       setStatus(result.status);
     } catch {
       setStatus('failed');

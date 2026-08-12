@@ -13,10 +13,24 @@ class FakeWorker extends EventTarget {
 }
 
 describe('GraphWorkerClient', () => {
+  it('rejects an ambiguous snapshot request before posting work', async () => {
+    const worker = new FakeWorker() as unknown as Worker;
+    const client = new GraphWorkerClient(worker);
+
+    await expect(
+      client.build([], { maxOpeningPlies: 30, includeRepeatedPositions: true }, '')
+    ).rejects.toThrow('MISSING_QUERY_FINGERPRINT');
+    expect((worker as unknown as FakeWorker).messages).toEqual([]);
+  });
+
   it('settles only the active job and ignores stale completion', async () => {
     const worker = new FakeWorker() as unknown as Worker;
     const client = new GraphWorkerClient(worker);
-    const build = client.build([], { maxOpeningPlies: 30, includeRepeatedPositions: true });
+    const build = client.build(
+      [],
+      { maxOpeningPlies: 30, includeRepeatedPositions: true },
+      'query'
+    );
     const request = (worker as unknown as FakeWorker).messages[0] as { jobId: string };
     (worker as unknown as FakeWorker).emit({
       protocolVersion: 1,
@@ -36,7 +50,11 @@ describe('GraphWorkerClient', () => {
   it('settles limited, cancelled, and worker-error jobs exactly once', async () => {
     const worker = new FakeWorker() as unknown as Worker;
     const client = new GraphWorkerClient(worker);
-    const limited = client.build([], { maxOpeningPlies: 30, includeRepeatedPositions: true });
+    const limited = client.build(
+      [],
+      { maxOpeningPlies: 30, includeRepeatedPositions: true },
+      'query'
+    );
     const limitedRequest = (worker as unknown as FakeWorker).messages.at(-1) as { jobId: string };
     (worker as unknown as FakeWorker).emit({
       protocolVersion: 1,
@@ -49,11 +67,19 @@ describe('GraphWorkerClient', () => {
     });
     await expect(limited).resolves.toMatchObject({ status: 'limited', reachedLimit: 'maxEdges' });
 
-    const cancelled = client.build([], { maxOpeningPlies: 30, includeRepeatedPositions: true });
+    const cancelled = client.build(
+      [],
+      { maxOpeningPlies: 30, includeRepeatedPositions: true },
+      'query'
+    );
     client.cancel();
     await expect(cancelled).rejects.toThrow('GRAPH_BUILD_CANCELLED');
 
-    const failed = client.build([], { maxOpeningPlies: 30, includeRepeatedPositions: true });
+    const failed = client.build(
+      [],
+      { maxOpeningPlies: 30, includeRepeatedPositions: true },
+      'query'
+    );
     (worker as unknown as FakeWorker).dispatchEvent(new Event('error'));
     await expect(failed).rejects.toThrow('GRAPH_WORKER_FAILED');
     client.dispose();

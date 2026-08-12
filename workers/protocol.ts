@@ -12,7 +12,7 @@ export type WorkerRequest =
       type: 'BUILD_GRAPH';
       games: readonly NormalizedGameSummary[];
       options: GraphBuildOptions;
-      queryFingerprint?: string;
+      queryFingerprint: string;
     }
   | { protocolVersion: typeof PROTOCOL_VERSION; jobId: string; type: 'CANCEL_JOB' }
   | { protocolVersion: typeof PROTOCOL_VERSION; jobId: string; type: 'DISPOSE' };
@@ -67,6 +67,8 @@ export function isWorkerRequest(value: unknown): value is WorkerRequest {
     value.type === 'BUILD_GRAPH' &&
     Array.isArray(value.games) &&
     value.games.every(isNormalizedGameSummary) &&
+    typeof value.queryFingerprint === 'string' &&
+    value.queryFingerprint.length > 0 &&
     isGraphBuildOptions(value.options)
   );
 }

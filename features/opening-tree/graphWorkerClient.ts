@@ -35,8 +35,9 @@ export class GraphWorkerClient {
   build(
     games: readonly NormalizedGameSummary[],
     options: GraphBuildOptions,
-    queryFingerprint = ''
+    queryFingerprint: string
   ): Promise<GraphBuildWorkerResult> {
+    if (!queryFingerprint) return Promise.reject(new Error('MISSING_QUERY_FINGERPRINT'));
     this.cancel();
     const jobId = crypto.randomUUID();
     this.jobId = jobId;

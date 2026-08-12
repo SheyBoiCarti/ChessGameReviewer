@@ -31,6 +31,7 @@ describe('analysis data worker', () => {
         type: 'BUILD_GRAPH',
         games: [],
         options: { maxOpeningPlies: 30, includeRepeatedPositions: true },
+        queryFingerprint: 'job-query',
       },
       (response) => responses.push(response)
     );
@@ -49,6 +50,7 @@ describe('analysis data worker', () => {
         type: 'BUILD_GRAPH',
         games: Array.from({ length: 100 }, (_, index) => game({ id: `fixture-${index}` })),
         options: { maxOpeningPlies: 30, includeRepeatedPositions: true },
+        queryFingerprint: 'cancel-query',
       },
       (response) => responses.push(response)
     );
@@ -72,6 +74,7 @@ describe('analysis data worker', () => {
         type: 'BUILD_GRAPH',
         games: [game(), game({ id: 'bad-pgn', pgn: '1. e4 e5 2. NotAMove' })],
         options: { maxOpeningPlies: 30, includeRepeatedPositions: true },
+        queryFingerprint: 'parse-query',
       },
       (response) => responses.push(response)
     );

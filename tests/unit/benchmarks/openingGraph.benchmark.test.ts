@@ -81,6 +81,7 @@ describe('opening graph recorded benchmark', () => {
         type: 'BUILD_GRAPH',
         games: rawGames,
         options: { maxOpeningPlies: 10, includeRepeatedPositions: true },
+        queryFingerprint: 'worker-benchmark',
       },
       (response) => responses.push(response)
     );

@@ -11,6 +11,7 @@ describe('analysis worker protocol validation', () => {
         type: 'BUILD_GRAPH',
         games: [],
         options: { maxOpeningPlies: 30, includeRepeatedPositions: true },
+        queryFingerprint: 'query',
       })
     ).toBe(true);
     expect(isWorkerRequest({ protocolVersion: 99, jobId: 'job-1', type: 'BUILD_GRAPH' })).toBe(
@@ -23,6 +24,7 @@ describe('analysis worker protocol validation', () => {
         type: 'BUILD_GRAPH',
         games: [],
         options: { maxOpeningPlies: 41, includeRepeatedPositions: true },
+        queryFingerprint: 'query',
       })
     ).toBe(false);
     expect(
