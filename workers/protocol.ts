@@ -3,6 +3,7 @@ import type { GraphBuildOptions } from '../lib/chess/graph/types';
 import type { SerializedOpeningGraph } from '../lib/chess/graph/serialization';
 
 export const PROTOCOL_VERSION = 1;
+export type SnapshotPersistenceNotice = 'SNAPSHOT_TOO_LARGE_TO_PERSIST';
 
 export type WorkerRequest =
   | {
@@ -11,6 +12,7 @@ export type WorkerRequest =
       type: 'BUILD_GRAPH';
       games: readonly ParsedGame[];
       options: GraphBuildOptions;
+      queryFingerprint?: string;
     }
   | { protocolVersion: typeof PROTOCOL_VERSION; jobId: string; type: 'CANCEL_JOB' }
   | { protocolVersion: typeof PROTOCOL_VERSION; jobId: string; type: 'DISPOSE' };
@@ -30,6 +32,7 @@ export type WorkerResponse =
       jobId: string;
       type: 'COMPLETE';
       snapshot: SerializedOpeningGraph;
+      persistenceNotice?: SnapshotPersistenceNotice;
     }
   | {
       protocolVersion: typeof PROTOCOL_VERSION;
@@ -39,6 +42,7 @@ export type WorkerResponse =
       reachedLimit: string;
       includedGameCount: number;
       remainingGameCount: number;
+      persistenceNotice?: SnapshotPersistenceNotice;
     }
   | { protocolVersion: typeof PROTOCOL_VERSION; jobId: string; type: 'CANCELLED' }
   | {
@@ -60,11 +64,18 @@ export function isWorkerRequest(value: unknown): value is WorkerRequest {
     return false;
   if (value.type === 'CANCEL_JOB' || value.type === 'DISPOSE') return true;
   return (
-    value.type === 'BUILD_GRAPH' &&
-    Array.isArray(value.games) &&
-    isRecord(value.options) &&
-    Number.isInteger(value.options.maxOpeningPlies) &&
-    typeof value.options.includeRepeatedPositions === 'boolean'
+    value.type === 'BUILD_GRAPH' && Array.isArray(value.games) && isGraphBuildOptions(value.options)
+  );
+}
+
+function isGraphBuildOptions(value: unknown): value is GraphBuildOptions {
+  return (
+    isRecord(value) &&
+    Number.isInteger(value.maxOpeningPlies) &&
+    typeof value.maxOpeningPlies === 'number' &&
+    value.maxOpeningPlies >= 2 &&
+    value.maxOpeningPlies <= 40 &&
+    typeof value.includeRepeatedPositions === 'boolean'
   );
 }
 

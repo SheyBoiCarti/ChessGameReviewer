@@ -20,6 +20,20 @@ export interface OpeningGraphSnapshot {
   reachedLimit?: keyof GraphBuildLimits;
 }
 
+export interface AsyncGraphBuildOptions {
+  shouldCancel?: () => boolean;
+  onProgress?: (progress: { processedGameCount: number; includedGameCount: number }) => void;
+  yieldEveryGames?: number;
+}
+
+interface BuildState {
+  positions: Map<string, PositionNode>;
+  paths: PathStore;
+  root: PositionNode | undefined;
+  edgeCount: number;
+  includedGameCount: number;
+}
+
 export class OpeningGraphBuilder {
   private readonly options: GraphBuildOptions;
   private readonly limits: GraphBuildLimits;
@@ -37,82 +51,104 @@ export class OpeningGraphBuilder {
   }
 
   build(games: readonly ParsedGame[]): OpeningGraphSnapshot {
-    const positions = new Map<string, PositionNode>();
-    const paths = new PathStore();
-    let root: PositionNode | undefined;
-    let edgeCount = 0;
-    let includedGameCount = 0;
+    const state = createBuildState();
 
     for (let gameIndex = 0; gameIndex < games.length; gameIndex += 1) {
-      const game = games[gameIndex];
-      if (!game || game.plies.length === 0) continue;
-      const firstPly = game.plies[0];
-      if (!firstPly || !isContinuous(game)) continue;
-      if (!root) {
-        root = createNode(firstPly.positionBefore);
-        positions.set(root.key, root);
-      }
-      if (firstPly.positionBefore !== root.key) continue;
-
-      const plies = game.plies.slice(0, this.options.maxOpeningPlies);
-      const additions = countAdditions(plies, positions, paths, root.key);
-      const limit = this.exceedsLimit(positions.size, edgeCount, paths.size, additions);
-      if (limit) {
-        return {
-          status: 'limited',
-          root,
-          positions,
-          paths,
-          includedGameCount,
-          remainingGameCount: games.length - includedGameCount,
-          reachedLimit: limit,
-        };
-      }
-
-      const visit = {
-        result: game.result,
-        userColor: game.userColor,
-        opponentRating: game.opponentRating,
-      };
-      addVisit(root.aggregate, visit);
-      const visitedPositions = new Set<string>([root.key]);
-      let source = root;
-      let pathId = 0;
-      for (const ply of plies) {
-        const target =
-          positions.get(ply.positionAfter) ?? createAndStore(positions, ply.positionAfter);
-        let edge = source.outgoing.get(ply.uci);
-        if (!edge) {
-          edge = { uci: ply.uci, san: ply.san, targetKey: target.key, aggregate: emptyOutcome() };
-          source.outgoing.set(ply.uci, edge);
-          edgeCount += 1;
-        }
-        if (edge.targetKey !== target.key || edge.san !== ply.san)
-          throw new Error('INCONSISTENT_EDGE');
-        pathId = paths.intern(pathId, ply.uci, ply.san);
-        addVisit(edge.aggregate, visit);
-        const firstVisit = !visitedPositions.has(target.key);
-        if (this.options.includeRepeatedPositions || firstVisit) {
-          addVisit(target.aggregate, visit);
-          const arrival = target.arrivalsByPath.get(pathId) ?? emptyOutcome();
-          addVisit(arrival, visit);
-          target.arrivalsByPath.set(pathId, arrival);
-          visitedPositions.add(target.key);
-        }
-        source = target;
-      }
-      includedGameCount += 1;
+      const limit = this.addGame(state, games[gameIndex]);
+      if (limit)
+        return snapshotFor(state, 'limited', games.length - state.includedGameCount, limit);
     }
 
-    const fallbackRoot = root ?? createNode('');
-    return {
-      status: 'complete',
-      root: fallbackRoot,
-      positions,
-      paths,
-      includedGameCount,
-      remainingGameCount: 0,
+    return snapshotFor(state, 'complete', 0);
+  }
+
+  async buildAsync(
+    games: readonly ParsedGame[],
+    runtime: AsyncGraphBuildOptions = {}
+  ): Promise<OpeningGraphSnapshot | undefined> {
+    const state = createBuildState();
+    const yieldEveryGames = runtime.yieldEveryGames ?? 25;
+    if (!Number.isInteger(yieldEveryGames) || yieldEveryGames < 1) {
+      throw new RangeError('INVALID_YIELD_INTERVAL');
+    }
+
+    for (let gameIndex = 0; gameIndex < games.length; gameIndex += 1) {
+      if (runtime.shouldCancel?.()) return undefined;
+      const limit = this.addGame(state, games[gameIndex]);
+      runtime.onProgress?.({
+        processedGameCount: gameIndex + 1,
+        includedGameCount: state.includedGameCount,
+      });
+      if (limit)
+        return snapshotFor(state, 'limited', games.length - state.includedGameCount, limit);
+      if ((gameIndex + 1) % yieldEveryGames === 0) {
+        await yieldToWorkerEventLoop();
+        if (runtime.shouldCancel?.()) return undefined;
+      }
+    }
+
+    return runtime.shouldCancel?.() ? undefined : snapshotFor(state, 'complete', 0);
+  }
+
+  private addGame(
+    state: BuildState,
+    game: ParsedGame | undefined
+  ): keyof GraphBuildLimits | undefined {
+    if (!game || game.plies.length === 0 || !isContinuous(game)) return undefined;
+    const firstPly = game.plies[0];
+    if (!firstPly) return undefined;
+    if (state.root && firstPly.positionBefore !== state.root.key) return undefined;
+    if (!hasConsistentExistingEdges(game, state.positions)) return undefined;
+    if (!state.root) {
+      state.root = createNode(firstPly.positionBefore);
+      state.positions.set(state.root.key, state.root);
+    }
+
+    const plies = game.plies.slice(0, this.options.maxOpeningPlies);
+    const additions = countAdditions(plies, state.positions, state.paths, state.root.key);
+    const limit = this.exceedsLimit(
+      state.positions.size,
+      state.edgeCount,
+      state.paths.size,
+      additions
+    );
+    if (limit) return limit;
+
+    const visit = {
+      result: game.result,
+      userColor: game.userColor,
+      opponentRating: game.opponentRating,
     };
+    addVisit(state.root.aggregate, visit);
+    const visitedPositions = new Set<string>([state.root.key]);
+    let source = state.root;
+    let pathId = 0;
+    for (const ply of plies) {
+      const target =
+        state.positions.get(ply.positionAfter) ??
+        createAndStore(state.positions, ply.positionAfter);
+      let edge = source.outgoing.get(ply.uci);
+      if (!edge) {
+        edge = { uci: ply.uci, san: ply.san, targetKey: target.key, aggregate: emptyOutcome() };
+        source.outgoing.set(ply.uci, edge);
+        state.edgeCount += 1;
+      }
+      if (edge.targetKey !== target.key || edge.san !== ply.san)
+        throw new Error('INCONSISTENT_EDGE');
+      pathId = state.paths.intern(pathId, ply.uci, ply.san);
+      addVisit(edge.aggregate, visit);
+      const firstVisit = !visitedPositions.has(target.key);
+      if (this.options.includeRepeatedPositions || firstVisit) {
+        addVisit(target.aggregate, visit);
+        const arrival = target.arrivalsByPath.get(pathId) ?? emptyOutcome();
+        addVisit(arrival, visit);
+        target.arrivalsByPath.set(pathId, arrival);
+        visitedPositions.add(target.key);
+      }
+      source = target;
+    }
+    state.includedGameCount += 1;
+    return undefined;
   }
 
   private exceedsLimit(
@@ -128,6 +164,37 @@ export class OpeningGraphBuilder {
   }
 }
 
+function createBuildState(): BuildState {
+  return {
+    positions: new Map(),
+    paths: new PathStore(),
+    root: undefined,
+    edgeCount: 0,
+    includedGameCount: 0,
+  };
+}
+
+function snapshotFor(
+  state: BuildState,
+  status: OpeningGraphSnapshot['status'],
+  remainingGameCount: number,
+  reachedLimit?: keyof GraphBuildLimits
+): OpeningGraphSnapshot {
+  return {
+    status,
+    root: state.root ?? createNode(''),
+    positions: state.positions,
+    paths: state.paths,
+    includedGameCount: state.includedGameCount,
+    remainingGameCount,
+    ...(reachedLimit ? { reachedLimit } : {}),
+  };
+}
+
+function yieldToWorkerEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function createNode(key: string): PositionNode {
   return { key, aggregate: emptyOutcome(), outgoing: new Map(), arrivalsByPath: new Map() };
 }
@@ -140,8 +207,21 @@ function createAndStore(positions: Map<string, PositionNode>, key: string): Posi
 
 function isContinuous(game: ParsedGame): boolean {
   return game.plies.every(
-    (ply, index) => index === 0 || ply.fenBefore === game.plies[index - 1]?.fenAfter
+    (ply, index) =>
+      index === 0 ||
+      (ply.fenBefore === game.plies[index - 1]?.fenAfter &&
+        ply.positionBefore === game.plies[index - 1]?.positionAfter)
   );
+}
+
+function hasConsistentExistingEdges(
+  game: ParsedGame,
+  positions: ReadonlyMap<string, PositionNode>
+): boolean {
+  return game.plies.every((ply) => {
+    const edge = positions.get(ply.positionBefore)?.outgoing.get(ply.uci);
+    return !edge || (edge.targetKey === ply.positionAfter && edge.san === ply.san);
+  });
 }
 
 function countAdditions(

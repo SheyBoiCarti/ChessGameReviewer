@@ -1,16 +1,25 @@
 import type { ParsedGame } from '../../lib/chess/pgnParser';
 import type { SerializedOpeningGraph } from '../../lib/chess/graph/serialization';
 import type { GraphBuildOptions } from '../../lib/chess/graph/types';
-import { PROTOCOL_VERSION, type WorkerResponse } from '../../workers/protocol';
+import {
+  PROTOCOL_VERSION,
+  type SnapshotPersistenceNotice,
+  type WorkerResponse,
+} from '../../workers/protocol';
 
 export type GraphBuildWorkerResult =
-  | { status: 'complete'; snapshot: SerializedOpeningGraph }
+  | {
+      status: 'complete';
+      snapshot: SerializedOpeningGraph;
+      persistenceNotice?: SnapshotPersistenceNotice;
+    }
   | {
       status: 'limited';
       snapshot: SerializedOpeningGraph;
       reachedLimit: string;
       includedGameCount: number;
       remainingGameCount: number;
+      persistenceNotice?: SnapshotPersistenceNotice;
     };
 
 export class GraphWorkerClient {
@@ -23,7 +32,11 @@ export class GraphWorkerClient {
     worker.addEventListener('error', this.onError);
   }
 
-  build(games: readonly ParsedGame[], options: GraphBuildOptions): Promise<GraphBuildWorkerResult> {
+  build(
+    games: readonly ParsedGame[],
+    options: GraphBuildOptions,
+    queryFingerprint = ''
+  ): Promise<GraphBuildWorkerResult> {
     this.cancel();
     const jobId = crypto.randomUUID();
     this.jobId = jobId;
@@ -36,6 +49,7 @@ export class GraphWorkerClient {
         type: 'BUILD_GRAPH',
         games,
         options,
+        queryFingerprint,
       });
     });
   }
@@ -62,7 +76,11 @@ export class GraphWorkerClient {
     const response = event.data;
     if (response.protocolVersion !== PROTOCOL_VERSION || response.jobId !== this.jobId) return;
     if (response.type === 'COMPLETE')
-      this.finish({ status: 'complete', snapshot: response.snapshot });
+      this.finish({
+        status: 'complete',
+        snapshot: response.snapshot,
+        ...(response.persistenceNotice ? { persistenceNotice: response.persistenceNotice } : {}),
+      });
     if (response.type === 'LIMITED')
       this.finish({
         status: 'limited',
@@ -70,6 +88,7 @@ export class GraphWorkerClient {
         reachedLimit: response.reachedLimit,
         includedGameCount: response.includedGameCount,
         remainingGameCount: response.remainingGameCount,
+        ...(response.persistenceNotice ? { persistenceNotice: response.persistenceNotice } : {}),
       });
     if (response.type === 'CANCELLED') this.fail(new Error('GRAPH_BUILD_CANCELLED'));
     if (response.type === 'FAILED') this.fail(new Error(`${response.code}: ${response.message}`));

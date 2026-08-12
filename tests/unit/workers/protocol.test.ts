@@ -17,6 +17,15 @@ describe('analysis worker protocol validation', () => {
       false
     );
     expect(
+      isWorkerRequest({
+        protocolVersion: PROTOCOL_VERSION,
+        jobId: 'job-1',
+        type: 'BUILD_GRAPH',
+        games: [],
+        options: { maxOpeningPlies: 41, includeRepeatedPositions: true },
+      })
+    ).toBe(false);
+    expect(
       isWorkerRequest({ protocolVersion: PROTOCOL_VERSION, jobId: '', type: 'CANCEL_JOB' })
     ).toBe(false);
   });

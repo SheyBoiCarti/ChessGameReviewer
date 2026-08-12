@@ -1,10 +1,31 @@
 import { describe, expect, it } from 'vitest';
 
-import { deserializeOpeningGraph, serializeOpeningGraph } from '@/lib/chess/graph/serialization';
+import {
+  deserializeOpeningGraph,
+  serializeOpeningGraph,
+  serializedGraphByteSize,
+  snapshotPersistenceNotice,
+} from '@/lib/chess/graph/serialization';
 import { OpeningGraphBuilder } from '@/lib/chess/graph/openingGraph';
 import { parseGamePgn } from '@/lib/chess/pgnParser';
 
 describe('opening graph serialization', () => {
+  it('reports snapshots that are too large to persist without discarding them', () => {
+    const snapshot = {
+      formatVersion: 1,
+      queryFingerprint: 'query',
+      sourceGameCount: 0,
+      buildTimestamp: 0,
+      status: 'complete' as const,
+      rootKey: 'root',
+      includedGameCount: 0,
+      remainingGameCount: 0,
+      positions: [],
+      paths: [{ id: 0, parentId: null, uci: null, san: null, ply: 0 }],
+    };
+    expect(serializedGraphByteSize(snapshot)).toBeGreaterThan(1);
+    expect(snapshotPersistenceNotice(snapshot, 1)).toBe('SNAPSHOT_TOO_LARGE_TO_PERSIST');
+  });
   it('round-trips a graph with deterministic position, edge, and path ordering', () => {
     const parsed = parseGamePgn({
       game: {

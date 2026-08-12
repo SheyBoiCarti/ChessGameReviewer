@@ -3,6 +3,7 @@ import type { OpeningGraphSnapshot } from './openingGraph';
 import type { MoveEdge, OutcomeAggregate, PathNode, PositionNode } from './types';
 
 export const GRAPH_FORMAT_VERSION = 1;
+export const MAX_SERIALIZED_GRAPH_BYTES = 64 * 1024 * 1024;
 export interface SerializedOpeningGraph {
   formatVersion: number;
   queryFingerprint: string;
@@ -20,6 +21,17 @@ export interface SerializedOpeningGraph {
     arrivalsByPath: Array<[number, OutcomeAggregate]>;
   }>;
   paths: PathNode[];
+}
+
+export function serializedGraphByteSize(snapshot: SerializedOpeningGraph): number {
+  return new TextEncoder().encode(JSON.stringify(snapshot)).byteLength;
+}
+
+export function snapshotPersistenceNotice(
+  snapshot: SerializedOpeningGraph,
+  maxBytes = MAX_SERIALIZED_GRAPH_BYTES
+): 'SNAPSHOT_TOO_LARGE_TO_PERSIST' | undefined {
+  return serializedGraphByteSize(snapshot) > maxBytes ? 'SNAPSHOT_TOO_LARGE_TO_PERSIST' : undefined;
 }
 
 export function serializeOpeningGraph(

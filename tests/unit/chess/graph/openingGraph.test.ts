@@ -52,6 +52,19 @@ describe('OpeningGraphBuilder', () => {
     expect(graph.positions.size).toBe(0);
   });
 
+  it('rejects an inconsistent existing edge before mutating any aggregate', () => {
+    const valid = parse('valid-edge', '1. e4 e5 1-0');
+    const corrupt: typeof valid = {
+      ...valid,
+      id: 'corrupt-edge',
+      plies: valid.plies.map((ply, index) => (index === 0 ? { ...ply, san: 'e4!' } : ply)),
+    };
+    const graph = new OpeningGraphBuilder({ maxOpeningPlies: 2 }).build([valid, corrupt]);
+
+    expect(graph.includedGameCount).toBe(1);
+    expect(graph.root.aggregate.games).toBe(1);
+  });
+
   it('can exclude repeated position visits from a single game', () => {
     const game = parse('repeat', '1. Nf3 Nf6 2. Ng1 Ng8 1/2-1/2');
     const withRepeats = new OpeningGraphBuilder({
