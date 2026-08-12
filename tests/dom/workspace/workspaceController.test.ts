@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { GameQuery } from '@/lib/api/contracts';
 import type { GameRecord } from '@/lib/db/schema';
@@ -112,6 +112,115 @@ describe('workspace controller', () => {
     expect(controller.getState().graph.snapshot).toBeNull();
     expect(controller.getState().selection.gameId).toBeNull();
   });
+
+  it('cancels and ignores selected-game analysis after the game selection changes', async () => {
+    const pending = deferred<Awaited<ReturnType<WorkspaceServices['analysis']['analyze']>>>();
+    const services = createServices(async () => result(secondQuery, [game]));
+    services.analysis.analyze = (_game, _strength, _capability, signal) => {
+      expect(signal.aborted).toBe(false);
+      return pending.promise;
+    };
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    controller.selectGame(game.id);
+    await controller.probeEngine();
+
+    const analysis = controller.startAnalysis('quick');
+    controller.selectGame(null);
+    pending.resolve({
+      status: 'complete',
+      annotations: [],
+      analyzedPlies: 0,
+      totalPlies: 0,
+      summary: {
+        white: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0 },
+        black: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0 },
+      },
+    });
+    await analysis;
+
+    expect(controller.getState().selection.gameId).toBeNull();
+    expect(controller.getState().analysis.result).toBeNull();
+  });
+
+  it('runs analysis progress, cancellation, navigation, clearing, and engine fallback paths', async () => {
+    const services = createServices(async () => result(secondQuery, [game]));
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery, { manualRefresh: true });
+    controller.selectGame(game.id);
+    controller.navigateGraph('position', 2);
+    controller.selectPly(1);
+    await controller.probeEngine();
+    services.analysis.analyze = async (_game, _strength, _capability, _signal, progress) => {
+      progress({ analyzedPlies: 1, totalPlies: 2 });
+      return {
+        status: 'partial',
+        annotations: [],
+        analyzedPlies: 1,
+        totalPlies: 2,
+        summary: {
+          white: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0 },
+          black: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0 },
+        },
+      };
+    };
+
+    await controller.startAnalysis('deep');
+    expect(controller.getState().analysis).toMatchObject({
+      status: 'partial',
+      progress: { analyzedPlies: 1, totalPlies: 2 },
+    });
+    controller.cancelAnalysis();
+    expect(controller.getState().analysis.status).toBe('cancelled');
+    await controller.clearAllData();
+    expect(controller.getState().query.active).toBeNull();
+
+    services.engine.initialize = vi.fn(async () => {
+      throw new Error('Engine blocked');
+    });
+    await controller.probeEngine();
+    expect(controller.getState().analysis).toMatchObject({
+      status: 'unavailable',
+      error: 'Engine blocked',
+    });
+  });
+
+  it('exposes typed ingestion, graph, and analysis failures', async () => {
+    const ingestionServices = createServices(async () => {
+      throw new Error('Network failed');
+    });
+    const ingestionController = createWorkspaceController(ingestionServices);
+    await ingestionController.submitQuery(firstQuery);
+    expect(ingestionController.getState().ingestion).toMatchObject({
+      status: 'failed',
+      error: 'Network failed',
+    });
+
+    const graphServices = createServices(async () => result(secondQuery, [game]));
+    graphServices.graph.build = vi.fn(async () => {
+      throw new Error('Graph failed');
+    });
+    const graphController = createWorkspaceController(graphServices);
+    await graphController.submitQuery(secondQuery);
+    expect(graphController.getState().graph).toMatchObject({
+      status: 'failed',
+      error: 'Graph failed',
+    });
+
+    const analysisServices = createServices(async () => result(secondQuery, [game]));
+    analysisServices.analysis.analyze = vi.fn(async () => {
+      throw new Error('Analysis failed');
+    });
+    const analysisController = createWorkspaceController(analysisServices);
+    await analysisController.submitQuery(secondQuery);
+    analysisController.selectGame(game.id);
+    await analysisController.probeEngine();
+    await analysisController.startAnalysis();
+    expect(analysisController.getState().analysis).toMatchObject({
+      status: 'failed',
+      error: 'Analysis failed',
+    });
+  });
 });
 
 function createServices(
@@ -152,13 +261,12 @@ function createServices(
     },
     engine: {
       initialize: async () => ({
-        mode: 'unavailable',
+        mode: 'single-thread',
         crossOriginIsolated: false,
         sharedArrayBuffer: false,
         simd: false,
-        engineInitialized: false,
-        reason: 'Test engine unavailable.',
-        threads: 0,
+        engineInitialized: true,
+        threads: 1,
         hashMb: 16,
       }),
       dispose: () => {
@@ -173,6 +281,19 @@ function createServices(
         graphSnapshotsDeleted: 1,
       }),
       clearAll: async () => ({ clearedStores: ['games'] }),
+      dispose: () => undefined,
+    },
+    analysis: {
+      analyze: async () => ({
+        status: 'complete',
+        annotations: [],
+        analyzedPlies: 0,
+        totalPlies: 0,
+        summary: {
+          white: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0 },
+          black: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0 },
+        },
+      }),
     },
   };
 }

@@ -20,6 +20,24 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+    },
+    {
+      name: 'mobile-chromium',
+      testMatch: /workspace-(accessibility|responsive)\.spec\.ts/,
+      use: { ...devices['Pixel 7'] },
+    },
+    {
+      name: 'tablet-chromium',
+      testMatch: /workspace-(accessibility|responsive)\.spec\.ts/,
+      use: { ...devices['iPad (gen 7)'] },
+    },
   ],
   ...(externalBaseUrl
     ? {}

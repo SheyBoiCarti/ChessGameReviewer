@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createGraphNavigation,
+  navigateBack,
   navigateCandidate,
   navigateToHistoryIndex,
   navigationBreadcrumbs,
@@ -29,6 +30,21 @@ describe('opening graph navigation', () => {
   it('labels user and board outcome perspectives independently', () => {
     expect(perspectiveLabels('user')).toEqual(['User win', 'Draw', 'User loss']);
     expect(perspectiveLabels('board')).toEqual(['White win', 'Draw', 'Black win']);
+  });
+
+  it('rejects unknown positions, paths, and invalid history indexes', () => {
+    const graph = transpositionGraph();
+    const state = createGraphNavigation(graph);
+    expect(() => navigateCandidate(graph, state, move('a2a3', 'a3', 'missing-position'))).toThrow(
+      'UNKNOWN_GRAPH_POSITION'
+    );
+    expect(() => navigateCandidate(graph, state, move('a2a3', 'a3', 'after-e4'))).toThrow(
+      'UNKNOWN_GRAPH_PATH'
+    );
+    expect(() => navigateToHistoryIndex(state, -1)).toThrow('INVALID_GRAPH_HISTORY_INDEX');
+    expect(() => navigateToHistoryIndex(state, 0.5)).toThrow('INVALID_GRAPH_HISTORY_INDEX');
+    expect(() => navigateToHistoryIndex(state, 1)).toThrow('INVALID_GRAPH_HISTORY_INDEX');
+    expect(navigateBack(state)).toEqual(state);
   });
 });
 

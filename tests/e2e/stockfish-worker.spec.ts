@@ -2,7 +2,9 @@ import { expect, test } from '@playwright/test';
 
 test('initializes and evaluates with the preferred Stockfish engine when isolation is available', async ({
   page,
+  browserName,
 }) => {
+  test.skip(browserName !== 'chromium', 'Pinned engine smoke coverage runs in Chromium.');
   test.setTimeout(45_000);
   const errors: string[] = [];
   page.on('console', (message) => {
@@ -21,7 +23,9 @@ test('initializes and evaluates with the preferred Stockfish engine when isolati
 
 test('initializes the pinned single-thread Stockfish worker as a forced fallback', async ({
   page,
+  browserName,
 }) => {
+  test.skip(browserName !== 'chromium', 'Pinned engine smoke coverage runs in Chromium.');
   test.setTimeout(45_000);
   const errors: string[] = [];
   page.on('console', (message) => {

@@ -70,4 +70,20 @@ describe('ChessboardView', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/position is invalid/i);
     expect(screen.getByRole('button', { name: /return to start/i })).toBeInTheDocument();
   });
+
+  it('draws a labelled principal-variation arrow without changing board semantics', () => {
+    render(
+      <ChessboardView
+        fen="8/8/8/8/8/8/4P3/K6k w - - 0 1"
+        orientation="white"
+        currentPly={0}
+        totalPlies={0}
+        onPlyChange={vi.fn()}
+        pvArrow={{ from: 'e2', to: 'e4' }}
+      />
+    );
+
+    expect(screen.getByLabelText('Principal variation e2 to e4')).toBeInTheDocument();
+    expect(screen.getAllByRole('gridcell')).toHaveLength(64);
+  });
 });

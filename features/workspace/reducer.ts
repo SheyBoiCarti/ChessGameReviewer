@@ -94,7 +94,19 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
     case 'graph/failed':
       return { ...state, graph: { status: 'failed', snapshot: null, error: action.error } };
     case 'selection/game':
-      return { ...state, selection: { ...state.selection, gameId: action.gameId, ply: 0 } };
+      return {
+        ...state,
+        selection: { ...state.selection, gameId: action.gameId, ply: 0 },
+        analysis: {
+          ...idleAnalysis,
+          capability: state.analysis.capability,
+          status: state.analysis.capability?.mode === 'unavailable' ? 'unavailable' : 'idle',
+          error:
+            state.analysis.capability?.mode === 'unavailable'
+              ? (state.analysis.capability.reason ?? null)
+              : null,
+        },
+      };
     case 'selection/position':
       return {
         ...state,
@@ -141,6 +153,11 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           result: action.result,
           error: action.result.error ?? null,
         },
+      };
+    case 'analysis/cancelled':
+      return {
+        ...state,
+        analysis: { ...state.analysis, status: 'cancelled', error: null },
       };
     case 'analysis/failed':
       return { ...state, analysis: { ...state.analysis, status: 'failed', error: action.error } };

@@ -42,4 +42,17 @@ describe('LocalDataSettings', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/storage is unavailable/i);
   });
+
+  it('traps focus, closes with Escape, and restores the trigger', async () => {
+    const user = userEvent.setup();
+    render(<LocalDataSettings users={[]} onDeleteUsername={vi.fn()} onClearAll={vi.fn()} />);
+
+    const trigger = screen.getByRole('button', { name: /clear all local data/i });
+    await user.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: /delete local data/i });
+    expect(dialog).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(dialog).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
 });

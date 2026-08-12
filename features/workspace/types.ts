@@ -88,6 +88,7 @@ export type WorkspaceAction =
       progress: { analyzedPlies: number; totalPlies: number };
     }
   | { type: 'analysis/terminal'; token: number; result: GameAnalysisResult }
+  | { type: 'analysis/cancelled'; token: number }
   | { type: 'analysis/failed'; token: number; error: string }
   | { type: 'preferences/changed'; preferences: Partial<WorkspacePreferences> }
   | { type: 'data/userDeleted'; username: string }

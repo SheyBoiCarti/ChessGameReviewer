@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 
 interface StoredUserSummary {
   username: string;
@@ -20,6 +20,37 @@ export function LocalDataSettings({
 }) {
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [message, setMessage] = useState<{ kind: 'status' | 'alert'; text: string } | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (confirmation) dialogRef.current?.focus();
+  }, [confirmation]);
+
+  const closeConfirmation = () => {
+    setConfirmation(null);
+    queueMicrotask(() => triggerRef.current?.focus());
+  };
+
+  const dialogKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeConfirmation();
+      return;
+    }
+    if (event.key !== 'Tab' || !dialogRef.current) return;
+    const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>('button')];
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   const confirm = async () => {
     if (!confirmation) return;
@@ -60,7 +91,10 @@ export function LocalDataSettings({
               </span>
               <button
                 type="button"
-                onClick={() => setConfirmation({ kind: 'user', username: user.username })}
+                onClick={(event) => {
+                  triggerRef.current = event.currentTarget;
+                  setConfirmation({ kind: 'user', username: user.username });
+                }}
               >
                 Delete {user.username} data
               </button>
@@ -70,18 +104,32 @@ export function LocalDataSettings({
       ) : (
         <p>No stored usernames were found.</p>
       )}
-      <button type="button" onClick={() => setConfirmation({ kind: 'all' })}>
+      <button
+        type="button"
+        onClick={(event) => {
+          triggerRef.current = event.currentTarget;
+          setConfirmation({ kind: 'all' });
+        }}
+      >
         Clear all local data
       </button>
       {message ? <p role={message.kind}>{message.text}</p> : null}
       {confirmation ? (
-        <div role="dialog" aria-modal="true" aria-labelledby="delete-data-title">
+        <div
+          className="modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-data-title"
+          ref={dialogRef}
+          tabIndex={-1}
+          onKeyDown={dialogKeyDown}
+        >
           <h4 id="delete-data-title">Delete local data?</h4>
           <p>This removes games and analysis from this device and cannot be undone.</p>
           <button type="button" onClick={() => void confirm()}>
             {confirmation.kind === 'all' ? 'Confirm clear all' : 'Confirm delete'}
           </button>
-          <button type="button" onClick={() => setConfirmation(null)}>
+          <button type="button" onClick={closeConfirmation}>
             Keep data
           </button>
         </div>

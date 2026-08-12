@@ -23,6 +23,14 @@ describe('normalizeEvaluationBar', () => {
       whitePercent: 0,
       text: 'Black has mate in 3',
     });
+    expect(normalizeEvaluationBar({ kind: 'mate', value: 2 })).toMatchObject({
+      whitePercent: 100,
+      text: 'White has mate in 2',
+    });
+    expect(normalizeEvaluationBar({ kind: 'mate', value: 0 })).toMatchObject({
+      whitePercent: 50,
+      text: 'White has mate in 0',
+    });
   });
 
   it.each([undefined, { kind: 'cp', value: Number.POSITIVE_INFINITY } as const])(

@@ -2,7 +2,10 @@ import type { GameQuery, NormalizedGameSummary } from '@/lib/api/contracts';
 import type { GraphBuildOptions } from '@/lib/chess/graph/types';
 import type { EngineCapability } from '@/lib/engine/capabilities';
 import type { ClearAllResult, DeletionResult } from '@/lib/db/deleteLocalData';
+import type { GameRecord } from '@/lib/db/schema';
 
+import type { GameAnalysisResult } from '../stockfish-analysis/analyzeGame';
+import type { AnalysisStrength } from './types';
 import type { GraphBuildWorkerResult } from '../opening-tree/graphWorkerClient';
 import type { IngestionProgress, IngestionResult } from '../ingestion/types';
 import { initialWorkspaceState, reduceWorkspace } from './reducer';
@@ -34,6 +37,16 @@ export interface WorkspaceServices {
   data: {
     deleteUsername(username: string): Promise<DeletionResult>;
     clearAll(): Promise<ClearAllResult>;
+    dispose(): void;
+  };
+  analysis: {
+    analyze(
+      game: GameRecord,
+      strength: AnalysisStrength,
+      capability: EngineCapability,
+      signal: AbortSignal,
+      onProgress: (progress: { analyzedPlies: number; totalPlies: number }) => void
+    ): Promise<GameAnalysisResult>;
   };
 }
 
@@ -46,6 +59,8 @@ export interface WorkspaceController {
   selectGame(gameId: string | null): void;
   navigateGraph(positionKey: string, pathId: number | null): void;
   selectPly(ply: number): void;
+  startAnalysis(strength?: AnalysisStrength): Promise<void>;
+  cancelAnalysis(): void;
   deleteUserData(username: string): Promise<DeletionResult>;
   clearAllData(): Promise<ClearAllResult>;
   dispatch(action: WorkspaceAction): void;
@@ -56,6 +71,8 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
   let state = initialWorkspaceState;
   let nextToken = 0;
   let disposed = false;
+  let analysisSequence = 0;
+  let analysisController: AbortController | null = null;
   const listeners = new Set<() => void>();
 
   const dispatch = (action: WorkspaceAction): void => {
@@ -126,6 +143,9 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
       }
     },
     selectGame(gameId) {
+      analysisSequence += 1;
+      analysisController?.abort();
+      analysisController = null;
       dispatch({ type: 'selection/game', gameId });
     },
     navigateGraph(positionKey, pathId) {
@@ -133,6 +153,48 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
     },
     selectPly(ply) {
       dispatch({ type: 'selection/ply', ply });
+    },
+    async startAnalysis(strength = state.preferences.analysisStrength) {
+      const game = state.ingestion.result?.games.find(({ id }) => id === state.selection.gameId);
+      const capability = state.analysis.capability;
+      if (!game || !capability || capability.mode === 'unavailable') return;
+      const sequence = ++analysisSequence;
+      analysisController?.abort();
+      analysisController = new AbortController();
+      const token = state.query.token;
+      dispatch({ type: 'analysis/started', token });
+      try {
+        const result = await services.analysis.analyze(
+          game,
+          strength,
+          capability,
+          analysisController.signal,
+          (progress) => {
+            if (sequence === analysisSequence) {
+              dispatch({ type: 'analysis/progress', token, progress });
+            }
+          }
+        );
+        if (sequence === analysisSequence) {
+          dispatch({ type: 'analysis/terminal', token, result });
+        }
+      } catch (error) {
+        if (sequence === analysisSequence) {
+          dispatch({
+            type: 'analysis/failed',
+            token,
+            error: error instanceof Error ? error.message : 'Game analysis failed.',
+          });
+        }
+      } finally {
+        if (sequence === analysisSequence) analysisController = null;
+      }
+    },
+    cancelAnalysis() {
+      analysisSequence += 1;
+      analysisController?.abort();
+      analysisController = null;
+      dispatch({ type: 'analysis/cancelled', token: state.query.token });
     },
     async deleteUserData(username) {
       const normalized = username.toLowerCase();
@@ -149,9 +211,11 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
     dispose() {
       if (disposed) return;
       services.ingestion.cancel();
+      analysisController?.abort();
       services.graph.cancel();
       services.graph.dispose();
       services.engine.dispose();
+      services.data.dispose();
       listeners.clear();
       disposed = true;
     },

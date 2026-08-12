@@ -101,4 +101,93 @@ describe('workspace reducer', () => {
     expect(stale).toBe(current);
     expect(stale.ingestion.status).toBe('loading');
   });
+
+  it('covers graph, selection, preference, and data lifecycle transitions', () => {
+    const snapshot = { rootKey: 'root', formatVersion: 1 } as never;
+    let state = reduceWorkspace(initialWorkspaceState, { type: 'query/draftChanged', query });
+    state = reduceWorkspace(state, { type: 'query/started', query, token: 4 });
+    state = reduceWorkspace(state, {
+      type: 'ingestion/progress',
+      token: 4,
+      progress: { jobId: 'job', phase: 'fetching' } as never,
+    });
+    state = reduceWorkspace(state, { type: 'graph/started', token: 4 });
+    state = reduceWorkspace(state, {
+      type: 'graph/terminal',
+      token: 4,
+      status: 'limited',
+      snapshot,
+    });
+    state = reduceWorkspace(state, { type: 'selection/position', positionKey: 'next', pathId: 9 });
+    state = reduceWorkspace(state, { type: 'selection/ply', ply: -3 });
+    state = reduceWorkspace(state, {
+      type: 'preferences/changed',
+      preferences: { theme: 'dark' },
+    });
+
+    expect(state.graph.status).toBe('limited');
+    expect(state.selection).toMatchObject({ positionKey: 'next', pathId: 9, ply: 0 });
+    expect(state.preferences.theme).toBe('dark');
+    expect(reduceWorkspace(state, { type: 'data/userDeleted', username: 'someone-else' })).toBe(
+      state
+    );
+    expect(reduceWorkspace(state, { type: 'data/allCleared' }).query.active).toBeNull();
+    expect(
+      reduceWorkspace(state, { type: 'graph/failed', token: 4, error: 'graph failed' }).graph.status
+    ).toBe('failed');
+    expect(
+      reduceWorkspace(state, { type: 'ingestion/failed', token: 4, error: 'load failed' }).ingestion
+        .status
+    ).toBe('failed');
+  });
+
+  it('covers available and unavailable analysis transitions', () => {
+    const available = {
+      mode: 'single-thread' as const,
+      crossOriginIsolated: false,
+      sharedArrayBuffer: false,
+      simd: true,
+      engineInitialized: true,
+      threads: 1,
+      hashMb: 16,
+    };
+    const unavailable = {
+      ...available,
+      mode: 'unavailable' as const,
+      engineInitialized: false,
+      threads: 0,
+      reason: 'blocked',
+    };
+    let state = reduceWorkspace(initialWorkspaceState, { type: 'analysis/probing' });
+    state = reduceWorkspace(state, { type: 'analysis/capability', capability: available });
+    state = reduceWorkspace(state, { type: 'selection/game', gameId: 'game-1' });
+    state = reduceWorkspace(state, { type: 'analysis/started', token: 0 });
+    state = reduceWorkspace(state, {
+      type: 'analysis/progress',
+      token: 0,
+      progress: { analyzedPlies: 1, totalPlies: 2 },
+    });
+    state = reduceWorkspace(state, {
+      type: 'analysis/terminal',
+      token: 0,
+      result: {
+        status: 'complete',
+        annotations: [],
+        analyzedPlies: 0,
+        totalPlies: 0,
+        summary: { white: {}, black: {} },
+      } as never,
+    });
+    expect(state.analysis.status).toBe('complete');
+    expect(reduceWorkspace(state, { type: 'analysis/cancelled', token: 0 }).analysis.status).toBe(
+      'cancelled'
+    );
+    expect(
+      reduceWorkspace(state, { type: 'analysis/failed', token: 0, error: 'failed' }).analysis.status
+    ).toBe('failed');
+
+    state = reduceWorkspace(state, { type: 'analysis/capability', capability: unavailable });
+    state = reduceWorkspace(state, { type: 'selection/game', gameId: null });
+    expect(state.analysis).toMatchObject({ status: 'unavailable', error: 'blocked' });
+  });
 });
