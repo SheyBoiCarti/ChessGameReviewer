@@ -4,7 +4,7 @@ import config from '../../vitest.config';
 
 describe('test discovery and coverage gates', () => {
   it('includes API contract tests in the DOM project', () => {
-    const projects = config.test?.workspace ?? [];
+    const projects = config.test?.projects ?? [];
     expect(JSON.stringify(projects)).toContain('tests/api/**/*.test.ts');
   });
 
