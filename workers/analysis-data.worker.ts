@@ -2,11 +2,14 @@
 
 import { OpeningGraphBuilder } from '../lib/chess/graph/openingGraph';
 import { serializeOpeningGraph, snapshotPersistenceNotice } from '../lib/chess/graph/serialization';
+import { parseGamePgn, type ParsedGame } from '../lib/chess/pgnParser';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 import { isWorkerRequest, PROTOCOL_VERSION } from './protocol';
 
 const cancelledJobs = new Set<string>();
 const PROGRESS_INTERVAL_MS = 50;
+const PARSE_YIELD_EVERY_GAMES = 25;
+const MAX_DIAGNOSTICS = 100;
 
 if (typeof self !== 'undefined') {
   self.addEventListener('message', (event: MessageEvent<unknown>) => {
@@ -37,18 +40,35 @@ export async function handleRequest(
       protocolVersion: PROTOCOL_VERSION,
       jobId: request.jobId,
       type: 'PROGRESS',
-      parsedCount: request.games.length,
+      parsedCount: parsedGameCount,
       builtCount,
-      diagnosticsCount: 0,
+      diagnosticsCount,
     });
   };
-  reportProgress(0);
+  let parsedGameCount = 0;
+  let diagnosticsCount = 0;
   if (cancelledJobs.delete(request.jobId)) {
     post({ protocolVersion: PROTOCOL_VERSION, jobId: request.jobId, type: 'CANCELLED' });
     return;
   }
   try {
-    const graph = await new OpeningGraphBuilder(request.options).buildAsync(request.games, {
+    const parsedGames = await parseGamesInWorker(
+      request.games,
+      request.jobId,
+      () => {
+        reportProgress(0);
+      },
+      (count, diagnostics) => {
+        parsedGameCount = count;
+        diagnosticsCount = diagnostics;
+        reportProgress(0);
+      }
+    );
+    if (!parsedGames || cancelledJobs.delete(request.jobId)) {
+      post({ protocolVersion: PROTOCOL_VERSION, jobId: request.jobId, type: 'CANCELLED' });
+      return;
+    }
+    const graph = await new OpeningGraphBuilder(request.options).buildAsync(parsedGames, {
       shouldCancel: () => cancelledJobs.has(request.jobId),
       onProgress: ({ includedGameCount }) => reportProgress(includedGameCount),
     });
@@ -59,6 +79,7 @@ export async function handleRequest(
     const snapshot = serializeOpeningGraph(graph, {
       queryFingerprint: request.queryFingerprint ?? '',
       sourceGameCount: request.games.length,
+      excludedGameCount: request.games.length - parsedGames.length,
       buildTimestamp: Date.now(),
     });
     const persistenceNotice = snapshotPersistenceNotice(snapshot);
@@ -90,4 +111,26 @@ export async function handleRequest(
       message: 'Graph build failed.',
     });
   }
+}
+
+async function parseGamesInWorker(
+  games: Extract<WorkerRequest, { type: 'BUILD_GRAPH' }>['games'],
+  jobId: string,
+  onStart: () => void,
+  onProgress: (parsedCount: number, diagnosticsCount: number) => void
+): Promise<ParsedGame[] | undefined> {
+  const parsedGames: ParsedGame[] = [];
+  let diagnosticsCount = 0;
+  onStart();
+  for (let index = 0; index < games.length; index += 1) {
+    if (cancelledJobs.has(jobId)) return undefined;
+    const result = parseGamePgn({ game: games[index]! });
+    if (result.ok) parsedGames.push(result.game);
+    else diagnosticsCount = Math.min(MAX_DIAGNOSTICS, diagnosticsCount + result.errors.length);
+    onProgress(parsedGames.length, diagnosticsCount);
+    if ((index + 1) % PARSE_YIELD_EVERY_GAMES === 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  return parsedGames;
 }

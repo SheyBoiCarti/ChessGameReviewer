@@ -8,6 +8,7 @@ export interface SerializedOpeningGraph {
   formatVersion: number;
   queryFingerprint: string;
   sourceGameCount: number;
+  excludedGameCount: number;
   buildTimestamp: number;
   status: OpeningGraphSnapshot['status'];
   rootKey: string;
@@ -36,11 +37,16 @@ export function snapshotPersistenceNotice(
 
 export function serializeOpeningGraph(
   graph: OpeningGraphSnapshot,
-  metadata: Pick<SerializedOpeningGraph, 'queryFingerprint' | 'sourceGameCount' | 'buildTimestamp'>
+  metadata: Pick<
+    SerializedOpeningGraph,
+    'queryFingerprint' | 'sourceGameCount' | 'buildTimestamp'
+  > &
+    Partial<Pick<SerializedOpeningGraph, 'excludedGameCount'>>
 ): SerializedOpeningGraph {
   return {
     formatVersion: GRAPH_FORMAT_VERSION,
     ...metadata,
+    excludedGameCount: metadata.excludedGameCount ?? 0,
     status: graph.status,
     rootKey: graph.root.key,
     includedGameCount: graph.includedGameCount,

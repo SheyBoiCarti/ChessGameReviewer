@@ -15,6 +15,7 @@ describe('opening graph serialization', () => {
       formatVersion: 1,
       queryFingerprint: 'query',
       sourceGameCount: 0,
+      excludedGameCount: 0,
       buildTimestamp: 0,
       status: 'complete' as const,
       rootKey: 'root',
@@ -67,6 +68,7 @@ describe('opening graph serialization', () => {
       [...dto.positions.map((position) => position.key)].sort()
     );
     expect(restored.root.aggregate).toEqual(graph.root.aggregate);
+    expect(dto.excludedGameCount).toBe(0);
     expect(restored.paths.sequence(4)).toEqual(graph.paths.sequence(4));
   });
 

@@ -1,7 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
 import { handleRequest } from '@/workers/analysis-data.worker';
-import { parseGamePgn } from '@/lib/chess/pgnParser';
+import type { NormalizedGameSummary } from '@/lib/api/contracts';
+
+function game(overrides: Partial<NormalizedGameSummary> = {}): NormalizedGameSummary {
+  return {
+    id: 'fixture',
+    url: 'https://example.test/fixture',
+    usernameKey: 'alice',
+    userColor: 'white',
+    result: 'win',
+    endedAt: 0,
+    timeClass: 'blitz',
+    rated: true,
+    userRating: 1500,
+    opponentRating: 1600,
+    rules: 'chess',
+    pgn: '1. e4 e5 2. Nf3 Nc6 1-0',
+    ...overrides,
+  };
+}
 
 describe('analysis data worker', () => {
   it('accepts a graph job and reports monotonic progress before completion', async () => {
@@ -23,33 +41,13 @@ describe('analysis data worker', () => {
   });
 
   it('observes a cancellation request while a large graph is building', async () => {
-    const parsed = parseGamePgn({
-      game: {
-        id: 'fixture',
-        url: 'https://example.test/fixture',
-        usernameKey: 'alice',
-        userColor: 'white',
-        result: 'win',
-        endedAt: 0,
-        timeClass: 'blitz',
-        rated: true,
-        userRating: 1500,
-        opponentRating: 1600,
-        rules: 'chess',
-        pgn: '1. e4 e5 2. Nf3 Nc6 1-0',
-      },
-    });
-    if (!parsed.ok) throw new Error('Expected legal fixture to parse.');
     const responses: Array<{ type: string }> = [];
     const build = handleRequest(
       {
         protocolVersion: 1,
         jobId: 'cancel-me',
         type: 'BUILD_GRAPH',
-        games: Array.from({ length: 100 }, (_, index) => ({
-          ...parsed.game,
-          id: `fixture-${index}`,
-        })),
+        games: Array.from({ length: 100 }, (_, index) => game({ id: `fixture-${index}` })),
         options: { maxOpeningPlies: 30, includeRepeatedPositions: true },
       },
       (response) => responses.push(response)
@@ -63,5 +61,24 @@ describe('analysis data worker', () => {
 
     expect(responses.at(-1)?.type).toBe('CANCELLED');
     expect(responses.some(({ type }) => type === 'COMPLETE')).toBe(false);
+  });
+
+  it('parses normalized records inside the worker and bounds parse diagnostics', async () => {
+    const responses: Array<Record<string, unknown>> = [];
+    await handleRequest(
+      {
+        protocolVersion: 1,
+        jobId: 'parse-in-worker',
+        type: 'BUILD_GRAPH',
+        games: [game(), game({ id: 'bad-pgn', pgn: '1. e4 e5 2. NotAMove' })],
+        options: { maxOpeningPlies: 30, includeRepeatedPositions: true },
+      },
+      (response) => responses.push(response)
+    );
+
+    expect(responses.at(-1)).toMatchObject({
+      type: 'COMPLETE',
+      snapshot: { sourceGameCount: 2, includedGameCount: 1 },
+    });
   });
 });

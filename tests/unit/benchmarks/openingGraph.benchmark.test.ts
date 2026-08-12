@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { OpeningGraphBuilder } from '@/lib/chess/graph/openingGraph';
 import { serializeOpeningGraph, serializedGraphByteSize } from '@/lib/chess/graph/serialization';
 import { parseGamePgn } from '@/lib/chess/pgnParser';
+import type { NormalizedGameSummary } from '@/lib/api/contracts';
+import { handleRequest } from '@/workers/analysis-data.worker';
 
 const SOURCE_GAME = parseGamePgn({
   game: {
@@ -55,6 +57,44 @@ function measure(count: number) {
 }
 
 describe('opening graph recorded benchmark', () => {
+  it('parses and builds 1,000 normalized games in the analysis-data worker', async () => {
+    const rawGames: NormalizedGameSummary[] = Array.from({ length: 1_000 }, (_, index) => ({
+      id: `worker-benchmark-${index}`,
+      url: `https://example.test/worker-benchmark-${index}`,
+      usernameKey: 'benchmark',
+      userColor: 'white',
+      result: 'win',
+      endedAt: 0,
+      timeClass: 'blitz',
+      rated: true,
+      userRating: 1500,
+      opponentRating: 1600,
+      rules: 'chess',
+      pgn: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 1-0',
+    }));
+    const responses: Array<Record<string, unknown>> = [];
+    const startedAt = performance.now();
+    await handleRequest(
+      {
+        protocolVersion: 1,
+        jobId: 'worker-benchmark',
+        type: 'BUILD_GRAPH',
+        games: rawGames,
+        options: { maxOpeningPlies: 10, includeRepeatedPositions: true },
+      },
+      (response) => responses.push(response)
+    );
+    const terminal = responses.at(-1);
+    console.info(
+      'PHASE_2_WORKER_BENCHMARK',
+      JSON.stringify({ games: 1_000, durationMs: performance.now() - startedAt })
+    );
+    expect(terminal).toMatchObject({
+      type: 'COMPLETE',
+      snapshot: { includedGameCount: 1_000 },
+    });
+  });
+
   it('builds the supported 1,000-game workload', () => {
     const result = measure(1_000);
     console.info(

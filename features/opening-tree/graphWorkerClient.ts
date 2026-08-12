@@ -1,4 +1,4 @@
-import type { ParsedGame } from '../../lib/chess/pgnParser';
+import type { NormalizedGameSummary } from '../../lib/api/contracts';
 import type { SerializedOpeningGraph } from '../../lib/chess/graph/serialization';
 import type { GraphBuildOptions } from '../../lib/chess/graph/types';
 import {
@@ -33,7 +33,7 @@ export class GraphWorkerClient {
   }
 
   build(
-    games: readonly ParsedGame[],
+    games: readonly NormalizedGameSummary[],
     options: GraphBuildOptions,
     queryFingerprint = ''
   ): Promise<GraphBuildWorkerResult> {

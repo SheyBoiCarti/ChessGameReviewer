@@ -1,4 +1,4 @@
-import type { ParsedGame } from '../lib/chess/pgnParser';
+import type { NormalizedGameSummary } from '../lib/api/contracts';
 import type { GraphBuildOptions } from '../lib/chess/graph/types';
 import type { SerializedOpeningGraph } from '../lib/chess/graph/serialization';
 
@@ -10,7 +10,7 @@ export type WorkerRequest =
       protocolVersion: typeof PROTOCOL_VERSION;
       jobId: string;
       type: 'BUILD_GRAPH';
-      games: readonly ParsedGame[];
+      games: readonly NormalizedGameSummary[];
       options: GraphBuildOptions;
       queryFingerprint?: string;
     }
@@ -64,7 +64,31 @@ export function isWorkerRequest(value: unknown): value is WorkerRequest {
     return false;
   if (value.type === 'CANCEL_JOB' || value.type === 'DISPOSE') return true;
   return (
-    value.type === 'BUILD_GRAPH' && Array.isArray(value.games) && isGraphBuildOptions(value.options)
+    value.type === 'BUILD_GRAPH' &&
+    Array.isArray(value.games) &&
+    value.games.every(isNormalizedGameSummary) &&
+    isGraphBuildOptions(value.options)
+  );
+}
+
+function isNormalizedGameSummary(value: unknown): value is NormalizedGameSummary {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === 'string' &&
+    typeof value.url === 'string' &&
+    typeof value.usernameKey === 'string' &&
+    (value.userColor === 'white' || value.userColor === 'black') &&
+    (value.result === 'win' || value.result === 'draw' || value.result === 'loss') &&
+    typeof value.endedAt === 'number' &&
+    (value.timeClass === 'bullet' ||
+      value.timeClass === 'blitz' ||
+      value.timeClass === 'rapid' ||
+      value.timeClass === 'daily') &&
+    typeof value.rated === 'boolean' &&
+    (typeof value.userRating === 'number' || value.userRating === null) &&
+    (typeof value.opponentRating === 'number' || value.opponentRating === null) &&
+    value.rules === 'chess' &&
+    (typeof value.pgn === 'string' || value.pgn === undefined)
   );
 }
 
