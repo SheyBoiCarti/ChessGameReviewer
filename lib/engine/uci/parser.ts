@@ -1,6 +1,9 @@
 import type { ScoreBound, UciInfo, UciLine, UciScore } from './types';
 
-const numericFields = new Map<string, keyof Pick<UciInfo, 'depth' | 'selDepth' | 'multiPv' | 'nodes' | 'nps' | 'time' | 'hashFull'>>([
+const numericFields = new Map<
+  string,
+  keyof Pick<UciInfo, 'depth' | 'selDepth' | 'multiPv' | 'nodes' | 'nps' | 'time' | 'hashFull'>
+>([
   ['depth', 'depth'],
   ['seldepth', 'selDepth'],
   ['multipv', 'multiPv'],
@@ -44,7 +47,8 @@ function parseInfo(line: string): UciInfo {
       const value = finiteNumber(tokens[index + 2]);
       if ((kind === 'cp' || kind === 'mate') && value !== undefined) {
         const boundToken = tokens[index + 3]?.toLowerCase();
-        const bound: ScoreBound | undefined = boundToken === 'lowerbound' ? 'lower' : boundToken === 'upperbound' ? 'upper' : undefined;
+        const bound: ScoreBound | undefined =
+          boundToken === 'lowerbound' ? 'lower' : boundToken === 'upperbound' ? 'upper' : undefined;
         const score: UciScore = bound ? { kind, value, bound } : { kind, value };
         result.score = score;
       }
