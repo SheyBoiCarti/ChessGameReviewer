@@ -125,7 +125,8 @@ async function readResponseBody(
       }
       throw createAbortError();
     }
-    if (text.length > MAX_BODY_BYTES) {
+    const byteLength = new TextEncoder().encode(text).byteLength;
+    if (byteLength > MAX_BODY_BYTES) {
       throw createResponseTooLargeError('Body text length exceeded 32 MiB limit');
     }
     return text;
@@ -143,14 +144,14 @@ async function executePubApiRequest<T>(
   month?: string | number,
   options?: FetchOptions
 ): Promise<T> {
-  return pubApiCoordinator.execute(async () => {
-    const timeoutMs = options?.timeoutMs ?? 10000;
-    const composed = createComposedSignal(options?.signal, timeoutMs);
+  const timeoutMs = options?.timeoutMs ?? 10000;
+  const composed = createComposedSignal(options?.signal, timeoutMs);
+
+  try {
+    let responseText: string;
 
     try {
-      let responseText: string;
-
-      try {
+      responseText = await pubApiCoordinator.execute(async () => {
         if (composed.signal.aborted) {
           if (composed.isTimeout()) {
             throw createTimeoutError();
@@ -176,82 +177,126 @@ async function executePubApiRequest<T>(
               false
             );
           }
+          const finalUrl = new URL(response.url);
+          if (finalUrl.search !== '' || finalUrl.hash !== '') {
+            throw createPubApiError(
+              'REDIRECT_DISALLOWED',
+              'Final URL contained search query or hash fragment',
+              false
+            );
+          }
+        } else {
+          throw createInvalidResponseError('Response URL is absent or empty');
         }
 
         // Handle HTTP error statuses
         if (!response.ok) {
           const upstreamErr = parseUpstreamHttpError(response.status);
+          
+          let retryable = false;
+          let retryAfterMs: number | undefined;
+          
+          if (response.status === 502 || response.status === 503 || response.status === 504) {
+            retryable = true;
+          } else if (response.status === 429) {
+            retryable = true;
+            const retryAfter = response.headers.get('retry-after');
+            if (retryAfter) {
+              const seconds = parseInt(retryAfter, 10);
+              if (!Number.isNaN(seconds)) {
+                retryAfterMs = seconds * 1000;
+              } else {
+                const date = new Date(retryAfter).getTime();
+                if (!Number.isNaN(date)) {
+                  retryAfterMs = Math.max(0, date - Date.now());
+                }
+              }
+            }
+          }
+          
           throw createPubApiError(
             upstreamErr.code,
             upstreamErr.message,
-            upstreamErr.retryable,
-            upstreamErr.status
+            retryable,
+            upstreamErr.status,
+            retryAfterMs
+          );
+        }
+
+        // Validate JSON media type
+        const contentType = response.headers.get('content-type') || '';
+        const mediaType = contentType.split(';')[0].trim().toLowerCase();
+        if (mediaType !== 'application/json' && !mediaType.endsWith('+json')) {
+          throw createPubApiError(
+            'WRONG_CONTENT_TYPE',
+            `Expected JSON, got ${mediaType}`,
+            false
           );
         }
 
         // Read stream with size protection
-        responseText = await readResponseBody(response, composed);
-      } catch (err: unknown) {
-        if (err instanceof PubApiError) {
-          throw err;
-        }
-
-        if (err && typeof err === 'object' && (err as { name?: string }).name === 'AbortError') {
-          if (composed.isTimeout()) {
-            throw createTimeoutError();
-          }
-          throw createAbortError();
-        }
-
-        if (composed.signal.aborted) {
-          if (composed.isTimeout()) {
-            throw createTimeoutError();
-          }
-          throw createAbortError();
-        }
-
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-          throw createOfflineError();
-        }
-
-        throw createCorsError();
+        return await readResponseBody(response, composed);
+      }, composed.signal);
+    } catch (err: unknown) {
+      if (err instanceof PubApiError) {
+        throw err;
       }
 
-      // Parse JSON
-      let json: unknown;
-      try {
-        json = JSON.parse(responseText);
-      } catch {
-        if (composed.signal.aborted) {
-          if (composed.isTimeout()) {
-            throw createTimeoutError();
-          }
-          throw createAbortError();
+      if (err && typeof err === 'object' && (err as { name?: string }).name === 'AbortError') {
+        if (composed.isTimeout()) {
+          throw createTimeoutError();
         }
-        throw createInvalidResponseError('Failed to parse JSON response');
+        throw createAbortError();
       }
 
-      // Schema validation
-      if (expectedType === 'archives') {
-        const result = validateArchivesResponse(json);
-        if (!result.success) {
-          throw createInvalidResponseError(result.diagnostic.message);
+      if (composed.signal.aborted) {
+        if (composed.isTimeout()) {
+          throw createTimeoutError();
         }
-        return result.archives as unknown as T;
-      } else {
-        const result = validateMonthlyGamesResponse(json);
-        if (!result.success) {
-          if (result.diagnostic.code === 'RESPONSE_TOO_LARGE') {
-            throw createResponseTooLargeError(result.diagnostic.message);
-          }
-          throw createInvalidResponseError(result.diagnostic.message);
-        }
-        return result.games as unknown as T;
+        throw createAbortError();
       }
-    } finally {
-      composed.cleanup();
+
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        throw createOfflineError();
+      }
+
+      throw createCorsError();
     }
-  });
+
+    // Parse JSON
+    let json: unknown;
+    try {
+      json = JSON.parse(responseText);
+    } catch {
+      if (composed.signal.aborted) {
+        if (composed.isTimeout()) {
+          throw createTimeoutError();
+        }
+        throw createAbortError();
+      }
+      throw createPubApiError('MALFORMED_JSON', 'Failed to parse JSON response', false);
+    }
+
+    // Schema validation
+    if (expectedType === 'archives') {
+      const result = validateArchivesResponse(json);
+      if (!result.success) {
+        throw createPubApiError('INVALID_SCHEMA', result.diagnostic.message, false);
+      }
+      return result.archives as unknown as T;
+    } else {
+      const result = validateMonthlyGamesResponse(json);
+      if (!result.success) {
+        if (result.diagnostic.code === 'RESPONSE_TOO_LARGE') {
+          throw createResponseTooLargeError(result.diagnostic.message);
+        }
+        throw createPubApiError('INVALID_SCHEMA', result.diagnostic.message, false);
+      }
+      return result.games as unknown as T;
+    }
+  } finally {
+    composed.cleanup();
+  }
 }
 
 /**

@@ -7,7 +7,7 @@ export class PubApiCoordinator {
    * Executes a task serially per-tab, acquiring the Web Lock for the duration
    * of the task if the Web Locks API is available.
    */
-  async execute<T>(task: () => Promise<T>): Promise<T> {
+  async execute<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     // 1. Enqueue task serially per tab
     const previousQueue = this.queue;
 
@@ -26,9 +26,15 @@ export class PubApiCoordinator {
         'locks' in navigator &&
         typeof navigator.locks?.request === 'function'
       ) {
-        return await navigator.locks.request(PUB_API_LOCK_NAME, async () => {
-          return await task();
-        });
+        if (signal) {
+          return await navigator.locks.request(PUB_API_LOCK_NAME, { signal }, async () => {
+            return await task();
+          });
+        } else {
+          return await navigator.locks.request(PUB_API_LOCK_NAME, async () => {
+            return await task();
+          });
+        }
       }
 
       // 3. Fallback when Web Locks unavailable
