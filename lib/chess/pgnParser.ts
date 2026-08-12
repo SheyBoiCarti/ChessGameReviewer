@@ -1,6 +1,7 @@
 import { Chess } from 'chess.js';
 
 import type { Diagnostic, NormalizedGameSummary } from '../api/contracts';
+import { sanitizeMessage } from '../api/errors';
 import { normalizePositionKey } from './fen';
 
 export interface MovePly {
@@ -77,12 +78,11 @@ export function parseGamePgn({ game }: { game: NormalizedGameSummary }): ParseRe
       },
     };
   } catch (error) {
+    const sanitized = error instanceof Error ? sanitizeMessage(error.message) : '';
     return parseFailure(
       game.id,
       'ILLEGAL_PGN',
-      error instanceof Error
-        ? `The PGN could not be replayed: ${error.message}`
-        : 'The PGN could not be replayed.'
+      sanitized ? `The PGN could not be replayed: ${sanitized}` : 'The PGN could not be replayed.'
     );
   }
 }

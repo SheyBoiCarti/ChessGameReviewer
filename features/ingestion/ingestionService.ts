@@ -405,7 +405,11 @@ async function executeIngestion(
         normalizedMonthGames.push(normalized.game);
         if (matchesQuery(normalized.game, query) && !seen.has(normalized.game.id)) {
           seen.add(normalized.game.id);
-          games.push(normalized.game);
+          if (games.length < query.maxGames) {
+            games.push(normalized.game);
+          } else {
+            recordsExcluded += 1;
+          }
         } else {
           recordsExcluded += 1;
         }
@@ -438,10 +442,7 @@ async function executeIngestion(
       appendDiagnostic(diagnostics, safeDiagnostic(error));
       continue;
     }
-    if (games.length >= query.maxGames) {
-      games.length = query.maxGames;
-      break;
-    }
+    if (games.length === query.maxGames) break;
   }
 
   const status = failedMonths.length > 0 ? (games.length > 0 ? 'partial' : 'failed') : 'complete';

@@ -102,6 +102,25 @@ describe('chesscomUrl', () => {
       ).toBe(true);
     });
 
+    it('accepts a matching path with trailing slashes', () => {
+      expect(
+        isValidRedirectUrl(
+          'https://api.chess.com/pub/player/hikaru/games/archives/',
+          'archives',
+          'hikaru'
+        )
+      ).toBe(true);
+      expect(
+        isValidRedirectUrl(
+          'https://api.chess.com/pub/player/hikaru/games/2023/05//',
+          'monthly',
+          'hikaru',
+          '2023',
+          '05'
+        )
+      ).toBe(true);
+    });
+
     it('rejects origin mismatches (HTTP or third party origin)', () => {
       expect(
         isValidRedirectUrl(
@@ -471,6 +490,64 @@ describe('chesscomClient', () => {
       try {
         await fetchPlayerArchives('hikaru');
         expect(events).toEqual(['lock-start', 'lock-end', 'parse']);
+      } finally {
+        Object.defineProperty(navigator, 'locks', {
+          configurable: true,
+          value: originalNavigatorLocks,
+        });
+      }
+    });
+
+    it('releases the Web Lock before reading the response body stream', async () => {
+      const events: string[] = [];
+      let releaseBody!: () => void;
+      const bodyReleased = new Promise<void>((resolve) => {
+        releaseBody = resolve;
+      });
+      const originalNavigatorLocks = navigator.locks;
+      Object.defineProperty(navigator, 'locks', {
+        configurable: true,
+        value: {
+          request: vi.fn(async (_name, optionsOrCallback, callback?) => {
+            events.push('lock-start');
+            const task =
+              typeof optionsOrCallback === 'function'
+                ? optionsOrCallback
+                : (callback as () => Promise<unknown>);
+            const value = await task();
+            events.push('lock-end');
+            return value;
+          }),
+        },
+      });
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        const stream = new ReadableStream(
+          {
+            async pull(controller) {
+              events.push('stream-read');
+              await bodyReleased;
+              controller.enqueue(new TextEncoder().encode('{"archives":[]}'));
+              controller.close();
+            },
+          },
+          { highWaterMark: 0 }
+        );
+        const response = mockResponse(stream, {
+          headers: { 'content-type': 'application/json' },
+        });
+        Object.defineProperty(response, 'url', {
+          value: 'https://api.chess.com/pub/player/hikaru/games/archives',
+        });
+        return response;
+      });
+
+      try {
+        const request = fetchPlayerArchives('hikaru');
+        await vi.waitFor(() => expect(events).toContain('stream-read'));
+        releaseBody();
+        await expect(request).resolves.toEqual([]);
+        expect(events).toContain('lock-end');
+        expect(events.indexOf('lock-end')).toBeLessThan(events.indexOf('stream-read'));
       } finally {
         Object.defineProperty(navigator, 'locks', {
           configurable: true,

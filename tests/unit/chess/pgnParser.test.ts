@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Chess } from 'chess.js';
 
 import { parseGamePgn } from '@/lib/chess/pgnParser';
@@ -91,6 +91,39 @@ describe('parseGamePgn', () => {
         expect.objectContaining({ code: 'ILLEGAL_PGN', gameId: 'broken-game', severity: 'error' }),
       ],
     });
+  });
+
+  it('does not expose illegal PGN fragments in parser diagnostics', () => {
+    const parserError = vi.spyOn(Chess.prototype, 'loadPgn').mockImplementation(() => {
+      throw new Error('Could not replay 1. e4 e5 2. Qh9');
+    });
+    try {
+      const result = parseGamePgn({
+        game: {
+          id: 'private-broken-game',
+          url: 'https://www.chess.com/game/live/5',
+          usernameKey: 'alice',
+          userColor: 'white',
+          result: 'loss',
+          endedAt: 5,
+          timeClass: 'blitz',
+          rated: true,
+          userRating: 1500,
+          opponentRating: 1600,
+          rules: 'chess',
+          pgn: '1. e4 e5 2. Qh9 1-0',
+        },
+      });
+
+      expect(result).toMatchObject({
+        ok: false,
+        errors: [expect.objectContaining({ code: 'ILLEGAL_PGN' })],
+      });
+      if (result.ok) return;
+      expect(result.errors[0]?.message).not.toContain('Qh9');
+    } finally {
+      parserError.mockRestore();
+    }
   });
 
   it('uses a valid SetUp FEN as the replay start position', () => {
