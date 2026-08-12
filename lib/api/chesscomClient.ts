@@ -9,7 +9,12 @@ import {
   createInvalidResponseError,
   PubApiError,
 } from './errors';
-import { parseUpstreamHttpError, validateArchivesResponse, validateMonthlyGamesResponse, RawChesscomGame } from './chesscomSchemas';
+import {
+  parseUpstreamHttpError,
+  validateArchivesResponse,
+  validateMonthlyGamesResponse,
+  RawChesscomGame,
+} from './chesscomSchemas';
 import { pubApiCoordinator } from './pubApiCoordinator';
 
 export interface FetchOptions {
@@ -192,16 +197,16 @@ async function executePubApiRequest<T>(
         // Handle HTTP error statuses
         if (!response.ok) {
           const upstreamErr = parseUpstreamHttpError(response.status);
-          
+
           let retryable = false;
           let retryAfterMs: number | undefined;
-          
+
           if (response.status === 502 || response.status === 503 || response.status === 504) {
             retryable = true;
           } else if (response.status === 429) {
             retryable = true;
           }
-          
+
           if (retryable) {
             const retryAfter = response.headers.get('retry-after');
             if (retryAfter) {
@@ -216,7 +221,7 @@ async function executePubApiRequest<T>(
               }
             }
           }
-          
+
           throw createPubApiError(
             upstreamErr.code,
             upstreamErr.message,
@@ -230,11 +235,7 @@ async function executePubApiRequest<T>(
         const contentType = response.headers.get('content-type') || '';
         const mediaType = (contentType.split(';')[0] ?? '').trim().toLowerCase();
         if (mediaType !== 'application/json' && !mediaType.endsWith('+json')) {
-          throw createPubApiError(
-            'WRONG_CONTENT_TYPE',
-            `Expected JSON, got ${mediaType}`,
-            false
-          );
+          throw createPubApiError('WRONG_CONTENT_TYPE', `Expected JSON, got ${mediaType}`, false);
         }
 
         // Read stream with size protection
@@ -323,12 +324,5 @@ export async function fetchMonthlyGames(
   options?: FetchOptions
 ): Promise<RawChesscomGame[]> {
   const url = buildMonthlyUrl(username, year, month);
-  return executePubApiRequest<RawChesscomGame[]>(
-    url,
-    'monthly',
-    username,
-    year,
-    month,
-    options
-  );
+  return executePubApiRequest<RawChesscomGame[]>(url, 'monthly', username, year, month, options);
 }

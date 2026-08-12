@@ -17,7 +17,13 @@ export class PubApiError extends Error implements UpstreamError {
   readonly status?: number | undefined;
   readonly retryAfterMs?: number | undefined;
 
-  constructor(code: ExtendedErrorCode, rawMessage: string, retryable: boolean, status?: number, retryAfterMs?: number) {
+  constructor(
+    code: ExtendedErrorCode,
+    rawMessage: string,
+    retryable: boolean,
+    status?: number,
+    retryAfterMs?: number
+  ) {
     const sanitizedMsg = sanitizeMessage(rawMessage);
     super(sanitizedMsg);
     this.name = 'PubApiError';

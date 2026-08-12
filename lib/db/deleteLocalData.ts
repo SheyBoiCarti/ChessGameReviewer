@@ -12,10 +12,7 @@ export interface ClearAllResult {
   clearedStores: string[];
 }
 
-export async function deleteUserData(
-  db: IDBDatabase,
-  username: string
-): Promise<DeletionResult> {
+export async function deleteUserData(db: IDBDatabase, username: string): Promise<DeletionResult> {
   const normUsername = username.toLowerCase();
 
   return new Promise<DeletionResult>((resolve, reject) => {

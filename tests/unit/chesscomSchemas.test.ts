@@ -33,6 +33,13 @@ describe('chesscomSchemas runtime validation', () => {
       }
     });
 
+    it('rejects a null archives payload before property inspection', () => {
+      expect(validateArchivesResponse(null)).toMatchObject({
+        success: false,
+        diagnostic: { code: 'INVALID_UPSTREAM_RESPONSE' },
+      });
+    });
+
     it('fails the entire response if it contains non-string archive URLs', () => {
       const result = validateArchivesResponse({
         archives: ['https://api.chess.com/pub/player/hikaru/games/2024/01', 12345, null],
@@ -45,7 +52,10 @@ describe('chesscomSchemas runtime validation', () => {
 
     it('fails the entire response if it contains non-approved archive URLs', () => {
       const result = validateArchivesResponse({
-        archives: ['https://api.chess.com/pub/player/hikaru/games/2024/01', 'https://malicious.com/api'],
+        archives: [
+          'https://api.chess.com/pub/player/hikaru/games/2024/01',
+          'https://malicious.com/api',
+        ],
       });
       expect(result.success).toBe(false);
       if (!result.success) {
@@ -69,6 +79,65 @@ describe('chesscomSchemas runtime validation', () => {
         uuid: 'safe-uuid',
       });
       expect(result).toMatchObject({ success: false, diagnostic: { gameId: 'safe-uuid' } });
+    });
+
+    it.each([
+      [null, 'MALFORMED_GAME_RECORD'],
+      [{ url: 42 }, 'MALFORMED_GAME_RECORD'],
+      [{ url: 'game' }, 'MISSING_REQUIRED_GAME_FIELD'],
+      [{ url: 'game', end_time: Number.NaN }, 'MALFORMED_GAME_RECORD'],
+      [{ url: 'game', end_time: 1 }, 'MISSING_REQUIRED_GAME_FIELD'],
+      [{ url: 'game', end_time: 1, time_class: 42 }, 'MALFORMED_GAME_RECORD'],
+      [{ url: 'game', end_time: 1, time_class: 'blitz' }, 'MISSING_REQUIRED_GAME_FIELD'],
+      [{ url: 'game', end_time: 1, time_class: 'blitz', rules: 42 }, 'MALFORMED_GAME_RECORD'],
+      [
+        { url: 'game', end_time: 1, time_class: 'blitz', rules: 'chess' },
+        'MISSING_REQUIRED_GAME_FIELD',
+      ],
+      [
+        {
+          url: 'game',
+          end_time: 1,
+          time_class: 'blitz',
+          rules: 'chess',
+          white: null,
+          black: {},
+        },
+        'MALFORMED_GAME_RECORD',
+      ],
+    ])('rejects malformed boundary value %# with %s', (value, code) => {
+      expect(validateRawGame(value, 7)).toMatchObject({
+        success: false,
+        diagnostic: { code, gameId: 'game_index_7' },
+      });
+    });
+
+    it('keeps every supported optional raw field and ignores malformed optional values', () => {
+      const result = validateRawGame({
+        url: 'game',
+        end_time: 1,
+        time_class: 'blitz',
+        rules: 'chess',
+        pgn: '1. e4',
+        time_control: '300',
+        rated: true,
+        uuid: 'uuid',
+        '@id': 'at-id',
+        white: { username: 'a', rating: 1, result: 'win', uuid: 'w', '@id': 'wid' },
+        black: { username: 'b', rating: Number.NaN, result: 'resigned' },
+      });
+      expect(result).toMatchObject({
+        success: true,
+        game: {
+          pgn: '1. e4',
+          time_control: '300',
+          rated: true,
+          uuid: 'uuid',
+          '@id': 'at-id',
+          white: { username: 'a', rating: 1, result: 'win', uuid: 'w', '@id': 'wid' },
+          black: { username: 'b', result: 'resigned' },
+        },
+      });
     });
   });
 
@@ -130,6 +199,11 @@ describe('chesscomSchemas runtime validation', () => {
         expect(result.diagnostic.message).toContain('20000');
       }
     });
+
+    it('rejects null and missing games collections', () => {
+      expect(validateMonthlyGamesResponse(null)).toMatchObject({ success: false });
+      expect(validateMonthlyGamesResponse({})).toMatchObject({ success: false });
+    });
   });
 
   describe('parseUpstreamHttpError', () => {
@@ -163,6 +237,17 @@ describe('chesscomSchemas runtime validation', () => {
       expect(err.retryable).toBe(true);
       expect(err.status).toBe(503);
       expect(err.message).not.toContain('<html>');
+    });
+
+    it('maps 400 and unexpected statuses without retrying', () => {
+      expect(parseUpstreamHttpError(400)).toMatchObject({
+        code: 'INVALID_REQUEST',
+        retryable: false,
+      });
+      expect(parseUpstreamHttpError(418)).toMatchObject({
+        code: 'INVALID_UPSTREAM_RESPONSE',
+        retryable: false,
+      });
     });
   });
 });

@@ -69,40 +69,37 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
       const tx = (event.target as IDBOpenDBRequest).transaction!;
 
       // Helper to safely ensure store and indexes exist
-      const getOrCreateStore = (
-        name: string,
-        keyPath: string
-      ): IDBObjectStore | null => {
+      const getOrCreateStore = (name: string, keyPath: string): IDBObjectStore | null => {
         if (upgradeError) return null;
         if (Array.from(db.objectStoreNames).includes(name)) {
           const store = tx.objectStore(name);
           if (store.keyPath !== keyPath) {
-             upgradeError = new SchemaVersionError(`Store ${name} has incompatible keyPath. Reset the database.`);
-             db.close();
-             tx.abort();
-             reject(upgradeError);
-             return null;
+            upgradeError = new SchemaVersionError(
+              `Store ${name} has incompatible keyPath. Reset the database.`
+            );
+            db.close();
+            tx.abort();
+            reject(upgradeError);
+            return null;
           }
           return store;
         }
         return db.createObjectStore(name, { keyPath });
       };
 
-      const ensureIndex = (
-        store: IDBObjectStore | null,
-        indexName: string,
-        keyPath: string
-      ) => {
+      const ensureIndex = (store: IDBObjectStore | null, indexName: string, keyPath: string) => {
         if (upgradeError || !store) return;
         const existingIndexes = Array.from(store.indexNames);
         if (existingIndexes.includes(indexName)) {
-           const idx = store.index(indexName);
-           if (idx.keyPath !== keyPath) {
-               upgradeError = new SchemaVersionError(`Index ${indexName} on store ${store.name} has incompatible keyPath. Reset the database.`);
-               db.close();
-               tx.abort();
-               reject(upgradeError);
-           }
+          const idx = store.index(indexName);
+          if (idx.keyPath !== keyPath) {
+            upgradeError = new SchemaVersionError(
+              `Index ${indexName} on store ${store.name} has incompatible keyPath. Reset the database.`
+            );
+            db.close();
+            tx.abort();
+            reject(upgradeError);
+          }
         } else {
           store.createIndex(indexName, keyPath, { unique: false });
         }

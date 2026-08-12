@@ -186,5 +186,46 @@ describe('Schema & Runtime Validation', () => {
       expect(isValidArchiveSyncRecord({ ...makeArchiveSync(), month: '2026-13' })).toBe(false);
       expect(isValidArchiveSyncRecord({ ...makeArchiveSync(), observedGameCount: -1 })).toBe(false);
     });
+
+    it('rejects invalid variants of every persisted record family', () => {
+      expect(isValidArchiveSyncRecord({ ...makeArchiveSync(), raw: {} })).toBe(false);
+      expect(isValidArchiveSyncRecord({ ...makeArchiveSync(), status: 'pending' })).toBe(false);
+      expect(isValidArchiveSyncRecord({ ...makeArchiveSync(), observedGameIds: 'game' })).toBe(
+        false
+      );
+      expect(isValidArchiveSyncRecord({ ...makeArchiveSync(), normalizerVersion: Infinity })).toBe(
+        false
+      );
+
+      expect(isValidGameRecord({ ...makeGameRecord(), userColor: 'green' })).toBe(false);
+      expect(isValidGameRecord({ ...makeGameRecord(), result: 'unknown' })).toBe(false);
+      expect(isValidGameRecord({ ...makeGameRecord(), timeClass: 'classical' })).toBe(false);
+      expect(isValidGameRecord({ ...makeGameRecord(), userRating: Number.NaN })).toBe(false);
+      expect(isValidGameRecord({ ...makeGameRecord(), opponentRating: '1500' })).toBe(false);
+
+      expect(isValidEvaluationRecord(null)).toBe(false);
+      expect(
+        isValidEvaluationRecord({
+          key: 'k',
+          positionHash: 'p',
+          engineBuild: 'e',
+          lastUsedAt: Number.NaN,
+          evaluation: {},
+        })
+      ).toBe(false);
+      expect(isValidGraphSnapshotRecord(null)).toBe(false);
+      expect(
+        isValidGraphSnapshotRecord({
+          key: 'k',
+          username: 'u',
+          createdAt: 1,
+          lastUsedAt: 1,
+          byteSize: Number.NaN,
+          snapshotData: {},
+        })
+      ).toBe(false);
+      expect(isValidMetaRecord(null)).toBe(false);
+      expect(isValidMetaRecord({ name: 'n', value: 1, updatedAt: Number.NaN })).toBe(false);
+    });
   });
 });

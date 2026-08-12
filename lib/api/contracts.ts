@@ -35,7 +35,13 @@ export interface UpstreamError {
 }
 
 export type IngestionJobStatusCode =
-  'idle' | 'running' | 'complete' | 'partial' | 'cancelled' | 'empty' | 'failed';
+  | 'idle'
+  | 'running'
+  | 'complete'
+  | 'partial'
+  | 'cancelled'
+  | 'empty'
+  | 'failed';
 
 export interface IngestionJobStatus {
   status: IngestionJobStatusCode;

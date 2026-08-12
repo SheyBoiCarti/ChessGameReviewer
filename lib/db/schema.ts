@@ -138,9 +138,5 @@ export function isValidGraphSnapshotRecord(data: unknown): data is GraphSnapshot
 export function isValidMetaRecord(data: unknown): data is MetaRecord {
   if (!isObject(data)) return false;
   if ('pgn' in data) return false;
-  return (
-    typeof data['name'] === 'string' &&
-    'value' in data &&
-    isFiniteNumber(data['updatedAt'])
-  );
+  return typeof data['name'] === 'string' && 'value' in data && isFiniteNumber(data['updatedAt']);
 }

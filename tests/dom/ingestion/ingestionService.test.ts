@@ -197,6 +197,58 @@ describe('runIngestion', () => {
     );
   });
 
+  it('diagnoses absent players, unsupported rules/classes, and inconsistent outcomes safely', async () => {
+    const absentPlayer = makeRawGame({
+      '@id': 'safe-at-id',
+      white: { username: 'other', result: 'agreed' },
+    });
+    delete absentPlayer.uuid;
+
+    const result = await runWithFetchedGames(makeQuery(), [
+      absentPlayer,
+      makeRawGame({ uuid: 'variant', rules: 'chess960' }),
+      makeRawGame({ uuid: 'unsupported-clock', time_class: 'correspondence' }),
+      makeRawGame({
+        uuid: 'bad-result',
+        white: { username: 'janedoe', result: 'win' },
+        black: { username: 'opponent', result: 'win' },
+      }),
+    ]);
+
+    expect(result.games).toEqual([]);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      'USER_NOT_IN_GAME',
+      'NON_STANDARD_RULES',
+      'INVALID_TIME_CLASS',
+      'INCONSISTENT_PLAYER_RESULTS',
+    ]);
+    expect(result.diagnostics[0]?.gameId).toBe('safe-at-id');
+  });
+
+  it('normalizes optional fields and defaults without exposing raw-only data', async () => {
+    const minimalGame = makeRawGame({
+      time_control: '600',
+      white: { username: 'janedoe', result: 'agreed' },
+      black: { username: 'opponent', result: 'agreed' },
+    });
+    delete minimalGame.uuid;
+    delete minimalGame['@id'];
+    delete minimalGame.rated;
+    delete minimalGame.pgn;
+
+    const result = await runWithFetchedGames(makeQuery(), [minimalGame]);
+
+    expect(result.games[0]).toMatchObject({
+      id: 'https://www.chess.com/game/live/100',
+      rated: false,
+      pgn: '',
+      timeControl: '600',
+      userRating: null,
+      opponentRating: null,
+    });
+    expect(result.games[0]).not.toHaveProperty('uuid');
+  });
+
   it('deduplicates a stable game ID across fetched months', async () => {
     const fetchMonthlyGames = vi
       .fn()
@@ -288,6 +340,56 @@ describe('runIngestion', () => {
       status: 'failed',
       games: [],
     });
+  });
+
+  it('fails validation before storage or network activity', async () => {
+    const deps = fakeDependencies();
+
+    const result = await runIngestion({ username: 'x' }, { deps });
+
+    expect(result).toMatchObject({ status: 'failed', fingerprint: '', games: [] });
+    expect(deps.readArchiveSyncs).not.toHaveBeenCalled();
+    expect(deps.fetchArchives).not.toHaveBeenCalled();
+  });
+
+  it('uses sync-marker months when offline archive metadata is absent', async () => {
+    const cachedGame = makeGameRecord();
+    const deps = fakeDependencies({
+      fetchArchives: vi.fn().mockRejectedValue(createOfflineError()),
+      readArchiveSyncs: vi
+        .fn()
+        .mockResolvedValue([makeArchiveSync({ lastSuccessfulFetchAt: NOW - 60 * 60_000 })]),
+      readMonthGames: vi.fn().mockResolvedValue([cachedGame]),
+    });
+
+    await expect(runIngestion(makeQuery(), { deps, now: () => NOW })).resolves.toMatchObject({
+      status: 'complete',
+      games: [cachedGame],
+      offlineCacheOnly: true,
+    });
+  });
+
+  it('keeps accepted games when persistence fails with an untyped storage error', async () => {
+    const deps = fakeDependencies({
+      fetchMonthlyGames: vi.fn().mockResolvedValue([makeRawGame()]),
+      persistMonth: vi.fn().mockRejectedValue(new Error('quota details')),
+    });
+
+    const result = await runIngestion(makeQuery(), { deps, now: () => NOW });
+
+    expect(result).toMatchObject({
+      status: 'partial',
+      games: [expect.objectContaining({ id: 'game-100' })],
+    });
+    expect(result.failedMonths).toHaveLength(1);
+    expect(result.failedMonths[0]).toMatchObject({
+      retryable: false,
+      attempts: 1,
+      error: { code: 'INVALID_UPSTREAM_RESPONSE' },
+    });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'INGESTION_FAILED' })
+    );
   });
 
   it('returns one cancelled result during archive fetch and emits no late progress', async () => {

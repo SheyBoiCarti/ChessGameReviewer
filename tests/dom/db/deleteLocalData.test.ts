@@ -1,7 +1,22 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openDatabase, closeDatabase } from '../../../lib/db/openDatabase';
-import { DB_NAME, GameRecord, ArchiveSyncRecord, GraphSnapshotRecord } from '../../../lib/db/schema';
-import { saveSyncBatch, putGraphSnapshot, getGamesForUser, getArchiveSyncsForUser, getGraphSnapshot, setMeta, getMeta, putArchiveListMeta, getArchiveListMeta } from '../../../lib/db/repositories';
+import {
+  DB_NAME,
+  GameRecord,
+  ArchiveSyncRecord,
+  GraphSnapshotRecord,
+} from '../../../lib/db/schema';
+import {
+  saveSyncBatch,
+  putGraphSnapshot,
+  getGamesForUser,
+  getArchiveSyncsForUser,
+  getGraphSnapshot,
+  setMeta,
+  getMeta,
+  putArchiveListMeta,
+  getArchiveListMeta,
+} from '../../../lib/db/repositories';
 import { deleteUserData, clearAllData } from '../../../lib/db/deleteLocalData';
 
 describe('deleteLocalData API', () => {

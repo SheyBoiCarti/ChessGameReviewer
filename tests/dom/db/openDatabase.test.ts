@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { openDatabase, closeDatabase, StorageUnavailableError } from '../../../lib/db/openDatabase';
+import {
+  openDatabase,
+  closeDatabase,
+  QuotaExceededError,
+  StorageUnavailableError,
+  wrapIDBError,
+} from '../../../lib/db/openDatabase';
 import { DB_NAME, STORES } from '../../../lib/db/schema';
 
 describe('openDatabase', () => {
@@ -56,5 +62,33 @@ describe('openDatabase', () => {
     await expect(openDatabase()).rejects.toThrow(StorageUnavailableError);
 
     globalThis.indexedDB = originalIDB;
+  });
+
+  it('normalizes browser database failures without exposing raw errors', () => {
+    const quotaByName = new Error('write failed');
+    quotaByName.name = 'QuotaExceededError';
+    expect(wrapIDBError(quotaByName)).toBeInstanceOf(QuotaExceededError);
+    expect(wrapIDBError(new Error('Quota reached'))).toBeInstanceOf(QuotaExceededError);
+
+    for (const name of ['InvalidStateError', 'SecurityError', 'UnknownError']) {
+      const error = new Error('private browser detail');
+      error.name = name;
+      expect(wrapIDBError(error)).toBeInstanceOf(StorageUnavailableError);
+    }
+
+    expect(wrapIDBError({ name: 'QuotaExceededError' })).toBeInstanceOf(QuotaExceededError);
+    expect(wrapIDBError({ message: 'Quota reached' })).toBeInstanceOf(QuotaExceededError);
+    expect(wrapIDBError({ name: 'SecurityError' })).toBeInstanceOf(StorageUnavailableError);
+    expect(wrapIDBError({})).toBeInstanceOf(StorageUnavailableError);
+    expect(wrapIDBError('failure')).toBeInstanceOf(StorageUnavailableError);
+  });
+
+  it('ignores close errors during cleanup', () => {
+    const db = {
+      close: () => {
+        throw new Error('already closed');
+      },
+    } as unknown as IDBDatabase;
+    expect(() => closeDatabase(db)).not.toThrow();
   });
 });
