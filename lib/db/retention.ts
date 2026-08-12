@@ -78,8 +78,8 @@ export async function evictGraphSnapshots(
       }
 
       let evicted = 0;
-      const index = store.index('createdAt');
-      const cursorReq = index.openCursor(); // ascending by createdAt (oldest first)
+      const index = store.index('lastUsedAt');
+      const cursorReq = index.openCursor(); // ascending by lastUsedAt (oldest first)
 
       cursorReq.onerror = () => reject(wrapIDBError(cursorReq.error));
       cursorReq.onsuccess = () => {

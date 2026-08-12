@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openDatabase, closeDatabase } from '../../../lib/db/openDatabase';
 import { DB_NAME, GameRecord, ArchiveSyncRecord, GraphSnapshotRecord } from '../../../lib/db/schema';
-import { saveSyncBatch, putGraphSnapshot, getGamesForUser, getArchiveSyncsForUser, getGraphSnapshot, setMeta, getMeta } from '../../../lib/db/repositories';
+import { saveSyncBatch, putGraphSnapshot, getGamesForUser, getArchiveSyncsForUser, getGraphSnapshot, setMeta, getMeta, putArchiveListMeta, getArchiveListMeta } from '../../../lib/db/repositories';
 import { deleteUserData, clearAllData } from '../../../lib/db/deleteLocalData';
 
 describe('deleteLocalData API', () => {
@@ -82,7 +82,11 @@ describe('deleteLocalData API', () => {
       await saveSyncBatch(db, [janeGame], janeSync);
       await saveSyncBatch(db, [johnGame], johnSync);
       await putGraphSnapshot(db, janeSnap);
-      await setMeta(db, 'archiveList:janedoe', ['2024-05']);
+      await putArchiveListMeta(db, {
+        username: 'janedoe',
+        months: ['2024-05'],
+        fetchedAt: 1700000000,
+      });
 
       const result = await deleteUserData(db, 'JaneDoe'); // testing case insensitivity
 
@@ -97,7 +101,7 @@ describe('deleteLocalData API', () => {
       expect(await getGamesForUser(db, 'janedoe')).toHaveLength(0);
       expect(await getArchiveSyncsForUser(db, 'janedoe')).toHaveLength(0);
       expect(await getGraphSnapshot(db, 'snap-jane')).toBeNull();
-      expect(await getMeta(db, 'archiveList:janedoe')).toBeNull();
+      expect(await getArchiveListMeta(db, 'janedoe')).toBeNull();
 
       // Verify John's data remains untouched
       expect(await getGamesForUser(db, 'johndoe')).toHaveLength(1);
