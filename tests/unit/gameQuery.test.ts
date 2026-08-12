@@ -21,6 +21,23 @@ describe('validateGameQuery', () => {
     }
   });
 
+  it('normalizes username and set-like filters without duplicates', () => {
+    const result = validateGameQuery({
+      username: '  MagnusCarlsen  ',
+      timeClasses: ['blitz', 'blitz', 'rapid'],
+      colors: ['white', 'white'],
+    });
+    expect(result).toEqual({
+      success: true,
+      data: {
+        username: 'magnuscarlsen',
+        maxGames: 500,
+        timeClasses: ['blitz', 'rapid'],
+        colors: ['white'],
+      },
+    });
+  });
+
   it('accepts a fully specified valid game query', () => {
     const input = {
       username: 'Magnus-Carlsen_99',

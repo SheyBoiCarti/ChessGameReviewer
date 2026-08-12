@@ -10,6 +10,7 @@ import validMonthlyGames from '../fixtures/upstream/validMonthlyGames.json';
 import missingFieldsGame from '../fixtures/upstream/missingFieldsGame.json';
 import malformedGame from '../fixtures/upstream/malformedGame.json';
 import httpErrorResponses from '../fixtures/upstream/httpErrorResponses.json';
+import { makeOversizedMonthlyGamesFixture } from '../helpers/phase1Fixtures';
 
 describe('chesscomSchemas runtime validation', () => {
   describe('validateArchivesResponse', () => {
@@ -32,14 +33,32 @@ describe('chesscomSchemas runtime validation', () => {
       }
     });
 
-    it('filters non-string archive URLs in array', () => {
+    it('fails the entire response if it contains non-string archive URLs', () => {
       const result = validateArchivesResponse({
         archives: ['https://api.chess.com/pub/player/hikaru/games/2024/01', 12345, null],
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.archives).toHaveLength(1);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.diagnostic.code).toBe('INVALID_ARCHIVES_SCHEMA');
       }
+    });
+
+    it('rejects a non-string archives element instead of silently dropping it', () => {
+      const result = validateArchivesResponse({ archives: ['https://api.chess.com/a', 42] });
+      expect(result).toMatchObject({
+        success: false,
+        diagnostic: { code: 'INVALID_ARCHIVES_SCHEMA' },
+      });
+    });
+  });
+
+  describe('validateRawGame', () => {
+    it('uses a UUID instead of a username-bearing game URL in diagnostics', () => {
+      const result = validateRawGame({
+        url: 'https://www.chess.com/game/live/private-user-123',
+        uuid: 'safe-uuid',
+      });
+      expect(result).toMatchObject({ success: false, diagnostic: { gameId: 'safe-uuid' } });
     });
   });
 
@@ -78,7 +97,7 @@ describe('chesscomSchemas runtime validation', () => {
         expect(result.games).toHaveLength(0);
         expect(result.diagnostics).toHaveLength(1);
         const diag = result.diagnostics[0];
-        expect(diag?.gameId).toBe('https://www.chess.com/game/live/101010102');
+        expect(diag?.gameId).toBe('game_index_0');
         expect(diag?.code).toBe('MISSING_REQUIRED_GAME_FIELD');
       }
     });
@@ -94,16 +113,7 @@ describe('chesscomSchemas runtime validation', () => {
     });
 
     it('rejects oversized game response count > 20,000', () => {
-      const oversizedGames = Array.from({ length: 20001 }, (_, i) => ({
-        url: `https://www.chess.com/game/live/${i}`,
-        end_time: 1700000000,
-        time_class: 'blitz',
-        rules: 'chess',
-        white: { username: 'player1', result: 'win' },
-        black: { username: 'player2', result: 'checkmated' },
-      }));
-
-      const result = validateMonthlyGamesResponse({ games: oversizedGames });
+      const result = validateMonthlyGamesResponse(makeOversizedMonthlyGamesFixture());
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.diagnostic.code).toBe('RESPONSE_TOO_LARGE');
