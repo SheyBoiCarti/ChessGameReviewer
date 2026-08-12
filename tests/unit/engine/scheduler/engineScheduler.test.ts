@@ -5,7 +5,10 @@ import type { ScheduledEngineAdapter } from '../../../../lib/engine/scheduler/ty
 
 class DeferredAdapter implements ScheduledEngineAdapter {
   readonly calls: string[] = [];
-  readonly pending = new Map<string, { resolve: (value: string) => void; reject: (reason: Error) => void }>();
+  readonly pending = new Map<
+    string,
+    { resolve: (value: string) => void; reject: (reason: Error) => void }
+  >();
   async initialize(): Promise<void> {}
   evaluate(job: { id: string }): Promise<string> {
     this.calls.push(job.id);

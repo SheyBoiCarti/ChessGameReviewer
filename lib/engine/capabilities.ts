@@ -23,7 +23,14 @@ export function detectEngineCapability(probe: EngineCapabilityProbe): EngineCapa
   const resources = selectEngineResources(probe);
   const threadedEligible = probe.crossOriginIsolated && probe.sharedArrayBuffer && probe.simd;
   if (threadedEligible && probe.threadedInitialized)
-    return { ...resources, mode: 'threaded', engineInitialized: true, crossOriginIsolated: true, sharedArrayBuffer: true, simd: true };
+    return {
+      ...resources,
+      mode: 'threaded',
+      engineInitialized: true,
+      crossOriginIsolated: true,
+      sharedArrayBuffer: true,
+      simd: true,
+    };
   if (probe.singleThreadInitialized)
     return {
       ...resources,
@@ -33,7 +40,9 @@ export function detectEngineCapability(probe: EngineCapabilityProbe): EngineCapa
       crossOriginIsolated: probe.crossOriginIsolated,
       sharedArrayBuffer: probe.sharedArrayBuffer,
       simd: probe.simd,
-      ...(threadedEligible ? { reason: 'Threaded engine initialization failed; using the single-thread engine.' } : { reason: threadedReason(probe) }),
+      ...(threadedEligible
+        ? { reason: 'Threaded engine initialization failed; using the single-thread engine.' }
+        : { reason: threadedReason(probe) }),
     };
   return {
     ...resources,
@@ -51,7 +60,8 @@ export async function probeEngineCapability(
   environment: Omit<EngineCapabilityProbe, 'threadedInitialized' | 'singleThreadInitialized'>,
   initialize: (mode: 'threaded' | 'single-thread') => Promise<void>
 ): Promise<EngineCapability> {
-  const eligible = environment.crossOriginIsolated && environment.sharedArrayBuffer && environment.simd;
+  const eligible =
+    environment.crossOriginIsolated && environment.sharedArrayBuffer && environment.simd;
   let threadedInitialized = false;
   if (eligible) {
     try {
@@ -62,17 +72,33 @@ export async function probeEngineCapability(
     }
   }
   if (threadedInitialized)
-    return detectEngineCapability({ ...environment, threadedInitialized: true, singleThreadInitialized: false });
+    return detectEngineCapability({
+      ...environment,
+      threadedInitialized: true,
+      singleThreadInitialized: false,
+    });
   try {
     await initialize('single-thread');
-    return detectEngineCapability({ ...environment, threadedInitialized: false, singleThreadInitialized: true });
+    return detectEngineCapability({
+      ...environment,
+      threadedInitialized: false,
+      singleThreadInitialized: true,
+    });
   } catch {
-    return detectEngineCapability({ ...environment, threadedInitialized: false, singleThreadInitialized: false });
+    return detectEngineCapability({
+      ...environment,
+      threadedInitialized: false,
+      singleThreadInitialized: false,
+    });
   }
 }
 
-function threadedReason(probe: Pick<EngineCapabilityProbe, 'crossOriginIsolated' | 'sharedArrayBuffer' | 'simd'>): string {
-  if (!probe.crossOriginIsolated) return 'Cross-origin isolation is unavailable; using the single-thread engine.';
-  if (!probe.sharedArrayBuffer) return 'SharedArrayBuffer is unavailable; using the single-thread engine.';
+function threadedReason(
+  probe: Pick<EngineCapabilityProbe, 'crossOriginIsolated' | 'sharedArrayBuffer' | 'simd'>
+): string {
+  if (!probe.crossOriginIsolated)
+    return 'Cross-origin isolation is unavailable; using the single-thread engine.';
+  if (!probe.sharedArrayBuffer)
+    return 'SharedArrayBuffer is unavailable; using the single-thread engine.';
   return 'WebAssembly SIMD is unavailable; using the single-thread engine.';
 }

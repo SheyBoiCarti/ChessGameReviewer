@@ -31,7 +31,10 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
   private hidden = false;
   private userActivityWhileHidden = false;
 
-  constructor(adapter: ScheduledEngineAdapter<TPayload, TResult>, private readonly options: EngineSchedulerOptions<TPayload, TResult> = {}) {
+  constructor(
+    adapter: ScheduledEngineAdapter<TPayload, TResult>,
+    private readonly options: EngineSchedulerOptions<TPayload, TResult> = {}
+  ) {
     this.adapter = adapter;
   }
 
@@ -41,7 +44,13 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
     if (job.signal?.aborted) return Promise.reject(abortError());
     if (this.now() >= job.deadlineAt) return Promise.reject(timeoutError());
     return new Promise<TResult>((resolve, reject) => {
-      const entry: QueueEntry<TPayload, TResult> = { job, resolve, reject, sequence: this.sequence++, retries: 0 };
+      const entry: QueueEntry<TPayload, TResult> = {
+        job,
+        resolve,
+        reject,
+        sequence: this.sequence++,
+        retries: 0,
+      };
       if (job.priority === 1) this.supersedeQueuedInteractive(entry);
       this.queue.push(entry);
       this.requestPreemption(entry);
@@ -91,7 +100,12 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
           continue;
         }
         const controller = new AbortController();
-        const active: ActiveEntry<TPayload, TResult> = { ...entry, controller, preempted: false, deadlineTimer: undefined };
+        const active: ActiveEntry<TPayload, TResult> = {
+          ...entry,
+          controller,
+          preempted: false,
+          deadlineTimer: undefined,
+        };
         this.active = active;
         const remaining = Math.max(0, entry.job.deadlineAt - this.now());
         active.deadlineTimer = setTimeout(() => {
@@ -118,11 +132,13 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
     this.active = undefined;
     if (this.disposed) return;
     if (active.preempted) {
-      if (!active.job.parentSignal?.aborted && !active.job.signal?.aborted) this.queue.push({ ...active, retries: active.retries });
+      if (!active.job.parentSignal?.aborted && !active.job.signal?.aborted)
+        this.queue.push({ ...active, retries: active.retries });
       else active.reject(abortError());
       return;
     }
-    if (active.controller.signal.aborted) active.reject(this.now() >= active.job.deadlineAt ? timeoutError() : abortError());
+    if (active.controller.signal.aborted)
+      active.reject(this.now() >= active.job.deadlineAt ? timeoutError() : abortError());
     else active.resolve(result);
   }
 
@@ -132,7 +148,8 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
     this.active = undefined;
     if (this.disposed) return;
     if (active.preempted || active.controller.signal.aborted) {
-      if (active.preempted && !active.job.parentSignal?.aborted && !active.job.signal?.aborted) this.queue.push({ ...active, retries: active.retries });
+      if (active.preempted && !active.job.parentSignal?.aborted && !active.job.signal?.aborted)
+        this.queue.push({ ...active, retries: active.retries });
       else active.reject(this.now() >= active.job.deadlineAt ? timeoutError() : abortError());
       return;
     }
@@ -156,8 +173,12 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
   private takeNextRunnable(): QueueEntry<TPayload, TResult> | undefined {
     const index = this.queue
       .map((entry, index) => ({ entry, index }))
-      .filter(({ entry }) => !this.hidden || (entry.job.priority === 1 && this.userActivityWhileHidden))
-      .sort((a, b) => a.entry.job.priority - b.entry.job.priority || a.entry.sequence - b.entry.sequence)[0]?.index;
+      .filter(
+        ({ entry }) => !this.hidden || (entry.job.priority === 1 && this.userActivityWhileHidden)
+      )
+      .sort(
+        (a, b) => a.entry.job.priority - b.entry.job.priority || a.entry.sequence - b.entry.sequence
+      )[0]?.index;
     return index === undefined ? undefined : this.queue.splice(index, 1)[0];
   }
 
@@ -176,7 +197,10 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
   private supersedeQueuedInteractive(incoming: QueueEntry<TPayload, TResult>): void {
     for (let index = this.queue.length - 1; index >= 0; index -= 1) {
       const candidate = this.queue[index]!;
-      if (candidate.job.priority === 1 && candidate.job.relevanceToken === incoming.job.relevanceToken) {
+      if (
+        candidate.job.priority === 1 &&
+        candidate.job.relevanceToken === incoming.job.relevanceToken
+      ) {
         this.queue.splice(index, 1);
         candidate.reject(abortError());
       }
@@ -203,7 +227,10 @@ function disposedError(): EngineSchedulerError {
   return new EngineSchedulerError('ENGINE_DISPOSED', 'The engine scheduler has been disposed.');
 }
 function disabledError(): EngineSchedulerError {
-  return new EngineSchedulerError('ENGINE_DISABLED', 'The engine is disabled for this session after repeated failures.');
+  return new EngineSchedulerError(
+    'ENGINE_DISABLED',
+    'The engine is disabled for this session after repeated failures.'
+  );
 }
 function asError(value: unknown): Error {
   return value instanceof Error ? value : new Error('Engine operation failed.');

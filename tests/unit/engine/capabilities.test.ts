@@ -44,7 +44,9 @@ describe('engine capability and resource policy', () => {
   });
 
   it('clamps threaded resources and applies the mobile hash budget', () => {
-    expect(selectEngineResources({ hardwareConcurrency: 99, deviceMemoryGb: 2, mobile: true })).toEqual({
+    expect(
+      selectEngineResources({ hardwareConcurrency: 99, deviceMemoryGb: 2, mobile: true })
+    ).toEqual({
       threads: 4,
       hashMb: 16,
     });

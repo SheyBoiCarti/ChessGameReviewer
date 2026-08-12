@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { ENGINE_WORKER_PROTOCOL_VERSION, isEngineWorkerRequest } from '../../../workers/stockfish.protocol';
+import {
+  ENGINE_WORKER_PROTOCOL_VERSION,
+  isEngineWorkerRequest,
+} from '../../../workers/stockfish.protocol';
 
 describe('Stockfish worker protocol', () => {
   it('requires a matching protocol version and nonempty job ID', () => {
