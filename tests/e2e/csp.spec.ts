@@ -4,6 +4,14 @@ test.describe('Content Security Policy (CSP) Smoke Test', () => {
   test('allows approved PubAPI CORS request and blocks unauthorized connect-src target', async ({
     page,
   }) => {
+    await page.route('https://api.chess.com/**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'access-control-allow-origin': '*' },
+        body: JSON.stringify({ archives: [] }),
+      });
+    });
     await page.goto('/');
 
     // Test approved PubAPI fetch (https://api.chess.com)
@@ -20,10 +28,7 @@ test.describe('Content Security Policy (CSP) Smoke Test', () => {
       }
     });
 
-    // Approved endpoint should not be blocked by CSP
-    if (!pubApiResult.success) {
-      expect(pubApiResult.error).not.toMatch(/Content Security Policy|Refused to connect/i);
-    }
+    expect(pubApiResult).toEqual({ success: true, status: 200 });
 
     // Test unauthorized connect-src target (https://example.com)
     const unauthorizedResult = await page.evaluate(async () => {

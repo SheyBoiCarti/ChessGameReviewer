@@ -9,7 +9,9 @@ describe('test discovery and coverage gates', () => {
   });
 
   it('enforces the documented global coverage minimums', () => {
-    expect(config.test?.coverage?.thresholds).toMatchObject({
+    const coverage = config.test?.coverage;
+    const thresholds = coverage && 'thresholds' in coverage ? coverage.thresholds : undefined;
+    expect(thresholds).toMatchObject({
       branches: 80,
       functions: 80,
       lines: 80,
