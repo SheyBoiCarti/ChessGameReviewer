@@ -7,7 +7,7 @@ export default [
     ignores: ['.next/**', 'node_modules/**', 'coverage/**', 'playwright-report/**'],
   },
   {
-    files: ['**/*.ts', '**/*.tsx'],
+    files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.mjs'],
     plugins: {
       '@next/next': nextPlugin,
       '@typescript-eslint': tsPlugin,
