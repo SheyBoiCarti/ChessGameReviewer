@@ -52,10 +52,11 @@ export class OpeningGraphBuilder {
 
   build(games: readonly ParsedGame[]): OpeningGraphSnapshot {
     const state = createBuildState();
+    const orderedGames = canonicalGameOrder(games);
 
-    for (let gameIndex = 0; gameIndex < games.length; gameIndex += 1) {
-      const limit = this.addGame(state, games[gameIndex]);
-      if (limit) return snapshotFor(state, 'limited', games.length - gameIndex, limit);
+    for (let gameIndex = 0; gameIndex < orderedGames.length; gameIndex += 1) {
+      const limit = this.addGame(state, orderedGames[gameIndex]);
+      if (limit) return snapshotFor(state, 'limited', orderedGames.length - gameIndex, limit);
     }
 
     return snapshotFor(state, 'complete', 0);
@@ -66,19 +67,20 @@ export class OpeningGraphBuilder {
     runtime: AsyncGraphBuildOptions = {}
   ): Promise<OpeningGraphSnapshot | undefined> {
     const state = createBuildState();
+    const orderedGames = canonicalGameOrder(games);
     const yieldEveryGames = runtime.yieldEveryGames ?? 25;
     if (!Number.isInteger(yieldEveryGames) || yieldEveryGames < 1) {
       throw new RangeError('INVALID_YIELD_INTERVAL');
     }
 
-    for (let gameIndex = 0; gameIndex < games.length; gameIndex += 1) {
+    for (let gameIndex = 0; gameIndex < orderedGames.length; gameIndex += 1) {
       if (runtime.shouldCancel?.()) return undefined;
-      const limit = this.addGame(state, games[gameIndex]);
+      const limit = this.addGame(state, orderedGames[gameIndex]);
       runtime.onProgress?.({
         processedGameCount: gameIndex + 1,
         includedGameCount: state.includedGameCount,
       });
-      if (limit) return snapshotFor(state, 'limited', games.length - gameIndex, limit);
+      if (limit) return snapshotFor(state, 'limited', orderedGames.length - gameIndex, limit);
       if ((gameIndex + 1) % yieldEveryGames === 0) {
         await yieldToWorkerEventLoop();
         if (runtime.shouldCancel?.()) return undefined;
@@ -174,6 +176,10 @@ function createBuildState(): BuildState {
     edgeCount: 0,
     includedGameCount: 0,
   };
+}
+
+function canonicalGameOrder(games: readonly ParsedGame[]): ParsedGame[] {
+  return [...games].sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function snapshotFor(

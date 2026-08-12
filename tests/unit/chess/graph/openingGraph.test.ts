@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { OpeningGraphBuilder } from '@/lib/chess/graph/openingGraph';
+import { serializeOpeningGraph } from '@/lib/chess/graph/serialization';
 import { parseGamePgn } from '@/lib/chess/pgnParser';
 
 function parse(id: string, pgn: string) {
@@ -113,6 +114,21 @@ describe('OpeningGraphBuilder', () => {
     ).toBe(2);
   });
 
+  it('serializes identically regardless of accepted game input order', () => {
+    const games = [
+      parse('order-a', '1. Nf3 d5 2. g3 Nf6 1-0'),
+      parse('order-b', '1. g3 d5 2. Nf3 Nf6 1-0'),
+    ];
+    const serialize = (input: typeof games) =>
+      serializeOpeningGraph(new OpeningGraphBuilder({ maxOpeningPlies: 4 }).build(input), {
+        queryFingerprint: 'query',
+        sourceGameCount: input.length,
+        buildTimestamp: 0,
+      });
+
+    expect(serialize(games)).toEqual(serialize([...games].reverse()));
+  });
+
   it('stops at a game boundary when a structural limit is crossed', () => {
     const graph = new OpeningGraphBuilder(
       { maxOpeningPlies: 2 },
@@ -123,6 +139,26 @@ describe('OpeningGraphBuilder', () => {
     expect(graph.includedGameCount).toBe(1);
     expect(graph.remainingGameCount).toBe(1);
     expect(graph.root.aggregate.games).toBe(1);
+  });
+
+  it.each([
+    ['maxPositions', { maxPositions: 3 }],
+    ['maxEdges', { maxEdges: 2 }],
+    ['maxPathNodes', { maxPathNodes: 3 }],
+  ] as const)('preserves the committed graph when %s is reached', (reachedLimit, limits) => {
+    const graph = new OpeningGraphBuilder({ maxOpeningPlies: 2 }, limits).build([
+      parse('first-cap', '1. e4 e5 1-0'),
+      parse('second-cap', '1. d4 d5 1-0'),
+    ]);
+
+    expect(graph).toMatchObject({
+      status: 'limited',
+      reachedLimit,
+      includedGameCount: 1,
+      remainingGameCount: 1,
+    });
+    expect(graph.root.aggregate.games).toBe(1);
+    expect([...graph.positions.values()].every((node) => node.aggregate.games <= 1)).toBe(true);
   });
 
   it('reports all unprocessed games as remaining after a limit', () => {

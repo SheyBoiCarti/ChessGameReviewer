@@ -1,13 +1,30 @@
 import { describe, expect, it } from 'vitest';
+import { Chess } from 'chess.js';
 
 import { parseGamePgn } from '@/lib/chess/pgnParser';
 
 describe('parseGamePgn', () => {
   it('returns a stable diagnostic when PGN is missing', () => {
     const result = parseGamePgn({
-      game: { id: 'missing', url: 'https://example.test/missing', usernameKey: 'alice', userColor: 'white', result: 'draw', endedAt: 0, timeClass: 'blitz', rated: true, userRating: null, opponentRating: null, rules: 'chess' },
+      game: {
+        id: 'missing',
+        url: 'https://example.test/missing',
+        usernameKey: 'alice',
+        userColor: 'white',
+        result: 'draw',
+        endedAt: 0,
+        timeClass: 'blitz',
+        rated: true,
+        userRating: null,
+        opponentRating: null,
+        rules: 'chess',
+      },
     });
-    expect(result).toMatchObject({ ok: false, gameId: 'missing', errors: [expect.objectContaining({ code: 'MISSING_PGN' })] });
+    expect(result).toMatchObject({
+      ok: false,
+      gameId: 'missing',
+      errors: [expect.objectContaining({ code: 'MISSING_PGN' })],
+    });
   });
   it('replays a legal main line into continuous full-FEN plies and canonical UCI', () => {
     const result = parseGamePgn({
@@ -120,5 +137,42 @@ describe('parseGamePgn', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.game.plies[0]?.uci).toBe('a7a8q');
+  });
+
+  it('preserves replay continuity for generated legal move sequences', () => {
+    for (let seed = 1; seed <= 20; seed += 1) {
+      const chess = new Chess();
+      let state = seed;
+      for (let ply = 0; ply < 12 && !chess.isGameOver(); ply += 1) {
+        const moves = chess.moves({ verbose: true });
+        state = (state * 1_103_515_245 + 12_345) >>> 0;
+        chess.move(moves[state % moves.length]!);
+      }
+      const result = parseGamePgn({
+        game: {
+          id: `generated-${seed}`,
+          url: `https://example.test/generated-${seed}`,
+          usernameKey: 'alice',
+          userColor: 'white',
+          result: 'draw',
+          endedAt: 0,
+          timeClass: 'blitz',
+          rated: true,
+          userRating: null,
+          opponentRating: null,
+          rules: 'chess',
+          pgn: chess.pgn(),
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(
+          result.game.plies.every(
+            (ply, index, plies) => index === 0 || ply.fenBefore === plies[index - 1]?.fenAfter
+          )
+        ).toBe(true);
+      }
+    }
   });
 });
