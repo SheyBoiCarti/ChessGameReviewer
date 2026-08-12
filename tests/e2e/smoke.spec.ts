@@ -10,6 +10,7 @@ test.describe('Browser Smoke Test', () => {
         consoleErrors.push(msg.text());
       }
     });
+    page.on('pageerror', (error) => consoleErrors.push(error.message));
 
     await page.goto('/');
 

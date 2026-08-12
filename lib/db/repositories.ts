@@ -8,7 +8,6 @@ import {
   isValidArchiveSyncRecord,
   isValidGameRecord,
   isValidEvaluationRecord,
-  isValidEvaluationRecord,
   isValidGraphSnapshotRecord,
   isValidMetaRecord,
   StoreName,
@@ -143,9 +142,10 @@ export async function getGamesForMonth(
 
   if (!Array.isArray(results)) return [];
 
-  const [yearStr, monthStr] = month.split('-');
-  const targetYear = parseInt(yearStr, 10);
-  const targetMonth = parseInt(monthStr, 10) - 1; // 0-indexed months in UTC
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
+  if (!match) return [];
+  const targetYear = Number(match[1]);
+  const targetMonth = Number(match[2]) - 1; // 0-indexed months in UTC
 
   const validRecords: GameRecord[] = [];
   for (const record of results) {

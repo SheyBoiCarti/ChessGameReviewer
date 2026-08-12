@@ -24,6 +24,7 @@ export type UpstreamErrorCode =
   | 'ABORTED'
   | 'MALFORMED_JSON'
   | 'INVALID_SCHEMA'
+  | 'WRONG_CONTENT_TYPE'
   | 'REDIRECT_DISALLOWED';
 
 export interface UpstreamError {

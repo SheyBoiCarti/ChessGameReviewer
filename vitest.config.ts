@@ -38,7 +38,12 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       include: ['lib/**/*.ts', 'features/**/*.ts', 'components/**/*.tsx'],
-      exclude: ['**/*.d.ts', 'lib/api/contracts.ts', 'features/ingestion/types.ts'],
+      exclude: [
+        '**/*.d.ts',
+        'lib/api/contracts.ts',
+        'features/ingestion/types.ts',
+        'components/Phase1TestHarness.tsx',
+      ],
       thresholds: {
         branches: 80,
         functions: 80,

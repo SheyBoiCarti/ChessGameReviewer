@@ -15,7 +15,10 @@ test.describe('Production & Preview HTTP Response Headers', () => {
   });
 
   test('returns security headers on static/worker asset path', async ({ request }) => {
-    const response = await request.get('/globals.css');
+    const document = await request.get('/');
+    const stylesheetPath = (await document.text()).match(/href="([^"]+\.css)"/)?.[1];
+    expect(stylesheetPath).toBeTruthy();
+    const response = await request.get(stylesheetPath!);
     const headers = response.headers();
     expect(headers['cross-origin-opener-policy']).toBe('same-origin');
     expect(headers['cross-origin-embedder-policy']).toBe('require-corp');
