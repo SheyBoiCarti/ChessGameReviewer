@@ -9,10 +9,10 @@ The deterministic legal Ruy Lopez fixture is replayed at a 10-ply horizon. It in
 
 | Workload                         | Duration | Positions | Edges | Path nodes | Serialized bytes | Heap delta |
 | -------------------------------- | -------: | --------: | ----: | ---------: | ---------------: | ---------: |
-| 1,000 games (supported baseline) |  7.67 ms |        11 |    10 |         11 |            7,682 | +4,406,016 |
-| 10,000 games (stress baseline)   | 54.98 ms |        11 |    10 |         11 |            7,840 | +8,637,624 |
+| 1,000 games (supported baseline) |  9.95 ms |        11 |    10 |         11 |            7,702 | +4,459,816 |
+| 10,000 games (stress baseline)   | 60.56 ms |        11 |    10 |         11 |            7,860 | +9,217,864 |
 
-The worker’s end-to-end 1,000-game parsing and aggregation baseline was **2,439.94 ms** on the same machine. This includes strict PGN replay, position-key normalization, worker scheduling yields, and graph construction; it does not block React or the browser main thread.
+The worker’s end-to-end 1,000-game parsing and aggregation baseline was **2,572.79 ms** on the same machine. This includes strict PGN replay, position-key normalization, worker scheduling yields, and graph construction; it does not block React or the browser main thread.
 
 Heap deltas are process snapshots, so garbage collection can make them negative. They are recorded as diagnostic context rather than a regression threshold.
 

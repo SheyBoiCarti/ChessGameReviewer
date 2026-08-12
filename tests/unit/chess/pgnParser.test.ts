@@ -116,6 +116,30 @@ describe('parseGamePgn', () => {
     expect(result.game.plies[0]?.fenBefore).toBe('4k3/8/8/8/8/8/8/4K3 w - - 0 1');
   });
 
+  it('replays only the legal main line when comments and variations are annotated', () => {
+    const result = parseGamePgn({
+      game: {
+        id: 'annotated-game',
+        url: 'https://www.chess.com/game/live/annotated',
+        usernameKey: 'alice',
+        userColor: 'white',
+        result: 'win',
+        endedAt: 3,
+        timeClass: 'blitz',
+        rated: true,
+        userRating: 1500,
+        opponentRating: 1600,
+        rules: 'chess',
+        pgn: '1. e4 {King pawn opening.} e5 (1... c5) 2. Nf3 Nc6 1-0',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.game.plies.map((ply) => ply.uci)).toEqual(['e2e4', 'e7e5', 'g1f3', 'b8c6']);
+    }
+  });
+
   it('includes the promoted piece in canonical UCI', () => {
     const result = parseGamePgn({
       game: {
