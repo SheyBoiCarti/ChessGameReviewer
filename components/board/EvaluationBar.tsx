@@ -13,10 +13,12 @@ export function EvaluationBar({ score }: { score?: EvaluationScore }) {
       aria-valuenow={Math.round(view.whitePercent)}
       aria-valuetext={view.text}
     >
-      <span className="evaluation-text">{view.text}</span>
-      <span className="evaluation-track" aria-hidden="true">
-        <span className="evaluation-white" style={{ height: `${view.whitePercent}%` }} />
-      </span>
+      <span
+        className="evaluation-bar__white"
+        style={{ height: `${view.whitePercent}%` }}
+        aria-hidden="true"
+      />
+      <span className="evaluation-bar__text">{view.text}</span>
     </div>
   );
 }

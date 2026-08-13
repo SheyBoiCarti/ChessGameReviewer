@@ -13,15 +13,22 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
   test.setTimeout(90_000);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await expect(page.getByRole('heading', { name: 'Games loaded' })).toBeVisible();
-  await expect(page.getByText('2 games are available.')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /select game versus opponent-two/i })
+  ).toBeVisible();
+  await expect(page.locator('#game-query-rail')).toHaveCount(0);
 
   await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
-  await expect(page.getByRole('grid', { name: 'Chess board' })).toBeVisible();
-  await page.getByRole('grid', { name: 'Chess board' }).press('ArrowRight');
+  const board = page.getByRole('grid', { name: 'Chess board' });
+  await expect(board).toBeVisible();
+  const boardHandle = await board.elementHandle();
+  await board.press('ArrowRight');
   await expect(page.getByText('Ply 1 of 8')).toBeVisible();
 
   await page.getByRole('tab', { name: 'Opening tree' }).click();
+  await expect(board).toBeVisible();
+  expect(await boardHandle?.evaluate((grid) => grid.isConnected)).toBe(true);
+  await expect(page.getByRole('heading', { name: 'Opening candidates' })).toBeVisible();
   await page.getByRole('button', { name: 'Play Nf3' }).click();
   await page.getByRole('button', { name: 'Play d5' }).click();
   await page.getByRole('button', { name: 'Play d4' }).click();
@@ -34,6 +41,9 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
 
   if (browserName === 'chromium') {
     await page.getByRole('tab', { name: 'Analysis' }).click();
+    await expect(board).toBeVisible();
+    expect(await boardHandle?.evaluate((grid) => grid.isConnected)).toBe(true);
+    await expect(page.getByRole('heading', { name: 'Local Stockfish analysis' })).toBeVisible();
     await expect(page.getByText('single-thread', { exact: true })).toBeVisible({ timeout: 30_000 });
     await page.getByRole('button', { name: 'Start analysis' }).click();
     await expect(page.getByRole('button', { name: 'Cancel analysis' })).toBeVisible();
@@ -57,7 +67,7 @@ test('keeps opening data usable when Stockfish is unavailable', async ({ page })
   test.setTimeout(60_000);
   await page.goto('/?engine=unavailable');
   await loadFixtureGames(page);
-  await expect(page.getByRole('heading', { name: 'Games loaded' })).toBeVisible();
+  await expect(page.locator('#game-query-rail')).toHaveCount(0);
   await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByText(/Engine unavailable/i)).toBeVisible({ timeout: 15_000 });

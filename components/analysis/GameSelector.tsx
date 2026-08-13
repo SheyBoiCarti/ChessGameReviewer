@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { GameRecord } from '@/lib/db/schema';
 
@@ -15,9 +15,10 @@ export function GameSelector({
   onSelect(gameId: string): void;
   analysisStatus?: Readonly<Record<string, string>>;
 }) {
+  const container = useRef<HTMLElement>(null);
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<'newest' | 'oldest' | 'rating'>('newest');
-  const compact = useCompactLayout();
+  const compact = useCompactLayout(container);
   const rows = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     return games
@@ -32,7 +33,11 @@ export function GameSelector({
   }, [filter, games, sort]);
 
   return (
-    <section className="game-selector" aria-labelledby="game-selector-heading">
+    <section
+      ref={container}
+      className="game-selector surface-panel"
+      aria-labelledby="game-selector-heading"
+    >
       <h3 id="game-selector-heading">Games</h3>
       <div className="game-selector-controls">
         <label>
@@ -51,48 +56,67 @@ export function GameSelector({
           </select>
         </label>
       </div>
-      {compact ? (
-        <ul className="compact-game-list" aria-label="Compact games">
-          {rows.map(({ game, opponent }) => (
-            <li key={game.id} data-selected={game.id === selectedGameId}>
-              <GameButton game={game} opponent={opponent} onSelect={onSelect} />
-              <span>{metadata(game, analysisStatus[game.id])}</span>
-            </li>
-          ))}
-        </ul>
+      {rows.length === 0 ? (
+        <p>No games match the current filter.</p>
       ) : (
-        <table aria-label="Games">
-          <thead>
-            <tr>
-              <th>Opponent</th>
-              <th>Colour</th>
-              <th>Result</th>
-              <th>Ratings</th>
-              <th>Ended</th>
-              <th>Time</th>
-              <th>Rated</th>
-              <th>Analysis</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ game, opponent }) => (
-              <tr key={game.id} aria-selected={game.id === selectedGameId}>
-                <td>
+        <div
+          className="result-viewport game-results"
+          role="region"
+          aria-label="Game results"
+          tabIndex={0}
+        >
+          {compact ? (
+            <ul className="compact-game-list" aria-label="Compact games">
+              {rows.map(({ game, opponent }) => (
+                <li
+                  key={game.id}
+                  className="compact-game-card"
+                  data-selected={game.id === selectedGameId}
+                >
                   <GameButton game={game} opponent={opponent} onSelect={onSelect} />
-                </td>
-                <td>{game.userColor}</td>
-                <td>{game.result}</td>
-                <td>
-                  {game.userRating ?? '—'} / {game.opponentRating ?? '—'}
-                </td>
-                <td>{new Date(game.endedAt * 1000).toLocaleDateString()}</td>
-                <td>{game.timeClass}</td>
-                <td>{game.rated ? 'Rated' : 'Unrated'}</td>
-                <td>{analysisStatus[game.id] ?? 'Not analysed'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  <span>{metadata(game, analysisStatus[game.id])}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <table className="context-table game-table" aria-label="Games">
+              <thead>
+                <tr>
+                  <th>Opponent</th>
+                  <th>Colour</th>
+                  <th>Result</th>
+                  <th>Ratings</th>
+                  <th>Ended</th>
+                  <th>Time</th>
+                  <th>Rated</th>
+                  <th>Analysis</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ game, opponent }) => (
+                  <tr
+                    key={game.id}
+                    className={game.id === selectedGameId ? 'is-selected' : undefined}
+                    aria-selected={game.id === selectedGameId}
+                  >
+                    <td>
+                      <GameButton game={game} opponent={opponent} onSelect={onSelect} />
+                    </td>
+                    <td>{game.userColor}</td>
+                    <td>{game.result}</td>
+                    <td>
+                      {game.userRating ?? '—'} / {game.opponentRating ?? '—'}
+                    </td>
+                    <td>{new Date(game.endedAt * 1000).toLocaleDateString()}</td>
+                    <td>{game.timeClass}</td>
+                    <td>{game.rated ? 'Rated' : 'Unrated'}</td>
+                    <td>{analysisStatus[game.id] ?? 'Not analysed'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       )}
     </section>
   );
@@ -124,19 +148,20 @@ function metadata(game: GameRecord, status: string | undefined): string {
   return `${game.userColor}, ${game.result}, ${game.timeClass}, ${game.rated ? 'rated' : 'unrated'}, ${status ?? 'not analysed'}`;
 }
 
-function useCompactLayout(): boolean {
-  const query = '(max-width: 42rem)';
+function useCompactLayout(container: React.RefObject<HTMLElement | null>): boolean {
+  const maximumTableWidth = 42 * 16;
   const [compact, setCompact] = useState(() =>
-    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? window.matchMedia(query).matches
-      : false
+    typeof window !== 'undefined' ? window.innerWidth <= maximumTableWidth : false
   );
   useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return;
-    const media = window.matchMedia(query);
-    const update = () => setCompact(media.matches);
-    media.addEventListener('change', update);
-    return () => media.removeEventListener('change', update);
-  }, []);
+    const element = container.current;
+    if (!element) return;
+    const update = () => setCompact(element.clientWidth <= maximumTableWidth);
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [container]);
   return compact;
 }

@@ -4,11 +4,11 @@ import type { KeyboardEvent } from 'react';
 
 export type WorkspaceTab = 'games' | 'opening' | 'analysis' | 'settings';
 
-const tabs: ReadonlyArray<{ id: WorkspaceTab; label: string }> = [
-  { id: 'games', label: 'Games and board' },
-  { id: 'opening', label: 'Opening tree' },
-  { id: 'analysis', label: 'Analysis' },
-  { id: 'settings', label: 'Settings' },
+const tabs: ReadonlyArray<{ id: WorkspaceTab; label: string; icon: string }> = [
+  { id: 'games', label: 'Games and board', icon: '♟' },
+  { id: 'opening', label: 'Opening tree', icon: '⌘' },
+  { id: 'analysis', label: 'Analysis', icon: '◈' },
+  { id: 'settings', label: 'Settings', icon: '⚙' },
 ];
 
 export function WorkspaceTabs({
@@ -46,6 +46,9 @@ export function WorkspaceTabs({
           onClick={() => onSelect(tab.id)}
           onKeyDown={(event) => keyDown(event, index)}
         >
+          <span className="workspace-tabs__icon" aria-hidden="true">
+            {tab.icon}
+          </span>
           {tab.label}
         </button>
       ))}

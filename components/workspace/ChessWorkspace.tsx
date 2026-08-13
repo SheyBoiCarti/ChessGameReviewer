@@ -5,7 +5,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { GameSelector } from '@/components/analysis/GameSelector';
 import { ChessboardView } from '@/components/board/ChessboardView';
-import { EvaluationBar } from '@/components/board/EvaluationBar';
 import { GameQueryForm } from '@/components/controls/GameQueryForm';
 import { LocalDataSettings } from '@/components/controls/LocalDataSettings';
 import { DiagnosticSummary } from '@/components/feedback/DiagnosticSummary';
@@ -16,6 +15,7 @@ import { OpeningTreeTable } from '@/components/tree/OpeningTreeTable';
 import { parseGamePgn, type ParsedGame } from '@/lib/chess/pgnParser';
 import { deserializeOpeningGraph } from '@/lib/chess/graph/serialization';
 import type { GameRecord } from '@/lib/db/schema';
+import type { EvaluationScore } from '@/lib/engine/evaluation';
 import {
   createGraphNavigation,
   type GraphNavigationState,
@@ -24,6 +24,9 @@ import { createBrowserWorkspaceServices } from '@/features/workspace/browserServ
 import { useWorkspace } from '@/features/workspace/useWorkspace';
 
 import { WorkspaceTabs, type WorkspaceTab } from './WorkspaceTabs';
+import { AppTopBar } from './AppTopBar';
+import { UtilityRail } from './UtilityRail';
+import { WorkspaceLayout } from './WorkspaceLayout';
 
 const LazyAnalyzerWorkspace = dynamic(
   () =>
@@ -36,7 +39,10 @@ export function ChessWorkspace() {
   const [tab, setTab] = useState<WorkspaceTab>('games');
   const [navigation, setNavigation] = useState<GraphNavigationState | null>(null);
   const [moveOrdersOpen, setMoveOrdersOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(() => !state.ingestion.result);
+  const [resultFocusVersion, setResultFocusVersion] = useState(0);
   const moveOrdersButton = useRef<HTMLButtonElement>(null);
+  const filtersTrigger = useRef<HTMLButtonElement>(null);
   const loadedRegion = useRef<HTMLDivElement>(null);
   const previousIngestionStatus = useRef(state.ingestion.status);
   const graph = useMemo(() => {
@@ -64,9 +70,21 @@ export function ChessWorkspace() {
   useEffect(() => {
     const previous = previousIngestionStatus.current;
     previousIngestionStatus.current = state.ingestion.status;
-    if (previous === 'loading' && state.ingestion.status !== 'loading')
-      loadedRegion.current?.focus();
-  }, [state.ingestion.status]);
+    const completedIngestion = ['complete', 'partial', 'empty'].includes(state.ingestion.status);
+    if (previous === 'loading' && state.ingestion.status !== 'loading') {
+      const desktopLayout =
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(min-width: 80.0625rem)').matches;
+      if (completedIngestion && desktopLayout) {
+        setFiltersOpen(false);
+        loadedRegion.current?.focus();
+      } else if (completedIngestion && filtersOpen) {
+        setResultFocusVersion((version) => version + 1);
+      } else if (!completedIngestion || !filtersOpen) {
+        loadedRegion.current?.focus();
+      }
+    }
+  }, [filtersOpen, state.ingestion.status]);
 
   useEffect(() => {
     if (tab === 'analysis' && state.analysis.status === 'idle' && !state.analysis.capability) {
@@ -83,215 +101,226 @@ export function ChessWorkspace() {
     if (next !== 'opening') setMoveOrdersOpen(false);
   };
 
+  const isOpeningBoard = tab === 'opening' && graph && navigation;
+  const board = (
+    <div className="workspace-board">
+      <BoardPanel
+        fen={displayedFen}
+        parsedGame={isOpeningBoard ? null : parsedGame}
+        ply={isOpeningBoard ? 0 : state.selection.ply}
+        orientation={state.preferences.boardOrientation}
+        onPlyChange={isOpeningBoard ? () => undefined : controller.selectPly}
+        {...(selectedAnnotation ? { evaluationScore: selectedAnnotation.after.score } : {})}
+        {...(tab === 'analysis' && selectedArrow ? { pvArrow: selectedArrow } : {})}
+      />
+    </div>
+  );
+
   return (
-    <div className="workspace-shell">
-      <aside className="query-panel" aria-label="Game query and progress">
-        <GameQueryForm
-          disabled={state.ingestion.status === 'loading'}
-          openingHorizon={state.preferences.openingHorizon}
-          onOpeningHorizonChange={(openingHorizon) =>
-            controller.dispatch({ type: 'preferences/changed', preferences: { openingHorizon } })
-          }
-          onSubmit={(query) => controller.submitQuery(query)}
-        />
-        {state.ingestion.progress && state.ingestion.status === 'loading' ? (
-          <IngestionProgress
-            progress={state.ingestion.progress}
-            onCancel={controller.cancelIngestion}
-          />
-        ) : null}
-        {state.ingestion.result && state.ingestion.status !== 'loading' ? (
-          <DiagnosticSummary
-            result={state.ingestion.result}
-            onRetry={() => {
-              const active = state.query.active;
-              if (active) void controller.submitQuery(active, { manualRefresh: true });
-            }}
-          />
-        ) : null}
-        {state.ingestion.result?.offlineCacheOnly ? <OfflineCacheNotice /> : null}
-      </aside>
-
-      <main className="workspace-main">
-        <WorkspaceTabs selected={tab} onSelect={selectTab} />
-        <div
-          ref={loadedRegion}
-          className="workspace-panel"
-          id={`workspace-panel-${tab}`}
-          role="tabpanel"
-          aria-labelledby={`workspace-tab-${tab}`}
-          tabIndex={-1}
-        >
-          {tab === 'games' ? (
-            <div className="board-workspace">
-              <GameSelector
-                games={state.ingestion.result?.games ?? []}
-                selectedGameId={state.selection.gameId}
-                onSelect={(gameId) => controller.selectGame(gameId)}
+    <AppTopBar
+      onOpenFilters={() => setFiltersOpen(true)}
+      filtersOpen={filtersOpen}
+      filterControlsId="game-query-rail"
+      filterTriggerRef={filtersTrigger}
+    >
+      <main className={`workspace-shell${filtersOpen ? ' workspace-shell--rail-open' : ''}`}>
+        <WorkspaceLayout
+          utility={
+            <UtilityRail
+              title="Game query and progress"
+              open={filtersOpen}
+              onOpenChange={setFiltersOpen}
+              id="game-query-rail"
+              returnFocusRef={filtersTrigger}
+              resultFocusVersion={resultFocusVersion}
+            >
+              <GameQueryForm
+                disabled={state.ingestion.status === 'loading'}
+                openingHorizon={state.preferences.openingHorizon}
+                onOpeningHorizonChange={(openingHorizon) =>
+                  controller.dispatch({
+                    type: 'preferences/changed',
+                    preferences: { openingHorizon },
+                  })
+                }
+                onSubmit={(query) => controller.submitQuery(query)}
               />
-              <BoardPanel
-                fen={displayedFen}
-                parsedGame={parsedGame}
-                ply={state.selection.ply}
-                orientation={state.preferences.boardOrientation}
-                onPlyChange={controller.selectPly}
-              />
-            </div>
-          ) : null}
-
-          {tab === 'opening' ? (
-            graph && navigation ? (
-              <div className="board-workspace">
-                <div>
-                  <OpeningTreeTable
-                    graph={graph}
-                    navigation={navigation}
-                    perspective={state.preferences.resultPerspective}
-                    onNavigate={(next) => {
-                      setNavigation(next);
-                      controller.navigateGraph(next.positionKey, next.pathId);
+              {state.ingestion.progress && state.ingestion.status === 'loading' ? (
+                <IngestionProgress
+                  progress={state.ingestion.progress}
+                  onCancel={controller.cancelIngestion}
+                />
+              ) : null}
+              {state.ingestion.result && state.ingestion.status !== 'loading' ? (
+                <div
+                  className="utility-rail__result"
+                  data-utility-rail-result
+                  role="region"
+                  aria-label="Ingestion result"
+                  tabIndex={-1}
+                >
+                  <DiagnosticSummary
+                    result={state.ingestion.result}
+                    onRetry={() => {
+                      const active = state.query.active;
+                      if (active) void controller.submitQuery(active, { manualRefresh: true });
                     }}
                   />
-                  <button
-                    ref={moveOrdersButton}
-                    type="button"
-                    onClick={() => setMoveOrdersOpen(true)}
-                    disabled={!graph.positions.get(navigation.positionKey)?.arrivalsByPath.size}
-                  >
-                    View move orders
-                  </button>
                 </div>
-                <BoardPanel
-                  fen={displayedFen}
-                  parsedGame={null}
-                  ply={0}
-                  orientation={state.preferences.boardOrientation}
-                  onPlyChange={() => undefined}
+              ) : null}
+              {state.ingestion.result?.offlineCacheOnly ? <OfflineCacheNotice /> : null}
+            </UtilityRail>
+          }
+          board={board}
+          tabs={<WorkspaceTabs selected={tab} onSelect={selectTab} />}
+          panel={
+            <div
+              ref={loadedRegion}
+              className="workspace-panel"
+              id={`workspace-panel-${tab}`}
+              role="tabpanel"
+              aria-labelledby={`workspace-tab-${tab}`}
+              tabIndex={-1}
+            >
+              {tab === 'games' ? (
+                <GameSelector
+                  games={state.ingestion.result?.games ?? []}
+                  selectedGameId={state.selection.gameId}
+                  onSelect={(gameId) => controller.selectGame(gameId)}
                 />
-                {moveOrdersOpen ? (
-                  <MoveOrderDialog
-                    node={graph.positions.get(navigation.positionKey)!}
-                    paths={graph.paths}
-                    perspective={state.preferences.resultPerspective}
-                    returnFocusRef={moveOrdersButton}
-                    onClose={() => setMoveOrdersOpen(false)}
-                  />
-                ) : null}
-              </div>
-            ) : (
-              <EmptyWorkspace message="Load games to build and navigate the opening tree." />
-            )
-          ) : null}
+              ) : null}
 
-          {tab === 'analysis' ? (
-            selectedRecord && parsedGame ? (
-              <div className="analysis-workspace-grid">
-                <div className="analysis-board">
-                  <EvaluationBar
-                    {...(selectedAnnotation ? { score: selectedAnnotation.after.score } : {})}
+              {tab === 'opening' ? (
+                graph && navigation ? (
+                  <>
+                    <OpeningTreeTable
+                      graph={graph}
+                      navigation={navigation}
+                      perspective={state.preferences.resultPerspective}
+                      onNavigate={(next) => {
+                        setNavigation(next);
+                        controller.navigateGraph(next.positionKey, next.pathId);
+                      }}
+                    />
+                    <button
+                      ref={moveOrdersButton}
+                      type="button"
+                      onClick={() => setMoveOrdersOpen(true)}
+                      disabled={!graph.positions.get(navigation.positionKey)?.arrivalsByPath.size}
+                    >
+                      View move orders
+                    </button>
+                    {moveOrdersOpen ? (
+                      <MoveOrderDialog
+                        node={graph.positions.get(navigation.positionKey)!}
+                        paths={graph.paths}
+                        perspective={state.preferences.resultPerspective}
+                        returnFocusRef={moveOrdersButton}
+                        onClose={() => setMoveOrdersOpen(false)}
+                      />
+                    ) : null}
+                  </>
+                ) : (
+                  <EmptyWorkspace message="Load games to build and navigate the opening tree." />
+                )
+              ) : null}
+
+              {tab === 'analysis' ? (
+                selectedRecord && parsedGame ? (
+                  <LazyAnalyzerWorkspace
+                    capability={state.analysis.capability}
+                    status={state.analysis.status}
+                    result={state.analysis.result}
+                    progress={state.analysis.progress}
+                    strength={state.preferences.analysisStrength}
+                    onStrengthChange={(analysisStrength) =>
+                      controller.dispatch({
+                        type: 'preferences/changed',
+                        preferences: { analysisStrength },
+                      })
+                    }
+                    onStart={(strength) => void controller.startAnalysis(strength)}
+                    onCancel={controller.cancelAnalysis}
+                    onResume={() => void controller.startAnalysis()}
+                    onSelectPly={controller.selectPly}
+                    fenByPly={Object.fromEntries(
+                      parsedGame.plies.map((move) => [move.ply, move.fenBefore])
+                    )}
                   />
-                  <BoardPanel
-                    fen={displayedFen}
-                    parsedGame={parsedGame}
-                    ply={state.selection.ply}
-                    orientation={state.preferences.boardOrientation}
-                    onPlyChange={controller.selectPly}
-                    {...(selectedArrow ? { pvArrow: selectedArrow } : {})}
+                ) : (
+                  <EmptyWorkspace message="Select a parsed game before starting local analysis." />
+                )
+              ) : null}
+
+              {tab === 'settings' ? (
+                <div className="settings-grid">
+                  <section className="settings-card">
+                    <h3>View preferences</h3>
+                    <label>
+                      Theme
+                      <select
+                        value={state.preferences.theme}
+                        onChange={(event) =>
+                          controller.dispatch({
+                            type: 'preferences/changed',
+                            preferences: {
+                              theme: event.currentTarget.value as 'system' | 'light' | 'dark',
+                            },
+                          })
+                        }
+                      >
+                        <option value="system">Follow system</option>
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                      </select>
+                    </label>
+                    <label>
+                      Board orientation
+                      <select
+                        value={state.preferences.boardOrientation}
+                        onChange={(event) =>
+                          controller.dispatch({
+                            type: 'preferences/changed',
+                            preferences: {
+                              boardOrientation: event.currentTarget.value as 'white' | 'black',
+                            },
+                          })
+                        }
+                      >
+                        <option value="white">White at bottom</option>
+                        <option value="black">Black at bottom</option>
+                      </select>
+                    </label>
+                    <label>
+                      Result perspective
+                      <select
+                        value={state.preferences.resultPerspective}
+                        onChange={(event) =>
+                          controller.dispatch({
+                            type: 'preferences/changed',
+                            preferences: {
+                              resultPerspective: event.currentTarget.value as 'user' | 'board',
+                            },
+                          })
+                        }
+                      >
+                        <option value="user">User win / draw / loss</option>
+                        <option value="board">White / draw / Black</option>
+                      </select>
+                    </label>
+                  </section>
+                  <LocalDataSettings
+                    users={state.query.active ? [{ username: state.query.active.username }] : []}
+                    onDeleteUsername={controller.deleteUserData}
+                    onClearAll={controller.clearAllData}
                   />
                 </div>
-                <LazyAnalyzerWorkspace
-                  capability={state.analysis.capability}
-                  status={state.analysis.status}
-                  result={state.analysis.result}
-                  progress={state.analysis.progress}
-                  strength={state.preferences.analysisStrength}
-                  onStrengthChange={(analysisStrength) =>
-                    controller.dispatch({
-                      type: 'preferences/changed',
-                      preferences: { analysisStrength },
-                    })
-                  }
-                  onStart={(strength) => void controller.startAnalysis(strength)}
-                  onCancel={controller.cancelAnalysis}
-                  onResume={() => void controller.startAnalysis()}
-                  onSelectPly={controller.selectPly}
-                  fenByPly={Object.fromEntries(
-                    parsedGame.plies.map((move) => [move.ply, move.fenBefore])
-                  )}
-                />
-              </div>
-            ) : (
-              <EmptyWorkspace message="Select a parsed game before starting local analysis." />
-            )
-          ) : null}
-
-          {tab === 'settings' ? (
-            <div className="settings-grid">
-              <section className="settings-card">
-                <h3>View preferences</h3>
-                <label>
-                  Theme
-                  <select
-                    value={state.preferences.theme}
-                    onChange={(event) =>
-                      controller.dispatch({
-                        type: 'preferences/changed',
-                        preferences: {
-                          theme: event.currentTarget.value as 'system' | 'light' | 'dark',
-                        },
-                      })
-                    }
-                  >
-                    <option value="system">Follow system</option>
-                    <option value="light">Light</option>
-                    <option value="dark">Dark</option>
-                  </select>
-                </label>
-                <label>
-                  Board orientation
-                  <select
-                    value={state.preferences.boardOrientation}
-                    onChange={(event) =>
-                      controller.dispatch({
-                        type: 'preferences/changed',
-                        preferences: {
-                          boardOrientation: event.currentTarget.value as 'white' | 'black',
-                        },
-                      })
-                    }
-                  >
-                    <option value="white">White at bottom</option>
-                    <option value="black">Black at bottom</option>
-                  </select>
-                </label>
-                <label>
-                  Result perspective
-                  <select
-                    value={state.preferences.resultPerspective}
-                    onChange={(event) =>
-                      controller.dispatch({
-                        type: 'preferences/changed',
-                        preferences: {
-                          resultPerspective: event.currentTarget.value as 'user' | 'board',
-                        },
-                      })
-                    }
-                  >
-                    <option value="user">User win / draw / loss</option>
-                    <option value="board">White / draw / Black</option>
-                  </select>
-                </label>
-              </section>
-              <LocalDataSettings
-                users={state.query.active ? [{ username: state.query.active.username }] : []}
-                onDeleteUsername={controller.deleteUserData}
-                onClearAll={controller.clearAllData}
-              />
+              ) : null}
             </div>
-          ) : null}
-        </div>
+          }
+        />
       </main>
-    </div>
+    </AppTopBar>
   );
 }
 
@@ -302,6 +331,7 @@ function BoardPanel({
   orientation,
   onPlyChange,
   pvArrow,
+  evaluationScore,
 }: {
   fen: string | null;
   parsedGame: ParsedGame | null;
@@ -309,6 +339,7 @@ function BoardPanel({
   orientation: 'white' | 'black';
   onPlyChange(ply: number): void;
   pvArrow?: { from: string; to: string };
+  evaluationScore?: EvaluationScore;
 }) {
   if (!fen)
     return <EmptyWorkspace message="Select a game or opening position to show the board." />;
@@ -320,6 +351,7 @@ function BoardPanel({
       currentPly={ply}
       totalPlies={parsedGame?.plies.length ?? 0}
       onPlyChange={onPlyChange}
+      {...(evaluationScore ? { evaluationScore } : {})}
       {...(pvArrow ? { pvArrow } : {})}
       {...(move ? { lastMove: { from: move.uci.slice(0, 2), to: move.uci.slice(2, 4) } } : {})}
     />
