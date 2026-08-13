@@ -44,7 +44,14 @@ describe('parseUciLine', () => {
   it('recognizes UCI lifecycle and engine-error lines', () => {
     expect(parseUciLine('uciok')).toEqual({ type: 'uciok' });
     expect(parseUciLine('readyok')).toEqual({ type: 'readyok' });
-    expect(parseUciLine('id name Stockfish 17')).toEqual({ type: 'id', field: 'name', value: 'Stockfish 17' });
-    expect(parseUciLine('Unknown command: foo')).toEqual({ type: 'error', message: 'Unknown command: foo' });
+    expect(parseUciLine('id name Stockfish 17')).toEqual({
+      type: 'id',
+      field: 'name',
+      value: 'Stockfish 17',
+    });
+    expect(parseUciLine('Unknown command: foo')).toEqual({
+      type: 'error',
+      message: 'Unknown command: foo',
+    });
   });
 });

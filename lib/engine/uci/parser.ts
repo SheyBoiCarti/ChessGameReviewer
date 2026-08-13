@@ -44,7 +44,8 @@ function parseInfo(line: string): UciInfo {
       const value = finiteNumber(tokens[index + 2]);
       if ((kind === 'cp' || kind === 'mate') && value !== undefined) {
         const boundToken = tokens[index + 3]?.toLowerCase();
-        const bound: ScoreBound | undefined = boundToken === 'lowerbound' ? 'lower' : boundToken === 'upperbound' ? 'upper' : undefined;
+        const bound: ScoreBound | undefined =
+          boundToken === 'lowerbound' ? 'lower' : boundToken === 'upperbound' ? 'upper' : undefined;
         const score: UciScore = bound ? { kind, value, bound } : { kind, value };
         result.score = score;
       }
