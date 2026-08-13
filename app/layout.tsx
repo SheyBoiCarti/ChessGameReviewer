@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Chess.com Game Analyzer',
+  title: 'Local Chess Game Reviewer',
   description: 'Browser-based direct Chess.com game analysis and opening tree builder',
 };
 

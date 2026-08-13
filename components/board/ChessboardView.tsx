@@ -4,7 +4,9 @@ import type { KeyboardEvent } from 'react';
 
 import { boardSquares, InvalidBoardPositionError } from '@/features/board/position';
 import type { BoardOrientation } from '@/features/workspace/types';
+import type { EvaluationScore } from '@/lib/engine/evaluation';
 
+import { EvaluationBar } from './EvaluationBar';
 import { MoveHistoryControls } from './MoveHistoryControls';
 import { Piece } from './Piece';
 
@@ -17,6 +19,7 @@ export function ChessboardView({
   lastMove,
   selectedSquare,
   pvArrow,
+  evaluationScore,
 }: {
   fen: string;
   orientation: BoardOrientation;
@@ -26,6 +29,7 @@ export function ChessboardView({
   lastMove?: { from: string; to: string };
   selectedSquare?: string;
   pvArrow?: { from: string; to: string };
+  evaluationScore?: EvaluationScore;
 }) {
   let squares;
   try {
@@ -56,39 +60,51 @@ export function ChessboardView({
 
   return (
     <div className="board-region">
-      <div className="chessboard-frame">
-        <div
-          className="chessboard"
-          role="grid"
-          aria-label="Chess board"
-          data-orientation={orientation}
-          tabIndex={0}
-          onKeyDown={handleKeyDown}
-          aria-describedby="board-keyboard-help"
-        >
-          {Array.from({ length: 8 }, (_, row) => (
-            <div className="board-row" role="row" key={row}>
-              {squares.slice(row * 8, row * 8 + 8).map((square) => {
-                const highlighted =
-                  square.name === selectedSquare ||
-                  square.name === lastMove?.from ||
-                  square.name === lastMove?.to;
-                return (
-                  <div
-                    className={`board-square ${square.isLight ? 'square-light' : 'square-dark'}${highlighted ? ' square-highlighted' : ''}`}
-                    role="gridcell"
-                    aria-label={square.name}
-                    data-square={square.name}
-                    key={square.name}
-                  >
-                    {square.piece ? <Piece piece={square.piece} square={square.name} /> : null}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+      <div className={`board-stage${evaluationScore ? ' board-stage--with-evaluation' : ''}`}>
+        {evaluationScore ? <EvaluationBar score={evaluationScore} /> : null}
+        <div className="chessboard-frame">
+          <div
+            className="chessboard"
+            role="grid"
+            aria-label="Chess board"
+            data-orientation={orientation}
+            tabIndex={0}
+            onKeyDown={handleKeyDown}
+            aria-describedby="board-keyboard-help"
+          >
+            {Array.from({ length: 8 }, (_, row) => (
+              <div className="board-row" role="row" key={row}>
+                {squares.slice(row * 8, row * 8 + 8).map((square, column) => {
+                  const selected = square.name === selectedSquare;
+                  const highlighted =
+                    selected || square.name === lastMove?.from || square.name === lastMove?.to;
+                  return (
+                    <div
+                      className={`board-square ${square.isLight ? 'square-light' : 'square-dark'}${highlighted ? ' square-highlighted' : ''}${selected ? ' square-selected' : ''}`}
+                      role="gridcell"
+                      aria-label={square.name}
+                      data-square={square.name}
+                      key={square.name}
+                    >
+                      {column === 0 ? (
+                        <span className="board-rank-label" aria-hidden="true">
+                          {square.rank}
+                        </span>
+                      ) : null}
+                      {square.piece ? <Piece piece={square.piece} square={square.name} /> : null}
+                      {row === 7 ? (
+                        <span className="board-file-label" aria-hidden="true">
+                          {square.file}
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          {pvArrow ? <BoardArrow move={pvArrow} orientation={orientation} /> : null}
         </div>
-        {pvArrow ? <BoardArrow move={pvArrow} orientation={orientation} /> : null}
       </div>
       <p id="board-keyboard-help" className="sr-only">
         Use Left and Right Arrow to move through history. Home returns to the first position and End

@@ -20,6 +20,12 @@ describe('OpeningTreeTable', () => {
       />
     );
 
+    const candidateResults = screen.getByRole('region', {
+      name: 'Opening candidate results',
+    });
+    expect(candidateResults).toHaveAttribute('tabindex', '0');
+    expect(candidateResults).toContainElement(screen.getByRole('table'));
+    expect(candidateResults).not.toContainElement(screen.getByLabelText(/sort candidate moves/i));
     expect(screen.getByRole('columnheader', { name: /sample size/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /play e4/i }));
 
@@ -42,5 +48,26 @@ describe('OpeningTreeTable', () => {
     expect(screen.getByRole('status')).toHaveTextContent(/edge resource limit/i);
     expect(screen.getByRole('status')).toHaveTextContent(/5 included.*2 remaining/i);
     expect(screen.getByText(/maximum is 40 plies/i)).toBeInTheDocument();
+  });
+
+  it('shows terminal messaging without an empty fixed-height candidate region', () => {
+    const graph = openingGraphFixture();
+    render(
+      <OpeningTreeTable
+        graph={graph}
+        navigation={{
+          positionKey: 'transposed-target',
+          pathId: 3,
+          history: [{ positionKey: 'transposed-target', pathId: 3 }],
+        }}
+        perspective="user"
+        onNavigate={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/no candidate moves are available/i)).toBeVisible();
+    expect(
+      screen.queryByRole('region', { name: 'Opening candidate results' })
+    ).not.toBeInTheDocument();
   });
 });

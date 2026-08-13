@@ -32,7 +32,7 @@ export function OpeningTreeTable({
   const scoreLabel = perspective === 'user' ? 'Expected user score' : 'Expected White score';
 
   return (
-    <section className="opening-tree" aria-labelledby="opening-tree-heading">
+    <section className="opening-tree surface-panel" aria-labelledby="opening-tree-heading">
       <h3 id="opening-tree-heading">Opening candidates</h3>
       {graph.status === 'limited' ? (
         <p className="limited-notice" role="status">
@@ -59,45 +59,54 @@ export function OpeningTreeTable({
       {candidates.length === 0 ? (
         <p>No candidate moves are available at this terminal, horizon, or unobserved position.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Move</th>
-              <th>Games</th>
-              <th>{scoreLabel}</th>
-              <th>Draw rate</th>
-              <th>Average opponent rating</th>
-              <th>Sample size</th>
-            </tr>
-          </thead>
-          <tbody>
-            {candidates.map((candidate) => {
-              const score =
-                perspective === 'user' ? candidate.metrics.userScore : candidate.metrics.whiteScore;
-              return (
-                <tr key={candidate.uci}>
-                  <td>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onNavigate(
-                          navigateCandidate(graph, navigation, node.outgoing.get(candidate.uci)!)
-                        )
-                      }
-                    >
-                      Play {candidate.san}
-                    </button>
-                  </td>
-                  <td>{candidate.metrics.sampleSize}</td>
-                  <td>{percent(score)}</td>
-                  <td>{percent(candidate.metrics.drawRate)}</td>
-                  <td>{candidate.metrics.averageOpponentRating?.toFixed(0) ?? '—'}</td>
-                  <td>{candidate.metrics.sampleSize}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div
+          className="result-viewport opening-candidate-results"
+          role="region"
+          aria-label="Opening candidate results"
+          tabIndex={0}
+        >
+          <table className="context-table opening-candidate-table">
+            <thead>
+              <tr>
+                <th>Move</th>
+                <th>Games</th>
+                <th>{scoreLabel}</th>
+                <th>Draw rate</th>
+                <th>Average opponent rating</th>
+                <th>Sample size</th>
+              </tr>
+            </thead>
+            <tbody>
+              {candidates.map((candidate) => {
+                const score =
+                  perspective === 'user'
+                    ? candidate.metrics.userScore
+                    : candidate.metrics.whiteScore;
+                return (
+                  <tr key={candidate.uci}>
+                    <td>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onNavigate(
+                            navigateCandidate(graph, navigation, node.outgoing.get(candidate.uci)!)
+                          )
+                        }
+                      >
+                        Play {candidate.san}
+                      </button>
+                    </td>
+                    <td>{candidate.metrics.sampleSize}</td>
+                    <td>{percent(score)}</td>
+                    <td>{percent(candidate.metrics.drawRate)}</td>
+                    <td>{candidate.metrics.averageOpponentRating?.toFixed(0) ?? '—'}</td>
+                    <td>{candidate.metrics.sampleSize}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );
