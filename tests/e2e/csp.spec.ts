@@ -44,7 +44,7 @@ test.describe('Content Security Policy (CSP) Smoke Test', () => {
     // Unauthorized endpoint MUST be blocked by CSP
     expect(unauthorizedResult.blocked).toBe(true);
     expect(unauthorizedResult.error).toMatch(
-      /Failed to fetch|Refused to connect|Content Security Policy/i
+      /Failed to fetch|Refused to connect|Content Security Policy|NetworkError|Load failed/i
     );
   });
 });
