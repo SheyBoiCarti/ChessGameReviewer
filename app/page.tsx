@@ -1,10 +1,10 @@
-import { IsolationStatus } from '@/components/IsolationStatus';
+import { ClientWorkspaceLoader } from '@/components/workspace/ClientWorkspaceLoader';
 
 export default function Home() {
   return (
     <div className="shell-container">
       <header className="header">
-        <h1>Chess.com Game Analyzer</h1>
+        <h1>Local Chess Game Reviewer</h1>
         <p className="subtitle">
           Browser-based direct Chess.com game ingestion, opening tree explorer, and local Stockfish
           analysis.
@@ -29,11 +29,7 @@ export default function Home() {
         </p>
       </section>
 
-      <IsolationStatus />
-
-      <main className="main-content">
-        <p>Phase 1 Foundation Shell Initialized</p>
-      </main>
+      <ClientWorkspaceLoader />
     </div>
   );
 }
