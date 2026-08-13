@@ -6,26 +6,61 @@ import { DiagnosticSummary } from '@/components/feedback/DiagnosticSummary';
 import { IngestionProgress } from '@/components/feedback/IngestionProgress';
 import { OfflineCacheNotice } from '@/components/feedback/OfflineCacheNotice';
 
+const baseProgress = {
+  jobId: 'job-1',
+  phase: 'fetching' as const,
+  monthsPlanned: 4,
+  monthsCompleted: 2,
+  recordsFetched: 30,
+  recordsAccepted: 24,
+  recordsExcluded: 6,
+  recordsFailed: 0,
+  diagnostics: [],
+};
+
 describe('ingestion feedback', () => {
+  it('shows indeterminate archive discovery before a total is known', () => {
+    render(
+      <IngestionProgress
+        progress={{ ...baseProgress, phase: 'planning', monthsPlanned: 0 }}
+        onCancel={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(/finding game archives/i);
+    expect(screen.getByRole('progressbar')).not.toHaveAttribute('value');
+    expect(screen.getByRole('progressbar')).not.toHaveAttribute('max');
+  });
+
+  it('identifies the archive month being loaded and exposes completed work', () => {
+    render(
+      <IngestionProgress
+        progress={{ ...baseProgress, currentMonth: '2026-07' }}
+        onCancel={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(/loading july 2026/i);
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /2 of 4 archive months complete.*24 games found/i
+    );
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '2');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('max', '4');
+  });
+
+  it.each([
+    ['loading-cache', /checking saved games/i],
+    ['filtering', /organizing loaded games/i],
+  ] as const)('uses clear copy for %s', (phase, heading) => {
+    render(<IngestionProgress progress={{ ...baseProgress, phase }} onCancel={vi.fn()} />);
+
+    expect(screen.getByRole('status')).toHaveTextContent(heading);
+  });
+
   it('announces progress politely and provides keyboard-operable cancellation', async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();
-    render(
-      <IngestionProgress
-        progress={{
-          jobId: 'job-1',
-          phase: 'fetching',
-          monthsPlanned: 4,
-          monthsCompleted: 2,
-          recordsFetched: 30,
-          recordsAccepted: 24,
-          recordsExcluded: 6,
-          recordsFailed: 0,
-          diagnostics: [],
-        }}
-        onCancel={onCancel}
-      />
-    );
+    render(<IngestionProgress progress={baseProgress} onCancel={onCancel} />);
 
     expect(screen.getByRole('status')).toHaveTextContent(/2 of 4 archive months/i);
     await user.tab();
@@ -61,12 +96,14 @@ describe('ingestion feedback', () => {
     );
 
     expect(screen.getByRole('alert')).toHaveTextContent(/partial results/i);
+    expect(screen.getByText('Partial data')).toBeVisible();
     expect(screen.getByText(/2026-05/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry failed months/i })).toBeEnabled();
   });
 
   it('identifies offline cache reuse without presenting it as fresh data', () => {
     render(<OfflineCacheNotice />);
+    expect(screen.getByText('Offline cache')).toBeVisible();
     expect(screen.getByRole('status')).toHaveTextContent(/saved on this device/i);
     expect(screen.getByRole('status')).toHaveTextContent(/could not be refreshed/i);
   });

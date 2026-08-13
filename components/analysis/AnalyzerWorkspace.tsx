@@ -55,6 +55,9 @@ export function AnalyzerWorkspace({
 
   return (
     <section className="analyzer-workspace" aria-labelledby="analyzer-heading">
+      <span className={`status-label status-label--${status}`}>
+        Analysis status: {analyzerStatusLabel(status)}
+      </span>
       <h3 id="analyzer-heading">Local Stockfish analysis</h3>
       <p>
         Engine results and Analyzer accuracy estimates are project-specific and stay on this device.
@@ -124,4 +127,25 @@ export function AnalyzerWorkspace({
 
 function formatEstimate(value: number | null): string {
   return value === null ? 'unavailable' : `${value.toFixed(1)}%`;
+}
+
+function analyzerStatusLabel(status: AnalyzerWorkspaceProps['status']): string {
+  switch (status) {
+    case 'unavailable':
+      return 'Unavailable';
+    case 'partial':
+      return 'Partial';
+    case 'failed':
+      return 'Failed';
+    case 'running':
+      return 'Running';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'complete':
+      return 'Complete';
+    case 'probing':
+      return 'Checking engine';
+    case 'idle':
+      return 'Ready';
+  }
 }

@@ -76,7 +76,7 @@ export function LocalDataSettings({
   };
 
   return (
-    <section className="settings-card" aria-labelledby="local-data-heading">
+    <section className="settings-card surface-panel" aria-labelledby="local-data-heading">
       <h3 id="local-data-heading">Local data</h3>
       <p>Games, opening graphs, and engine analysis stay on this device until you delete them.</p>
       {users.length > 0 ? (
@@ -116,7 +116,7 @@ export function LocalDataSettings({
       {message ? <p role={message.kind}>{message.text}</p> : null}
       {confirmation ? (
         <div
-          className="modal"
+          className="modal local-data-confirmation"
           role="dialog"
           aria-modal="true"
           aria-labelledby="delete-data-title"
