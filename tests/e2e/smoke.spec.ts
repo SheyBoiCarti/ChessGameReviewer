@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Browser Smoke Test', () => {
-  test('renders page heading, privacy notice, unaffiliated notice, and reports zero console errors', async ({
+  test('renders page heading, disclosure dialog, and reports zero console errors', async ({
     page,
   }) => {
     const consoleErrors: string[] = [];
@@ -19,15 +19,13 @@ test.describe('Browser Smoke Test', () => {
     await expect(heading).toBeVisible();
     await expect(heading).toHaveText('Local Chess Game Reviewer');
 
-    // Assert unaffiliated notice
-    const unaffiliatedNotice = page.getByTestId('unaffiliated-notice');
-    await expect(unaffiliatedNotice).toBeVisible();
-    await expect(unaffiliatedNotice).toContainText('Unaffiliated Product Notice');
-
-    // Assert privacy notice
-    const privacySummary = page.getByTestId('privacy-summary');
-    await expect(privacySummary).toBeVisible();
-    await expect(privacySummary).toContainText('Local Storage & Privacy');
+    await page.getByRole('button', { name: /about local data and affiliation/i }).click();
+    const disclosure = page.getByRole('dialog', { name: /about this app/i });
+    await expect(disclosure).toBeVisible();
+    await expect(disclosure.getByTestId('unaffiliated-notice')).toContainText(
+      'Unaffiliated Product Notice'
+    );
+    await expect(disclosure.getByTestId('privacy-summary')).toContainText('Local Storage & Privacy');
 
     // Assert the client workspace hydrated.
     await expect(page.getByRole('tablist', { name: 'Analysis workspaces' })).toBeVisible();

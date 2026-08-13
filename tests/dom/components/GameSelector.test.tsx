@@ -17,6 +17,13 @@ describe('GameSelector', () => {
     const originalOrder = games.map(({ id }) => id);
     render(<GameSelector games={games} selectedGameId={null} onSelect={onSelect} />);
 
+    const gameResults = screen.getByRole('region', { name: 'Game results' });
+    expect(gameResults).toHaveAttribute('tabindex', '0');
+    const renderedCollection =
+      screen.queryByRole('table', { name: 'Games' }) ??
+      screen.getByRole('list', { name: 'Compact games' });
+    expect(gameResults).toContainElement(renderedCollection);
+    expect(gameResults).not.toContainElement(screen.getByLabelText(/filter games/i));
     const buttons = screen.getAllByRole('button', { name: /select game versus/i });
     expect(buttons[0]).toHaveAccessibleName(/judit polgar/i);
     expect(screen.getAllByText(/rapid/i)).toHaveLength(2);
@@ -47,6 +54,16 @@ describe('GameSelector', () => {
     expect(screen.getByRole('list', { name: /compact games/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /magnus/i })).not.toBeInTheDocument();
     window.matchMedia = originalMatchMedia;
+  });
+
+  it('shows an unbounded empty state when the filter matches no games', async () => {
+    const user = userEvent.setup();
+    render(<GameSelector games={games} selectedGameId={null} onSelect={vi.fn()} />);
+
+    await user.type(screen.getByLabelText(/filter games/i), 'No such opponent');
+
+    expect(screen.getByText('No games match the current filter.')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Game results' })).not.toBeInTheDocument();
   });
 });
 

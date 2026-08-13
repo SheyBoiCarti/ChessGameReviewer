@@ -7,6 +7,33 @@ import type { GameAnalysisResult, GameAnnotation } from '@/features/stockfish-an
 import type { EngineCapability } from '@/lib/engine/capabilities';
 
 describe('AnalyzerWorkspace', () => {
+  it.each([
+    ['unavailable', 'Unavailable'],
+    ['partial', 'Partial'],
+    ['failed', 'Failed'],
+    ['running', 'Running'],
+    ['cancelled', 'Cancelled'],
+    ['complete', 'Complete'],
+  ] as const)('shows a visible non-colour status label for %s analysis', (status, label) => {
+    render(
+      <AnalyzerWorkspace
+        capability={capability(status === 'unavailable' ? 'unavailable' : 'single-thread')}
+        status={status}
+        result={null}
+        progress={null}
+        strength="balanced"
+        onStrengthChange={vi.fn()}
+        onStart={vi.fn()}
+        onCancel={vi.fn()}
+        onResume={vi.fn()}
+        onSelectPly={vi.fn()}
+        fenByPly={{}}
+      />
+    );
+
+    expect(screen.getByText(`Analysis status: ${label}`, { exact: true })).toBeVisible();
+  });
+
   it('keeps the opening workspace usable when the engine is unavailable', () => {
     render(
       <AnalyzerWorkspace
@@ -25,6 +52,7 @@ describe('AnalyzerWorkspace', () => {
     );
 
     expect(screen.getByRole('alert')).toHaveTextContent(/engine unavailable/i);
+    expect(screen.getByText('Analysis status: Unavailable', { exact: true })).toBeVisible();
     expect(screen.getByText(/opening tree remains available/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /start analysis/i })).not.toBeInTheDocument();
   });

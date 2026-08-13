@@ -10,6 +10,9 @@ export function DiagnosticSummary({
   const urgent = result.status === 'partial' || result.status === 'failed';
   return (
     <section className={`status-card status-${result.status}`} role={urgent ? 'alert' : 'status'}>
+      <span className={`status-label status-label--${result.status}`}>
+        {statusLabel(result.status)}
+      </span>
       <h3>{heading(result.status)}</h3>
       <p>{guidance(result)}</p>
       {result.failedMonths.length > 0 ? (
@@ -40,6 +43,19 @@ export function DiagnosticSummary({
       ) : null}
     </section>
   );
+}
+
+function statusLabel(status: IngestionResult['status']): string {
+  switch (status) {
+    case 'partial':
+      return 'Partial data';
+    case 'cancelled':
+      return 'Loading stopped';
+    case 'failed':
+      return 'Load failed';
+    case 'complete':
+      return 'Complete data';
+  }
 }
 
 function heading(status: IngestionResult['status']): string {

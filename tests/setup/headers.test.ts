@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import nextConfig, { securityHeaders } from '../../next.config';
+import nextConfig, { createSecurityHeaders, securityHeaders } from '../../next.config';
 
 describe('Security Headers Configuration', () => {
   it('defines mandatory security headers array', () => {
@@ -52,6 +52,18 @@ describe('Security Headers Configuration', () => {
     const csp = securityHeaders.find((header) => header.key === 'Content-Security-Policy');
     expect(csp?.value).toContain("'wasm-unsafe-eval'");
     expect(csp?.value).not.toMatch(/(?:^|\s)'unsafe-eval'(?:\s|;|$)/);
+  });
+
+  it('permits general unsafe eval only for React development debugging', () => {
+    const developmentCsp = createSecurityHeaders(true).find(
+      (header) => header.key === 'Content-Security-Policy'
+    );
+    const productionCsp = createSecurityHeaders(false).find(
+      (header) => header.key === 'Content-Security-Policy'
+    );
+
+    expect(developmentCsp?.value).toMatch(/(?:^|\s)'unsafe-eval'(?:\s|;|$)/);
+    expect(productionCsp?.value).not.toMatch(/(?:^|\s)'unsafe-eval'(?:\s|;|$)/);
   });
 
   it('configures headers async method for Next.js routes matching /:path*', async () => {
