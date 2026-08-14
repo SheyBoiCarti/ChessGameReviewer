@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import {
   createWorkspaceController,
@@ -14,21 +14,18 @@ export interface UseWorkspaceResult {
 }
 
 export function useWorkspace(createServices: () => WorkspaceServices): UseWorkspaceResult {
-  const servicesRef = useRef<WorkspaceServices | null>(null);
-  const controllerRef = useRef<WorkspaceController | null>(null);
-
-  if (servicesRef.current === null) servicesRef.current = createServices();
-  if (controllerRef.current === null) {
-    controllerRef.current = createWorkspaceController(servicesRef.current);
-  }
-  const controller = controllerRef.current;
+  const [controller] = useState(() => createWorkspaceController(createServices()));
   const state = useSyncExternalStore(
     controller.subscribe,
     controller.getState,
     controller.getState
   );
 
-  useEffect(() => () => controller.dispose(), [controller]);
+  useEffect(() => {
+    return () => {
+      controller.dispose();
+    };
+  }, [controller]);
 
   return { controller, state };
 }

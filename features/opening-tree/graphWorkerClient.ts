@@ -26,10 +26,27 @@ export class GraphWorkerClient {
   private jobId: string | undefined;
   private settle: ((result: GraphBuildWorkerResult) => void) | undefined;
   private reject: ((reason: Error) => void) | undefined;
+  private worker: Worker | null = null;
+  private readonly workerFactory: () => Worker;
 
-  constructor(private readonly worker: Worker) {
-    worker.addEventListener('message', this.onMessage);
-    worker.addEventListener('error', this.onError);
+  constructor(workerOrFactory: Worker | (() => Worker)) {
+    if (typeof workerOrFactory === 'function') {
+      this.workerFactory = workerOrFactory;
+    } else {
+      this.workerFactory = () => workerOrFactory;
+      this.worker = workerOrFactory;
+      workerOrFactory.addEventListener('message', this.onMessage);
+      workerOrFactory.addEventListener('error', this.onError);
+    }
+  }
+
+  private getWorker(): Worker {
+    if (!this.worker) {
+      this.worker = this.workerFactory();
+      this.worker.addEventListener('message', this.onMessage);
+      this.worker.addEventListener('error', this.onError);
+    }
+    return this.worker;
   }
 
   build(
@@ -41,10 +58,11 @@ export class GraphWorkerClient {
     this.cancel();
     const jobId = crypto.randomUUID();
     this.jobId = jobId;
+    const worker = this.getWorker();
     return new Promise<GraphBuildWorkerResult>((resolve, reject) => {
       this.settle = resolve;
       this.reject = reject;
-      this.worker.postMessage({
+      worker.postMessage({
         protocolVersion: PROTOCOL_VERSION,
         jobId,
         type: 'BUILD_GRAPH',
@@ -57,7 +75,7 @@ export class GraphWorkerClient {
 
   cancel(): void {
     if (!this.jobId) return;
-    this.worker.postMessage({
+    this.worker?.postMessage({
       protocolVersion: PROTOCOL_VERSION,
       jobId: this.jobId,
       type: 'CANCEL_JOB',
@@ -68,9 +86,12 @@ export class GraphWorkerClient {
 
   dispose(): void {
     this.cancel();
-    this.worker.removeEventListener('message', this.onMessage);
-    this.worker.removeEventListener('error', this.onError);
-    this.worker.terminate();
+    if (this.worker) {
+      this.worker.removeEventListener('message', this.onMessage);
+      this.worker.removeEventListener('error', this.onError);
+      this.worker.terminate();
+      this.worker = null;
+    }
   }
 
   private readonly onMessage = (event: MessageEvent<WorkerResponse>): void => {
