@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -39,7 +40,7 @@ export function UtilityRail({
   const previouslyOpen = useRef(open);
   const isMobile = useMobileLayout();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open || !isMobile || !backdropRef.current || !dialogRef.current) return;
     mobileReturnFocusRef.current =
       document.activeElement instanceof HTMLElement && document.activeElement !== document.body
@@ -52,22 +53,19 @@ export function UtilityRail({
     return makeBackgroundInert(backdropRef.current);
   }, [isMobile, open]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const previous = previousResultFocusVersion.current;
     previousResultFocusVersion.current = resultFocusVersion;
     if (previous === resultFocusVersion || !open || !isMobile || !dialogRef.current) return;
     dialogRef.current.querySelector<HTMLElement>('[data-utility-rail-result]')?.focus();
   }, [isMobile, open, resultFocusVersion]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const wasOpen = previouslyOpen.current;
     previouslyOpen.current = open;
     if (!wasOpen || open) return;
-    const target =
-      (isMobile ? mobileReturnFocusRef.current : returnFocusRef?.current) ??
-      returnFocusRef?.current;
-    const frame = requestAnimationFrame(() => target?.focus());
-    return () => cancelAnimationFrame(frame);
+    const target = returnFocusRef?.current ?? (isMobile ? mobileReturnFocusRef.current : null);
+    target?.focus();
   }, [isMobile, open, returnFocusRef]);
 
   const close = () => {
