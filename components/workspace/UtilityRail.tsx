@@ -35,6 +35,7 @@ export function UtilityRail({
 }) {
   const backdropRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
+  const inertCleanupRef = useRef<(() => void) | undefined>(undefined);
   const mobileReturnFocusRef = useRef<HTMLElement | null>(null);
   const previousResultFocusVersion = useRef(resultFocusVersion);
   const previouslyOpen = useRef(open);
@@ -50,7 +51,12 @@ export function UtilityRail({
       'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
     );
     (focusable ?? dialogRef.current).focus();
-    return makeBackgroundInert(backdropRef.current);
+    const restoreBackground = makeBackgroundInert(backdropRef.current);
+    inertCleanupRef.current = restoreBackground;
+    return () => {
+      if (inertCleanupRef.current === restoreBackground) inertCleanupRef.current = undefined;
+      restoreBackground?.();
+    };
   }, [isMobile, open]);
 
   useLayoutEffect(() => {
@@ -69,7 +75,10 @@ export function UtilityRail({
   }, [isMobile, open, returnFocusRef]);
 
   const close = () => {
+    inertCleanupRef.current?.();
+    inertCleanupRef.current = undefined;
     onOpenChange(false);
+    returnFocusRef?.current?.focus();
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {

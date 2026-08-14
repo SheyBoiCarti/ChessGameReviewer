@@ -53,6 +53,9 @@ test.describe('workspace visual regression', () => {
     await page.goto('/');
     await loadFixtureGames(page);
     await page.getByRole('button', { name: 'Close Game query and progress' }).click();
+    await expect(page.getByRole('dialog', { name: 'Game query and progress' })).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Filters' })).toBeFocused();
+    await expect(page.locator('.workspace-layout__utility')).toBeEmpty();
     await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
     await expect(page.getByRole('grid', { name: 'Chess board' })).toBeVisible();
     await waitForStableLayout(page);

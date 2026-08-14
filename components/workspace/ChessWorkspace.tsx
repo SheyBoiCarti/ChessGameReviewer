@@ -80,7 +80,7 @@ export function ChessWorkspace() {
         loadedRegion.current?.focus();
       } else if (completedIngestion && filtersOpen) {
         setResultFocusVersion((version) => version + 1);
-      } else if (!completedIngestion || !filtersOpen) {
+      } else if (!completedIngestion) {
         loadedRegion.current?.focus();
       }
     }
