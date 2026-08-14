@@ -34,8 +34,11 @@ export async function executeWithRetry<T>(
       const exponentialCap = options.baseDelayMs * 2 ** (attempt - 1);
       const jitter = Math.floor(options.random() * exponentialCap);
       const retryAfterMs =
-        typeof error === 'object' && error !== null && 'retryAfterMs' in error
-          ? ((error as any).retryAfterMs as number | undefined)
+        typeof error === 'object' &&
+        error !== null &&
+        'retryAfterMs' in error &&
+        typeof (error as { retryAfterMs?: unknown }).retryAfterMs === 'number'
+          ? (error as { retryAfterMs: number }).retryAfterMs
           : undefined;
       const delayMs = retryAfterMs ?? jitter;
       options.onRetry?.({ attempt: attempt + 1, delayMs });

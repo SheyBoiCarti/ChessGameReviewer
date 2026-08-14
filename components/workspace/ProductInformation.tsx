@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, type KeyboardEvent, type RefObject } from 'react';
+import { useLayoutEffect, useRef, type KeyboardEvent, type RefObject } from 'react';
 
 const focusableSelector =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -17,7 +17,7 @@ export function ProductInformation({
   const backdropRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open || !backdropRef.current || !dialogRef.current) return;
     const dialog = dialogRef.current;
     const focusable = dialog.querySelector<HTMLElement>(focusableSelector);

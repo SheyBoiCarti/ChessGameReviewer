@@ -558,9 +558,6 @@ label:has(input[type='checkbox']) {
   border-radius: 999px;
   background: var(--surface-raised);
   padding: 0.35rem 0.7rem;
-  transition:
-    background 160ms ease,
-    border-color 160ms ease;
 }
 
 .choice-chip:has(input:checked) {

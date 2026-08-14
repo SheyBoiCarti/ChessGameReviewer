@@ -86,11 +86,12 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
   return {
     getState: () => state,
     subscribe(listener) {
-      if (disposed) return () => undefined;
+      disposed = false;
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
     async submitQuery(query, options = {}) {
+      disposed = false;
       const token = ++nextToken;
       services.ingestion.cancel();
       services.graph.cancel();
@@ -118,6 +119,7 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
           snapshot: graph.snapshot,
         });
       } catch (error) {
+        console.error('[workspace operation failed]', error);
         if (disposed || token !== state.query.token) return;
         const message = error instanceof Error ? error.message : 'Workspace operation failed.';
         if (state.ingestion.status === 'loading') {

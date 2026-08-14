@@ -32,6 +32,21 @@ describe('Stockfish analysis presentation', () => {
     expect(qualityLabel({ status: 'indeterminate', reason: 'bound-score' })).toBe(
       'Indeterminate (bound score)'
     );
+    expect(qualityLabel({ status: 'indeterminate', reason: 'non-finite-score' })).toBe(
+      'Indeterminate (invalid score)'
+    );
+    expect(qualityLabel({ status: 'indeterminate', reason: 'non-finite-probability' })).toBe(
+      'Indeterminate (probability unavailable)'
+    );
+    expect(
+      qualityLabel({
+        status: 'classified',
+        quality: 'mate-conceded',
+        probabilityLoss: 1,
+        accuracyEstimate: 0,
+        heuristicVersion: 'analyzer-accuracy-v1',
+      })
+    ).toBe('Mate Conceded');
   });
 
   it('converts a legal PV from its start FEN to SAN', () => {

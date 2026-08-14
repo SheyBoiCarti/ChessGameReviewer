@@ -33,10 +33,21 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
   let database: IDBDatabase | null = null;
   let databasePromise: Promise<IDBDatabase> | null = null;
   let disposed = false;
-  const db = () => {
+  const db = async () => {
+    if (disposed) {
+      disposed = false;
+    }
+    if (database) {
+      try {
+        database.transaction('metadata', 'readonly');
+        return database;
+      } catch {
+        database = null;
+        databasePromise = null;
+      }
+    }
     databasePromise ??= openDatabase().then((opened) => {
       database = opened;
-      if (disposed) closeDatabase(opened);
       return opened;
     });
     return databasePromise;
@@ -52,9 +63,10 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
   };
   const ingestion = new IngestionManager(dependencies);
   const graph = new GraphWorkerClient(
-    new Worker(new URL('../../workers/analysis-data.worker.ts', import.meta.url), {
-      type: 'module',
-    })
+    () =>
+      new Worker(new URL('../../workers/analysis-data.worker.ts', import.meta.url), {
+        type: 'module',
+      })
   );
   const engineMode = new URLSearchParams(window.location.search).get('engine');
   const engine =

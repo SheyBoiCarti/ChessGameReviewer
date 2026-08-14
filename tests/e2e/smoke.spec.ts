@@ -12,6 +12,7 @@ test.describe('Browser Smoke Test', () => {
     });
     page.on('pageerror', (error) => consoleErrors.push(error.message));
 
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
 
     // Assert main heading
@@ -25,7 +26,9 @@ test.describe('Browser Smoke Test', () => {
     await expect(disclosure.getByTestId('unaffiliated-notice')).toContainText(
       'Unaffiliated Product Notice'
     );
-    await expect(disclosure.getByTestId('privacy-summary')).toContainText('Local Storage & Privacy');
+    await expect(disclosure.getByTestId('privacy-summary')).toContainText(
+      'Local Storage & Privacy'
+    );
 
     // Assert the client workspace hydrated.
     await expect(page.getByRole('tablist', { name: 'Analysis workspaces' })).toBeVisible();

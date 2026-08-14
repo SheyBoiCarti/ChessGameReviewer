@@ -152,11 +152,7 @@ test('keeps every board square equal before and after piece occupancy changes', 
 
 test('aligns the evaluation meter to the framed board and uses its full track', async ({
   page,
-}, testInfo) => {
-  test.skip(
-    testInfo.project.name !== 'chromium',
-    'One real Stockfish browser run covers meter geometry.'
-  );
+}) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await installWorkspaceFixtures(page);
