@@ -334,21 +334,27 @@ export async function setMeta(db: IDBDatabase, name: string, value: unknown): Pr
   });
 }
 
+function isArchiveListMeta(value: unknown): value is ArchiveListMeta {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.username === 'string' &&
+    Array.isArray(candidate.months) &&
+    candidate.months.every((month) => typeof month === 'string') &&
+    typeof candidate.fetchedAt === 'number'
+  );
+}
+
 export async function getArchiveListMeta(
   db: IDBDatabase,
   username: string
 ): Promise<ArchiveListMeta | null> {
   const meta = await getMeta(db, `archiveList:${username.toLowerCase()}`);
   if (!meta || !meta.value) return null;
-  const val = meta.value as any;
-  if (
-    typeof val.username !== 'string' ||
-    !Array.isArray(val.months) ||
-    typeof val.fetchedAt !== 'number'
-  ) {
+  if (!isArchiveListMeta(meta.value)) {
     throw new CorruptRecordError(STORES.META);
   }
-  return val as ArchiveListMeta;
+  return meta.value;
 }
 
 export async function putArchiveListMeta(db: IDBDatabase, record: ArchiveListMeta): Promise<void> {

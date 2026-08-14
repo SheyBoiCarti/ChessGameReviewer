@@ -165,7 +165,12 @@ function terminalPositionEvaluation(fen: string): PositionEvaluation | undefined
       bestMove: '(terminal)',
     };
   }
-  if (chess.isStalemate() || chess.isInsufficientMaterial() || chess.isThreefoldRepetition()) {
+  if (
+    chess.isDraw() ||
+    chess.isStalemate() ||
+    chess.isInsufficientMaterial() ||
+    chess.isThreefoldRepetition()
+  ) {
     return { score: { kind: 'cp', value: 0 }, depth: 0, pv: [], bestMove: '(terminal)' };
   }
   return undefined;

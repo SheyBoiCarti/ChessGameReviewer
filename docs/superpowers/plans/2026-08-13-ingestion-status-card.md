@@ -28,9 +28,11 @@
 ### Task 1: Specify the status-card states with DOM tests
 
 **Files:**
+
 - Modify: `tests/dom/components/IngestionFeedback.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `IngestionProgress({ progress, onCancel })` with the existing `Progress` type.
 - Produces: failing tests for phase heading/detail copy, indeterminate versus determinate progress, and cancellation.
 
@@ -38,7 +40,12 @@
 
 ```tsx
 it('shows an indeterminate archive-discovery status before a total is known', () => {
-  render(<IngestionProgress progress={{ ...baseProgress, phase: 'planning', monthsPlanned: 0 }} onCancel={vi.fn()} />);
+  render(
+    <IngestionProgress
+      progress={{ ...baseProgress, phase: 'planning', monthsPlanned: 0 }}
+      onCancel={vi.fn()}
+    />
+  );
 
   expect(screen.getByRole('status')).toHaveTextContent(/finding game archives/i);
   expect(screen.getByRole('progressbar')).not.toHaveAttribute('value');
@@ -46,10 +53,24 @@ it('shows an indeterminate archive-discovery status before a total is known', ()
 });
 
 it('identifies the archive month being loaded and exposes completed work', () => {
-  render(<IngestionProgress progress={{ ...baseProgress, phase: 'fetching', currentMonth: '2026-07', monthsPlanned: 4, monthsCompleted: 2, recordsAccepted: 24 }} onCancel={vi.fn()} />);
+  render(
+    <IngestionProgress
+      progress={{
+        ...baseProgress,
+        phase: 'fetching',
+        currentMonth: '2026-07',
+        monthsPlanned: 4,
+        monthsCompleted: 2,
+        recordsAccepted: 24,
+      }}
+      onCancel={vi.fn()}
+    />
+  );
 
   expect(screen.getByRole('status')).toHaveTextContent(/loading july 2026/i);
-  expect(screen.getByRole('status')).toHaveTextContent(/2 of 4 archive months complete.*24 games found/i);
+  expect(screen.getByRole('status')).toHaveTextContent(
+    /2 of 4 archive months complete.*24 games found/i
+  );
   expect(screen.getByRole('progressbar')).toHaveAttribute('value', '2');
   expect(screen.getByRole('progressbar')).toHaveAttribute('max', '4');
 });
@@ -62,14 +83,21 @@ it.each([
   ['loading-cache', /checking saved games/i],
   ['filtering', /organizing loaded games/i],
 ] as const)('uses clear copy for %s', (phase, heading) => {
-  render(<IngestionProgress progress={{ ...baseProgress, phase, monthsPlanned: 3 }} onCancel={vi.fn()} />);
+  render(
+    <IngestionProgress progress={{ ...baseProgress, phase, monthsPlanned: 3 }} onCancel={vi.fn()} />
+  );
   expect(screen.getByRole('status')).toHaveTextContent(heading);
 });
 
 it('keeps cancellation keyboard-operable', async () => {
   const user = userEvent.setup();
   const onCancel = vi.fn();
-  render(<IngestionProgress progress={{ ...baseProgress, phase: 'fetching', monthsPlanned: 3 }} onCancel={onCancel} />);
+  render(
+    <IngestionProgress
+      progress={{ ...baseProgress, phase: 'fetching', monthsPlanned: 3 }}
+      onCancel={onCancel}
+    />
+  );
   await user.tab();
   await user.keyboard('{Enter}');
   expect(onCancel).toHaveBeenCalledOnce();
@@ -89,9 +117,11 @@ Do not modify production code until the named assertions fail for the expected r
 ### Task 2: Implement phase-aware, accessible status presentation
 
 **Files:**
+
 - Modify: `components/feedback/IngestionProgress.tsx`
 
 **Interfaces:**
+
 - Consumes: `Progress.phase`, `currentMonth`, `monthsPlanned`, `monthsCompleted`, `recordsAccepted`, and `recordsExcluded`.
 - Produces: `statusCopy(progress): { heading: string; detail: string; determinate: boolean }` used only by `IngestionProgress`.
 
@@ -100,17 +130,26 @@ Do not modify production code until the named assertions fail for the expected r
 ```tsx
 function statusCopy(progress: Progress) {
   const month = progress.currentMonth
-    ? new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' })
-        .format(new Date(`${progress.currentMonth}-01T00:00:00.000Z`))
+    ? new Intl.DateTimeFormat(undefined, {
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'UTC',
+      }).format(new Date(`${progress.currentMonth}-01T00:00:00.000Z`))
     : null;
   const heading =
-    progress.phase === 'planning' ? 'Finding game archives' :
-    progress.phase === 'loading-cache' ? 'Checking saved games' :
-    progress.phase === 'fetching' ? month ? `Loading ${month}` : 'Loading game archives' :
-    'Organizing loaded games';
-  const detail = progress.monthsPlanned > 0
-    ? `${progress.monthsCompleted} of ${progress.monthsPlanned} archive months complete. ${progress.recordsAccepted} games found.`
-    : `${progress.recordsAccepted} games found so far.`;
+    progress.phase === 'planning'
+      ? 'Finding game archives'
+      : progress.phase === 'loading-cache'
+        ? 'Checking saved games'
+        : progress.phase === 'fetching'
+          ? month
+            ? `Loading ${month}`
+            : 'Loading game archives'
+          : 'Organizing loaded games';
+  const detail =
+    progress.monthsPlanned > 0
+      ? `${progress.monthsCompleted} of ${progress.monthsPlanned} archive months complete. ${progress.recordsAccepted} games found.`
+      : `${progress.recordsAccepted} games found so far.`;
   return { heading, detail, determinate: progress.monthsPlanned > 0 };
 }
 ```
@@ -125,11 +164,15 @@ return (
     <h3>{copy.heading}</h3>
     <p>{copy.detail}</p>
     {copy.determinate ? (
-      <progress value={progress.monthsCompleted} max={progress.monthsPlanned}>{copy.detail}</progress>
+      <progress value={progress.monthsCompleted} max={progress.monthsPlanned}>
+        {copy.detail}
+      </progress>
     ) : (
       <progress>{copy.detail}</progress>
     )}
-    <button type="button" onClick={onCancel}>Cancel loading</button>
+    <button type="button" onClick={onCancel}>
+      Cancel loading
+    </button>
   </section>
 );
 ```
@@ -149,10 +192,12 @@ Expected: Files are formatted without touching unrelated shared-tree files.
 ### Task 3: Verify integration and visual containment
 
 **Files:**
+
 - Modify only if required: `app/globals.css`
 - Test: `tests/dom/components/IngestionFeedback.test.tsx`
 
 **Interfaces:**
+
 - Consumes: existing `.status-card`, `.status-label`, and global `progress` styles.
 - Produces: a compact card that does not create layout overflow in the utility rail.
 

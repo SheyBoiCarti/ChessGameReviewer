@@ -3,6 +3,10 @@ import { expect, test } from '@playwright/test';
 
 import { installWorkspaceFixtures, loadFixtureGames } from './helpers/workspaceFixtures';
 
+test.beforeEach(async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+});
+
 test('has no serious or critical axe findings after the initial query and loaded-games states', async ({
   page,
 }) => {
