@@ -3,6 +3,10 @@ import { expect, test } from '@playwright/test';
 
 import { installWorkspaceFixtures, loadFixtureGames } from './helpers/workspaceFixtures';
 
+test.beforeEach(async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+});
+
 test('has no serious or critical axe findings after the initial query and loaded-games states', async ({
   page,
 }) => {
@@ -49,12 +53,12 @@ test('has no serious or critical axe findings in the utility drawer and product-
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await waitForWorkspaceReady(page);
-  await expect(page.getByRole('dialog', { name: 'Game query and progress' })).toBeVisible();
+  await waitForModalReady(page, 'Game query and progress', 'Close Game query and progress');
   await assertAccessible(page);
 
   await page.getByRole('button', { name: 'Close Game query and progress' }).click();
   await page.getByRole('button', { name: 'About local data and affiliation' }).click();
-  await expect(page.getByRole('dialog', { name: 'About this app' })).toBeVisible();
+  await waitForModalReady(page, 'About this app', 'Close product information');
   await assertAccessible(page);
 });
 
@@ -96,4 +100,14 @@ async function closeUtilityDrawer(page: import('@playwright/test').Page) {
 
 async function waitForWorkspaceReady(page: import('@playwright/test').Page) {
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'system');
+}
+
+async function waitForModalReady(
+  page: import('@playwright/test').Page,
+  name: string,
+  closeButtonName: string
+) {
+  await expect(page.getByRole('dialog', { name })).toBeVisible();
+  await expect(page.getByRole('button', { name: closeButtonName })).toBeFocused();
+  await expect.poll(() => page.locator('[inert]').count()).toBeGreaterThan(0);
 }

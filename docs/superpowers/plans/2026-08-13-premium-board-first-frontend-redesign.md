@@ -39,12 +39,14 @@
 ## Task 1: Establish the visual token system and application shell
 
 **Files:**
+
 - Modify: `app/globals.css`
 - Modify: `app/page.tsx`
 - Modify: `app/layout.tsx`
 - Test: `tests/e2e/workspace-responsive.spec.ts`
 
 **Interfaces:**
+
 - Consumes: existing `.shell-container`, theme `data-theme`, and workspace mount point.
 - Produces: semantic CSS tokens and `.app-shell`, `.app-topbar`, `.workspace-canvas`, `.surface`, and button-variant classes used by all later components.
 
@@ -89,6 +91,7 @@ Expected: only intentional Task 1 changes; do not commit.
 ## Task 2: Add accessible top-bar disclosure and responsive utility rail
 
 **Files:**
+
 - Create: `components/workspace/AppTopBar.tsx`
 - Create: `components/workspace/ProductInformation.tsx`
 - Create: `components/workspace/UtilityRail.tsx`
@@ -98,6 +101,7 @@ Expected: only intentional Task 1 changes; do not commit.
 - Modify: `app/globals.css`
 
 **Interfaces:**
+
 - Produces `AppTopBar({ onOpenFilters, children? })`, `ProductInformation({ open, onClose, returnFocusRef })`, and `UtilityRail({ title, open, onOpenChange, children })`.
 - `ChessWorkspace` owns `filtersOpen: boolean`, passes its query/status children to `UtilityRail`, and does not move controller actions into the new components.
 
@@ -145,6 +149,7 @@ Expected: intentional Task 2 changes only; do not commit.
 ## Task 3: Recompose the workspace around a persistent board focal region
 
 **Files:**
+
 - Create: `components/workspace/WorkspaceLayout.tsx`
 - Modify: `components/workspace/ChessWorkspace.tsx`
 - Modify: `components/workspace/WorkspaceTabs.tsx`
@@ -154,6 +159,7 @@ Expected: intentional Task 2 changes only; do not commit.
 - Test: `tests/e2e/workspace.spec.ts`
 
 **Interfaces:**
+
 - Produces `WorkspaceLayout({ utility, board, tabs, panel }: { utility: ReactNode; board: ReactNode; tabs: ReactNode; panel: ReactNode })`.
 - Board state continues to be calculated in `ChessWorkspace` through `boardFen`, selected game, graph navigation, and selection ply.
 
@@ -201,6 +207,7 @@ Expected: intentional Task 3 changes only; do not commit.
 ## Task 4: Upgrade the board with local piece assets, coordinates, and refined highlights
 
 **Files:**
+
 - Create: `public/chess-pieces/{w,b}{p,n,b,r,q,k}.svg`
 - Create: `public/chess-pieces/LICENSE.md`
 - Create: `components/board/ChessPieceSvg.tsx`
@@ -210,6 +217,7 @@ Expected: intentional Task 3 changes only; do not commit.
 - Modify: `tests/dom/components/ChessboardView.test.tsx`
 
 **Interfaces:**
+
 - `ChessPieceSvg({ piece, square }: { piece: BoardPiece; square: string }): JSX.Element` renders a local asset and preserves `aria-label="${color} ${type} on ${square}"`.
 - `ChessboardView` retains all current props and keyboard/navigation behavior.
 
@@ -255,6 +263,7 @@ Expected: all twelve assets and license record are present with intentional comp
 ## Task 5: Refine query controls, contextual data panels, and state presentation
 
 **Files:**
+
 - Modify: `components/controls/GameQueryForm.tsx`
 - Modify: `components/analysis/GameSelector.tsx`
 - Modify: `components/tree/OpeningTreeTable.tsx`
@@ -265,6 +274,7 @@ Expected: all twelve assets and license record are present with intentional comp
 - Modify: `tests/dom/components/{GameQueryForm,GameSelector,IngestionFeedback,AnalyzerWorkspace,LocalDataSettings}.test.tsx`
 
 **Interfaces:**
+
 - Preserve all existing component props and callbacks. Add only optional presentational props if absolutely necessary.
 - `GameQueryForm` retains native checkbox inputs and the existing `validateGameQuery` submission path.
 
@@ -311,6 +321,7 @@ Expected: intentional Task 5 changes only; do not commit.
 ## Task 6: Extend multi-viewport accessibility and visual-regression coverage
 
 **Files:**
+
 - Modify: `tests/e2e/workspace-responsive.spec.ts`
 - Modify: `tests/e2e/workspace-accessibility.spec.ts`
 - Modify: `tests/e2e/workspace.spec.ts`
@@ -318,6 +329,7 @@ Expected: intentional Task 5 changes only; do not commit.
 - Modify: `playwright.config.ts` only if screenshot configuration is needed
 
 **Interfaces:**
+
 - Uses existing `installWorkspaceFixtures` and `loadFixtureGames` helpers.
 - Produces stable screenshot baselines named `initial-query`, `loaded-board`, `opening-tree`, `analyzer-unavailable`, and `mobile-workspace`.
 
@@ -362,9 +374,11 @@ Expected: intentional baselines and test changes only; do not commit.
 ## Task 7: Full regression verification and delivery review
 
 **Files:**
+
 - Modify only if verification finds a concrete defect: files from Tasks 1–6.
 
 **Interfaces:**
+
 - Consumes the complete redesigned workspace and all existing Phase 4 services/tests.
 - Produces verified evidence that visual changes did not regress product behavior.
 
