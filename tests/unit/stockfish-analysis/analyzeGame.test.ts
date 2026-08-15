@@ -78,9 +78,7 @@ function engineForMultiPv(
       // Default: side to move has score 0
       return {
         bestMove: 'e2e4',
-        lines: [
-          { multiPv: 1, depth: 12, score: { kind: 'cp', value: 0 }, pv: ['e2e4'] },
-        ],
+        lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 0 }, pv: ['e2e4'] }],
       };
     },
   };
@@ -101,16 +99,12 @@ describe('analyzeGame', () => {
     // At afterE4, Black is to move. If evaluation is +200 cp for White, UCI score for Black is -200 cp.
     const afterE4Result: EvaluationResult = {
       bestMove: 'e7e5',
-      lines: [
-        { multiPv: 1, depth: 12, score: { kind: 'cp', value: -200 }, pv: ['e7e5'] },
-      ],
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: -200 }, pv: ['e7e5'] }],
     };
     // At afterE5, White is to move. UCI score for White is +200 cp.
     const afterE5Result: EvaluationResult = {
       bestMove: 'g1f3',
-      lines: [
-        { multiPv: 1, depth: 12, score: { kind: 'cp', value: 200 }, pv: ['g1f3'] },
-      ],
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 200 }, pv: ['g1f3'] }],
     };
 
     const result = await analyzeGame({
@@ -139,26 +133,24 @@ describe('analyzeGame', () => {
     const repository = new MemoryRepository();
     const rootResult: EvaluationResult = {
       bestMove: 'e2e4',
-      lines: [
-        { multiPv: 1, depth: 12, score: { kind: 'cp', value: 200 }, pv: ['e2e4'] },
-      ],
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 200 }, pv: ['e2e4'] }],
     };
     const afterE4Result: EvaluationResult = {
       bestMove: 'e7e5',
-      lines: [
-        { multiPv: 1, depth: 12, score: { kind: 'cp', value: -200 }, pv: ['e7e5'] },
-      ],
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: -200 }, pv: ['e7e5'] }],
     };
     const afterE5Result: EvaluationResult = {
       bestMove: 'g1f3',
-      lines: [
-        { multiPv: 1, depth: 12, score: { kind: 'cp', value: 200 }, pv: ['g1f3'] },
-      ],
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 200 }, pv: ['g1f3'] }],
     };
 
     const result = await analyzeGame({
       game: parsedGame,
-      engine: engineForMultiPv({ [initialFen]: rootResult, [afterE4]: afterE4Result, [afterE5]: afterE5Result }),
+      engine: engineForMultiPv({
+        [initialFen]: rootResult,
+        [afterE4]: afterE4Result,
+        [afterE5]: afterE5Result,
+      }),
       cache: new EvaluationCache(repository, () => 1),
       settings,
     });
@@ -172,29 +164,25 @@ describe('analyzeGame', () => {
     const repository = new MemoryRepository();
     const rootResult: EvaluationResult = {
       bestMove: 'd2d4',
-      lines: [
-        { multiPv: 1, depth: 12, score: { kind: 'cp', value: 30 }, pv: ['d2d4'] },
-      ],
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 30 }, pv: ['d2d4'] }],
     };
     const afterE4Result: EvaluationResult = {
       bestMove: 'e7e5',
-      lines: [
-        { multiPv: 1, depth: 12, score: { kind: 'cp', value: -30 }, pv: ['e7e5'] },
-      ],
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: -30 }, pv: ['e7e5'] }],
     };
     const afterE5Result: EvaluationResult = {
       bestMove: 'g1f3',
-      lines: [
-        { multiPv: 1, depth: 12, score: { kind: 'cp', value: 30 }, pv: ['g1f3'] },
-      ],
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 30 }, pv: ['g1f3'] }],
     };
-    const bookKeys = new Set([
-      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -\u0000e2e4',
-    ]);
+    const bookKeys = new Set(['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -\u0000e2e4']);
 
     const result = await analyzeGame({
       game: parsedGame,
-      engine: engineForMultiPv({ [initialFen]: rootResult, [afterE4]: afterE4Result, [afterE5]: afterE5Result }),
+      engine: engineForMultiPv({
+        [initialFen]: rootResult,
+        [afterE4]: afterE4Result,
+        [afterE5]: afterE5Result,
+      }),
       cache: new EvaluationCache(repository, () => 1),
       settings,
       bookMoveKeys: bookKeys,

@@ -24,8 +24,12 @@ describe('InteractiveChessboard', () => {
 
     // In react-chessboard or square click, clicking square e2 then e4
     // Find e2 and e4 buttons/divs in the rendered board
-    const squareE2 = container.querySelector('[data-square="e2"]') || container.querySelector('[data-square-coord="e2"]');
-    const squareE4 = container.querySelector('[data-square="e4"]') || container.querySelector('[data-square-coord="e4"]');
+    const squareE2 =
+      container.querySelector('[data-square="e2"]') ||
+      container.querySelector('[data-square-coord="e2"]');
+    const squareE4 =
+      container.querySelector('[data-square="e4"]') ||
+      container.querySelector('[data-square-coord="e4"]');
 
     if (squareE2 && squareE4) {
       await user.click(squareE2);
@@ -50,8 +54,12 @@ describe('InteractiveChessboard', () => {
       />
     );
 
-    const squareE2 = container.querySelector('[data-square="e2"]') || container.querySelector('[data-square-coord="e2"]');
-    const squareE4 = container.querySelector('[data-square="e4"]') || container.querySelector('[data-square-coord="e4"]');
+    const squareE2 =
+      container.querySelector('[data-square="e2"]') ||
+      container.querySelector('[data-square-coord="e2"]');
+    const squareE4 =
+      container.querySelector('[data-square="e4"]') ||
+      container.querySelector('[data-square-coord="e4"]');
 
     if (squareE2 && squareE4) {
       await user.click(squareE2);
@@ -72,8 +80,6 @@ describe('InteractiveChessboard', () => {
       />
     );
 
-    expect(
-      screen.getByRole('img', { name: 'Great move', hidden: true })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Great move', hidden: true })).toBeInTheDocument();
   });
 });

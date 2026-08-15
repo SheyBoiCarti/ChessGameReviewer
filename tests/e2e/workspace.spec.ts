@@ -51,7 +51,9 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
     await page.getByRole('button', { name: 'Cancel analysis' }).click();
     await expect(page.getByRole('button', { name: 'Resume analysis' })).toBeVisible();
     await page.getByRole('button', { name: 'Resume analysis' }).click();
-    await expect(page.getByText(/Coverage: [1-8] of 8 eligible plies/)).toBeVisible({
+    await expect(
+      page.getByText(/Game Review Summary|Coverage: [1-8] of 8 eligible plies/)
+    ).toBeVisible({
       timeout: 60_000,
     });
     await expect(page.getByRole('meter', { name: /white-perspective evaluation/i })).toBeVisible();

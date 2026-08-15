@@ -111,8 +111,7 @@ export async function analyzeGame(input: AnalyzeGameInput): Promise<GameAnalysis
       const after = await getPositionEvaluation(ply.fenAfter, input, evaluations);
 
       const secondBestScore = before.candidates.find(({ multiPv }) => multiPv === 2)?.score;
-      const isBook =
-        input.bookMoveKeys?.has(bookMoveKey(ply.positionBefore, ply.uci)) ?? false;
+      const isBook = input.bookMoveKeys?.has(bookMoveKey(ply.positionBefore, ply.uci)) ?? false;
 
       const accuracy = classifyMoveAccuracy({
         beforeScore: before.score,

@@ -1,12 +1,25 @@
 'use client';
 
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type DragEvent, type KeyboardEvent } from 'react';
 import type { Square } from 'chess.js';
 
-import { AccessibleBoardGrid } from '@/components/board/AccessibleBoardGrid';
-import { InteractiveChessboard, type InteractiveChessboardProps } from '@/components/board/InteractiveChessboard';
+import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
+import { Piece } from '@/components/board/Piece';
+import { PromotionDialog } from '@/components/board/PromotionDialog';
+import {
+  applyBoardMove,
+  legalDestinations,
+  promotionRequired,
+  type AppliedBoardMove,
+  type PromotionPiece,
+} from '@/features/board/moves';
 import { boardSquares, InvalidBoardPositionError } from '@/features/board/position';
-import type { EvaluationScore } from '@/lib/engine/evaluation';
+import type { MoveQuality } from '@/lib/engine/accuracy';
+import {
+  parseFenSideToMove,
+  type EvaluationScore,
+  type PlayerColor,
+} from '@/lib/engine/evaluation';
 
 import { EvaluationBar } from './EvaluationBar';
 import { MoveHistoryControls } from './MoveHistoryControls';
@@ -17,13 +30,20 @@ export interface MoveHistoryModel {
   onPlyChange(ply: number): void;
 }
 
-export interface ChessboardViewProps extends InteractiveChessboardProps {
-  history?: MoveHistoryModel;
-  evaluationScore?: EvaluationScore;
-  currentPly?: number;
-  totalPlies?: number;
-  onPlyChange?(ply: number): void;
-  selectedSquare?: string;
+export interface ChessboardViewProps {
+  fen: string;
+  orientation: 'white' | 'black';
+  isInteractive?: boolean | undefined;
+  onMove?: ((move: AppliedBoardMove) => boolean) | undefined;
+  lastMove?: { from: Square; to: Square } | undefined;
+  lastMoveBadge?: { square: Square; quality: MoveQuality } | undefined;
+  pvArrow?: { from: Square; to: Square } | undefined;
+  history?: MoveHistoryModel | undefined;
+  evaluationScore?: EvaluationScore | undefined;
+  currentPly?: number | undefined;
+  totalPlies?: number | undefined;
+  onPlyChange?: ((ply: number) => void) | undefined;
+  selectedSquare?: string | undefined;
 }
 
 export function ChessboardView({
@@ -41,13 +61,25 @@ export function ChessboardView({
   onPlyChange,
   selectedSquare: controlledSelectedSquare,
 }: ChessboardViewProps) {
-  const [selection, setSelection] = useState<{
-    selectedSquare: Square | null;
-    legalTargets: readonly Square[];
-  }>({
-    selectedSquare: null,
-    legalTargets: [],
-  });
+  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
+  const [legalTargets, setLegalTargets] = useState<readonly Square[]>([]);
+  const [pendingPromotion, setPendingPromotion] = useState<{
+    from: Square;
+    to: Square;
+  } | null>(null);
+
+  useEffect(() => {
+    setSelectedSquare(null);
+    setLegalTargets([]);
+    setPendingPromotion(null);
+  }, [fen, orientation, isInteractive]);
+
+  let mover: PlayerColor = 'white';
+  try {
+    mover = parseFenSideToMove(fen);
+  } catch {
+    mover = 'white';
+  }
 
   const historyModel: MoveHistoryModel | undefined =
     history ??
@@ -91,13 +123,101 @@ export function ChessboardView({
     }
   };
 
-  const activeSelectedSquare =
-    (controlledSelectedSquare as Square | undefined) ?? selection.selectedSquare;
+  const activeSelectedSquare = (controlledSelectedSquare as Square | undefined) ?? selectedSquare;
 
-  const legalTargetsStatus =
-    selection.selectedSquare && selection.legalTargets.length > 0
-      ? `Selected ${selection.selectedSquare}. Legal destinations: ${selection.legalTargets.join(', ')}.`
-      : undefined;
+  const handleSquareClick = (squareName: Square) => {
+    if (!isInteractive) return;
+
+    const squareObj = squares.find((s) => s.name === squareName);
+    const piece = squareObj?.piece;
+
+    if (selectedSquare) {
+      if (squareName === selectedSquare) {
+        setSelectedSquare(null);
+        setLegalTargets([]);
+        return;
+      }
+
+      if (legalTargets.includes(squareName)) {
+        if (promotionRequired(fen, { from: selectedSquare, to: squareName })) {
+          setPendingPromotion({ from: selectedSquare, to: squareName });
+          return;
+        }
+
+        const move = applyBoardMove(fen, { from: selectedSquare, to: squareName });
+        if (move) {
+          const accepted = onMove?.(move);
+          if (accepted !== false) {
+            setSelectedSquare(null);
+            setLegalTargets([]);
+          }
+        }
+        return;
+      }
+
+      if (piece && piece.color === mover) {
+        const destinations = legalDestinations(fen, squareName);
+        setSelectedSquare(squareName);
+        setLegalTargets(destinations);
+        return;
+      }
+
+      setSelectedSquare(null);
+      setLegalTargets([]);
+    } else {
+      if (piece && piece.color === mover) {
+        const destinations = legalDestinations(fen, squareName);
+        setSelectedSquare(squareName);
+        setLegalTargets(destinations);
+      }
+    }
+  };
+
+  const handleDragStart = (e: DragEvent<HTMLDivElement>, squareName: Square) => {
+    if (!isInteractive) return;
+    const squareObj = squares.find((s) => s.name === squareName);
+    if (!squareObj?.piece || squareObj.piece.color !== mover) return;
+    e.dataTransfer.setData('text/plain', squareName);
+    setSelectedSquare(squareName);
+    setLegalTargets(legalDestinations(fen, squareName));
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>, targetSquare: Square) => {
+    if (!isInteractive) return;
+    e.preventDefault();
+    const from = e.dataTransfer.getData('text/plain') as Square;
+    if (!from || from === targetSquare) return;
+
+    if (promotionRequired(fen, { from, to: targetSquare })) {
+      setPendingPromotion({ from, to: targetSquare });
+      return;
+    }
+
+    const move = applyBoardMove(fen, { from, to: targetSquare });
+    if (!move) return;
+
+    const accepted = onMove?.(move);
+    if (accepted !== false) {
+      setSelectedSquare(null);
+      setLegalTargets([]);
+    }
+  };
+
+  const handlePromotionSelect = (promotion: PromotionPiece) => {
+    if (pendingPromotion) {
+      const move = applyBoardMove(fen, { ...pendingPromotion, promotion });
+      if (move) {
+        onMove?.(move);
+      }
+      setPendingPromotion(null);
+      setSelectedSquare(null);
+      setLegalTargets([]);
+    }
+  };
+
+  const handlePromotionCancel = () => {
+    setPendingPromotion(null);
+  };
 
   return (
     <div className="board-region">
@@ -113,30 +233,67 @@ export function ChessboardView({
             onKeyDown={handleKeyDown}
             aria-describedby={historyModel ? 'board-keyboard-help' : undefined}
           >
-            <AccessibleBoardGrid
-              squares={squares}
-              orientation={orientation}
-              selectedSquare={activeSelectedSquare}
-              lastMove={lastMove}
-              lastMoveBadge={lastMoveBadge}
-              legalTargetsStatus={legalTargetsStatus}
-            />
-            <InteractiveChessboard
-              fen={fen}
-              orientation={orientation}
-              isInteractive={isInteractive}
-              onMove={onMove}
-              lastMove={lastMove}
-              lastMoveBadge={lastMoveBadge}
-              pvArrow={pvArrow}
-              onSelectionChange={setSelection}
-            />
+            {Array.from({ length: 8 }, (_, row) => (
+              <div className="board-row" role="row" key={row}>
+                {squares.slice(row * 8, row * 8 + 8).map((square, column) => {
+                  const isSelected = square.name === activeSelectedSquare;
+                  const isHighlighted =
+                    isSelected || square.name === lastMove?.from || square.name === lastMove?.to;
+                  const isLegalTarget = legalTargets.includes(square.name as Square);
+                  const hasBadge = Boolean(lastMoveBadge && lastMoveBadge.square === square.name);
+
+                  return (
+                    <div
+                      className={`board-square ${square.isLight ? 'square-light' : 'square-dark'}${isHighlighted ? ' square-highlighted' : ''}${isSelected ? ' square-selected' : ''}`}
+                      role="gridcell"
+                      aria-label={square.name}
+                      data-square={square.name}
+                      key={square.name}
+                      onClick={() => handleSquareClick(square.name as Square)}
+                      draggable={
+                        isInteractive && Boolean(square.piece && square.piece.color === mover)
+                      }
+                      onDragStart={(e) => handleDragStart(e, square.name as Square)}
+                      onDragOver={(e) => {
+                        if (isInteractive) e.preventDefault();
+                      }}
+                      onDrop={(e) => handleDrop(e, square.name as Square)}
+                    >
+                      {column === 0 ? (
+                        <span className="board-rank-label" aria-hidden="true">
+                          {square.rank}
+                        </span>
+                      ) : null}
+                      {square.piece ? <Piece piece={square.piece} square={square.name} /> : null}
+                      {isLegalTarget ? (
+                        <span
+                          className={`legal-target-dot ${square.piece ? 'legal-target-dot--capture' : ''}`}
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                      {hasBadge && lastMoveBadge ? (
+                        <MoveClassificationBadge quality={lastMoveBadge.quality} size="square" />
+                      ) : null}
+                      {row === 7 ? (
+                        <span className="board-file-label" aria-hidden="true">
+                          {square.file}
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
-          {pvArrow ? (
-            <BoardArrow move={pvArrow} orientation={orientation} />
-          ) : null}
+          {pvArrow ? <BoardArrow move={pvArrow} orientation={orientation} /> : null}
         </div>
       </div>
+      <PromotionDialog
+        isOpen={pendingPromotion !== null}
+        color={mover}
+        onSelect={handlePromotionSelect}
+        onCancel={handlePromotionCancel}
+      />
       {historyModel ? (
         <>
           <p id="board-keyboard-help" className="sr-only">

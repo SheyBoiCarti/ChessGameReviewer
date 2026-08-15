@@ -5,13 +5,19 @@ import { MoveClassificationBadge } from '@/components/board/MoveClassificationBa
 import { REVIEW_MOVE_QUALITIES, type MoveQuality } from '@/lib/engine/accuracy';
 
 describe('MoveClassificationBadge', () => {
-  it.each(REVIEW_MOVE_QUALITIES)('renders accessible badge for quality %s', (quality: MoveQuality) => {
-    render(<MoveClassificationBadge quality={quality} size="inline" />);
-    const expectedLabel = quality === 'book' ? 'Book move' : `${quality.charAt(0).toUpperCase()}${quality.slice(1)} move`;
-    const badge = screen.getByRole('img', { name: expectedLabel });
-    expect(badge).toBeInTheDocument();
-    expect(badge).toHaveClass('move-classification-badge');
-  });
+  it.each(REVIEW_MOVE_QUALITIES)(
+    'renders accessible badge for quality %s',
+    (quality: MoveQuality) => {
+      render(<MoveClassificationBadge quality={quality} size="inline" />);
+      const expectedLabel =
+        quality === 'book'
+          ? 'Book move'
+          : `${quality.charAt(0).toUpperCase()}${quality.slice(1)} move`;
+      const badge = screen.getByRole('img', { name: expectedLabel });
+      expect(badge).toBeInTheDocument();
+      expect(badge).toHaveClass('move-classification-badge');
+    }
+  );
 
   it('renders different size classes', () => {
     const { rerender } = render(<MoveClassificationBadge quality="brilliant" size="inline" />);

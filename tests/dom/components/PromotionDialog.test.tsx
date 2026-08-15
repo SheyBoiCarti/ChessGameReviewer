@@ -10,14 +10,7 @@ describe('PromotionDialog', () => {
     const onSelect = vi.fn();
     const onCancel = vi.fn();
 
-    render(
-      <PromotionDialog
-        isOpen={true}
-        color="white"
-        onSelect={onSelect}
-        onCancel={onCancel}
-      />
-    );
+    render(<PromotionDialog isOpen={true} color="white" onSelect={onSelect} onCancel={onCancel} />);
 
     const dialog = screen.getByRole('dialog', { name: /promote pawn/i });
     expect(dialog).toBeInTheDocument();
@@ -44,12 +37,7 @@ describe('PromotionDialog', () => {
     const onCancel = vi.fn();
 
     const { rerender } = render(
-      <PromotionDialog
-        isOpen={true}
-        color="black"
-        onSelect={onSelect}
-        onCancel={onCancel}
-      />
+      <PromotionDialog isOpen={true} color="black" onSelect={onSelect} onCancel={onCancel} />
     );
 
     await user.keyboard('{Escape}');
@@ -60,14 +48,7 @@ describe('PromotionDialog', () => {
   });
 
   it('does not render when isOpen is false', () => {
-    render(
-      <PromotionDialog
-        isOpen={false}
-        color="white"
-        onSelect={vi.fn()}
-        onCancel={vi.fn()}
-      />
-    );
+    render(<PromotionDialog isOpen={false} color="white" onSelect={vi.fn()} onCancel={vi.fn()} />);
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });

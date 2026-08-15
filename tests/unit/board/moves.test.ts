@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  applyBoardMove,
-  legalDestinations,
-  promotionRequired,
-} from '@/features/board/moves';
+import { applyBoardMove, legalDestinations, promotionRequired } from '@/features/board/moves';
 
 describe('controlled board move domain', () => {
   const initial = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';

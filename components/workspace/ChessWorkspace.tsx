@@ -194,11 +194,19 @@ export function ChessWorkspace() {
         setNavigation((prev) =>
           prev
             ? navigateCandidate(graph, prev, {
-                sourceKey: navigation.positionKey,
                 targetKey: res.nextPositionKey,
                 uci: applied.uci,
                 san: applied.san,
-                aggregate: { games: 0, whiteWins: 0, draws: 0, blackWins: 0 },
+                aggregate: {
+                  games: 0,
+                  userWins: 0,
+                  draws: 0,
+                  userLosses: 0,
+                  whiteWins: 0,
+                  blackWins: 0,
+                  opponentRatingSum: 0,
+                  opponentRatingCount: 0,
+                },
               })
             : null
         );
@@ -238,16 +246,26 @@ export function ChessWorkspace() {
             from: unobservedMove.move.from,
             to: unobservedMove.move.to,
           }
-        : state.selection.ply > 0 && parsedGame
+        : state.selection.ply > 0 && parsedGame && !isOpeningBoard
           ? {
               from: parsedGame.plies[state.selection.ply - 1]!.uci.slice(0, 2) as Square,
               to: parsedGame.plies[state.selection.ply - 1]!.uci.slice(2, 4) as Square,
             }
           : undefined;
 
-  const historyValue: MoveHistoryModel | undefined =
-    isOpeningBoard || (tab === 'analysis' && variation)
-      ? undefined
+  const historyValue: MoveHistoryModel | undefined = isOpeningBoard
+    ? {
+        currentPly: 0,
+        totalPlies: 0,
+        onPlyChange: () => undefined,
+      }
+    : tab === 'analysis' && variation
+      ? {
+          currentPly: variation.cursor,
+          totalPlies: variation.moves.length,
+          onPlyChange: (cursor) =>
+            setVariation((prev) => (prev ? moveVariationCursor(prev, cursor) : null)),
+        }
       : parsedGame
         ? {
             currentPly: state.selection.ply,
@@ -275,10 +293,7 @@ export function ChessWorkspace() {
         <UnobservedMoveNotice
           san={unobservedMove.move.san}
           onReturn={() => {
-            controller.navigateGraph(
-              unobservedMove.returnPositionKey,
-              unobservedMove.returnPathId
-            );
+            controller.navigateGraph(unobservedMove.returnPositionKey, unobservedMove.returnPathId);
             setUnobservedMove(null);
           }}
         />
@@ -288,9 +303,9 @@ export function ChessWorkspace() {
         orientation={state.preferences.boardOrientation}
         isInteractive={isInteractive}
         onMove={handleBoardMove}
-        lastMove={lastMoveValue}
-        lastMoveBadge={selectedBadge}
-        history={historyValue}
+        {...(lastMoveValue !== undefined ? { lastMove: lastMoveValue } : {})}
+        {...(selectedBadge !== undefined ? { lastMoveBadge: selectedBadge } : {})}
+        {...(historyValue !== undefined ? { history: historyValue } : {})}
         {...(selectedAnnotation ? { evaluationScore: selectedAnnotation.after.score } : {})}
         {...(tab === 'analysis' && selectedArrow ? { pvArrow: selectedArrow } : {})}
       />
@@ -520,12 +535,12 @@ function BoardPanel({
   fen: string | null;
   orientation: 'white' | 'black';
   isInteractive: boolean;
-  onMove?(move: AppliedBoardMove): boolean;
-  lastMove?: { from: Square; to: Square };
-  lastMoveBadge?: { square: Square; quality: MoveQuality };
-  history?: MoveHistoryModel;
-  pvArrow?: { from: Square; to: Square };
-  evaluationScore?: EvaluationScore;
+  onMove?: ((move: AppliedBoardMove) => boolean) | undefined;
+  lastMove?: { from: Square; to: Square } | undefined;
+  lastMoveBadge?: { square: Square; quality: MoveQuality } | undefined;
+  history?: MoveHistoryModel | undefined;
+  pvArrow?: { from: Square; to: Square } | undefined;
+  evaluationScore?: EvaluationScore | undefined;
 }) {
   if (!fen)
     return <EmptyWorkspace message="Select a game or opening position to show the board." />;
@@ -534,12 +549,12 @@ function BoardPanel({
       fen={fen}
       orientation={orientation}
       isInteractive={isInteractive}
-      onMove={onMove}
-      history={history}
-      {...(lastMove ? { lastMove } : {})}
-      {...(lastMoveBadge ? { lastMoveBadge } : {})}
-      {...(evaluationScore ? { evaluationScore } : {})}
-      {...(pvArrow ? { pvArrow } : {})}
+      {...(onMove !== undefined ? { onMove } : {})}
+      {...(history !== undefined ? { history } : {})}
+      {...(lastMove !== undefined ? { lastMove } : {})}
+      {...(lastMoveBadge !== undefined ? { lastMoveBadge } : {})}
+      {...(evaluationScore !== undefined ? { evaluationScore } : {})}
+      {...(pvArrow !== undefined ? { pvArrow } : {})}
     />
   );
 }

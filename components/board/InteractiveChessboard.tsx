@@ -26,115 +26,56 @@ import { parseFenSideToMove, type PlayerColor } from '@/lib/engine/evaluation';
 export interface InteractiveChessboardProps {
   fen: string;
   orientation: 'white' | 'black';
-  isInteractive?: boolean;
-  onMove?(move: AppliedBoardMove): boolean;
-  lastMove?: { from: Square; to: Square };
-  lastMoveBadge?: { square: Square; quality: MoveQuality };
-  pvArrow?: { from: Square; to: Square };
-  onSelectionChange?(selection: {
-    selectedSquare: Square | null;
-    legalTargets: readonly Square[];
-  }): void;
+  isInteractive?: boolean | undefined;
+  onMove?: ((move: AppliedBoardMove) => boolean) | undefined;
+  lastMove?: { from: Square; to: Square } | undefined;
+  lastMoveBadge?: { square: Square; quality: MoveQuality } | undefined;
+  pvArrow?: { from: Square; to: Square } | undefined;
+  onSelectionChange?:
+    | ((selection: { selectedSquare: Square | null; legalTargets: readonly Square[] }) => void)
+    | undefined;
 }
 
+/* eslint-disable @next/next/no-img-element */
 const localPieceRenderers: PieceRenderObject = {
   wP: () => (
-    <img
-      className="chess-piece piece-white"
-      src="/chess-pieces/wp.svg"
-      alt=""
-      draggable={false}
-    />
+    <img className="chess-piece piece-white" src="/chess-pieces/wp.svg" alt="" draggable={false} />
   ),
   wN: () => (
-    <img
-      className="chess-piece piece-white"
-      src="/chess-pieces/wn.svg"
-      alt=""
-      draggable={false}
-    />
+    <img className="chess-piece piece-white" src="/chess-pieces/wn.svg" alt="" draggable={false} />
   ),
   wB: () => (
-    <img
-      className="chess-piece piece-white"
-      src="/chess-pieces/wb.svg"
-      alt=""
-      draggable={false}
-    />
+    <img className="chess-piece piece-white" src="/chess-pieces/wb.svg" alt="" draggable={false} />
   ),
   wR: () => (
-    <img
-      className="chess-piece piece-white"
-      src="/chess-pieces/wr.svg"
-      alt=""
-      draggable={false}
-    />
+    <img className="chess-piece piece-white" src="/chess-pieces/wr.svg" alt="" draggable={false} />
   ),
   wQ: () => (
-    <img
-      className="chess-piece piece-white"
-      src="/chess-pieces/wq.svg"
-      alt=""
-      draggable={false}
-    />
+    <img className="chess-piece piece-white" src="/chess-pieces/wq.svg" alt="" draggable={false} />
   ),
   wK: () => (
-    <img
-      className="chess-piece piece-white"
-      src="/chess-pieces/wk.svg"
-      alt=""
-      draggable={false}
-    />
+    <img className="chess-piece piece-white" src="/chess-pieces/wk.svg" alt="" draggable={false} />
   ),
   bP: () => (
-    <img
-      className="chess-piece piece-black"
-      src="/chess-pieces/bp.svg"
-      alt=""
-      draggable={false}
-    />
+    <img className="chess-piece piece-black" src="/chess-pieces/bp.svg" alt="" draggable={false} />
   ),
   bN: () => (
-    <img
-      className="chess-piece piece-black"
-      src="/chess-pieces/bn.svg"
-      alt=""
-      draggable={false}
-    />
+    <img className="chess-piece piece-black" src="/chess-pieces/bn.svg" alt="" draggable={false} />
   ),
   bB: () => (
-    <img
-      className="chess-piece piece-black"
-      src="/chess-pieces/bb.svg"
-      alt=""
-      draggable={false}
-    />
+    <img className="chess-piece piece-black" src="/chess-pieces/bb.svg" alt="" draggable={false} />
   ),
   bR: () => (
-    <img
-      className="chess-piece piece-black"
-      src="/chess-pieces/br.svg"
-      alt=""
-      draggable={false}
-    />
+    <img className="chess-piece piece-black" src="/chess-pieces/br.svg" alt="" draggable={false} />
   ),
   bQ: () => (
-    <img
-      className="chess-piece piece-black"
-      src="/chess-pieces/bq.svg"
-      alt=""
-      draggable={false}
-    />
+    <img className="chess-piece piece-black" src="/chess-pieces/bq.svg" alt="" draggable={false} />
   ),
   bK: () => (
-    <img
-      className="chess-piece piece-black"
-      src="/chess-pieces/bk.svg"
-      alt=""
-      draggable={false}
-    />
+    <img className="chess-piece piece-black" src="/chess-pieces/bk.svg" alt="" draggable={false} />
   ),
 };
+/* eslint-enable @next/next/no-img-element */
 
 export function InteractiveChessboard({
   fen,
@@ -284,7 +225,11 @@ export function InteractiveChessboard({
     };
   }
 
-  const squareRenderer: SquareRenderer = ({ piece, square, children }: SquareHandlerArgs & { children?: ReactNode }) => {
+  const squareRenderer: SquareRenderer = ({
+    piece,
+    square,
+    children,
+  }: SquareHandlerArgs & { children?: ReactNode }) => {
     const isLegalTarget = legalTargets.includes(square as Square);
     const isBadgeSquare = lastMoveBadge?.square === square;
 

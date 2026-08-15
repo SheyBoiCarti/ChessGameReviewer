@@ -65,6 +65,7 @@ export function PromotionDialog({
               onClick={() => onSelect(opt.piece)}
               aria-label={opt.label}
             >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={`/chess-pieces/${prefix}${opt.codeSuffix}.svg`}
                 alt=""
@@ -75,11 +76,7 @@ export function PromotionDialog({
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          className="promotion-dialog__cancel-button"
-          onClick={onCancel}
-        >
+        <button type="button" className="promotion-dialog__cancel-button" onClick={onCancel}>
           Cancel
         </button>
       </div>

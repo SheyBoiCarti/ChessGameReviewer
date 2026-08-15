@@ -24,22 +24,13 @@ export function VariationSandboxBanner({
       aria-label="Analysis variation sandbox"
     >
       <div className="variation-sandbox-banner__header">
-        <h4 className="variation-sandbox-banner__title">
-          Exploration from ply {state.basePly}
-        </h4>
-        <button
-          type="button"
-          className="variation-sandbox-banner__close-button"
-          onClick={onClose}
-        >
+        <h4 className="variation-sandbox-banner__title">Exploration from ply {state.basePly}</h4>
+        <button type="button" className="variation-sandbox-banner__close-button" onClick={onClose}>
           Return to main game
         </button>
       </div>
       <div className="variation-sandbox-banner__body">
-        <nav
-          className="variation-sandbox-banner__breadcrumbs"
-          aria-label="Variation move sequence"
-        >
+        <nav className="variation-sandbox-banner__breadcrumbs" aria-label="Variation move sequence">
           <button
             type="button"
             className={`variation-sandbox-banner__breadcrumb-node ${isAtStart ? 'is-active' : ''}`}

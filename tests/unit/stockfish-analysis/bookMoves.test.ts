@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  bookMoveKey,
-  collectPersonalBookMoveKeys,
-} from '@/features/stockfish-analysis/bookMoves';
+import { bookMoveKey, collectPersonalBookMoveKeys } from '@/features/stockfish-analysis/bookMoves';
 import type { SerializedOpeningGraph } from '@/lib/chess/graph/serialization';
 
 describe('bookMoves', () => {
-  const emptyAggregate = { games: 0, userWins: 0, userLosses: 0, draws: 0, totalOpponentRating: 0 };
+  const emptyAggregate = {
+    games: 0,
+    userWins: 0,
+    userLosses: 0,
+    draws: 0,
+    whiteWins: 0,
+    blackWins: 0,
+    opponentRatingSum: 0,
+    opponentRatingCount: 0,
+  };
 
   const snapshot: SerializedOpeningGraph = {
     formatVersion: 1,
@@ -74,9 +80,7 @@ describe('bookMoves', () => {
   });
 
   it('respects a custom minimumGames parameter', () => {
-    expect(collectPersonalBookMoveKeys(snapshot, 3)).toEqual([
-      `${snapshot.rootKey}\u0000e2e4`,
-    ]);
+    expect(collectPersonalBookMoveKeys(snapshot, 3)).toEqual([`${snapshot.rootKey}\u0000e2e4`]);
     expect(collectPersonalBookMoveKeys(snapshot, 4)).toEqual([]);
   });
 });

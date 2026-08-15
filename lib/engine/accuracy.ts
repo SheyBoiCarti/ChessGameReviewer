@@ -21,6 +21,7 @@ export const REVIEW_MOVE_QUALITIES = [
 ] as const;
 
 export type MoveQuality = (typeof REVIEW_MOVE_QUALITIES)[number];
+export type MoveBreakdown = Record<MoveQuality, number>;
 export type MateTransition = 'gained' | 'retained' | 'conceded' | 'missed';
 
 export interface MoveContext {
@@ -50,7 +51,11 @@ export interface IndeterminateMoveAccuracy {
 
 export type MoveAccuracy = ClassifiedMoveAccuracy | IndeterminateMoveAccuracy;
 
-export type ScoreComparison = { before: EvaluationScore; after: EvaluationScore; mover: PlayerColor };
+export type ScoreComparison = {
+  before: EvaluationScore;
+  after: EvaluationScore;
+  mover: PlayerColor;
+};
 export type ProbabilityComparison = { beforeProbability: number; afterProbability: number };
 
 /**
@@ -88,9 +93,7 @@ export function detectOfferedPieceSacrifice(fenBefore: string, uci: string): boo
     const capturedValue = moveResult.captured ? (pieceValues[moveResult.captured] ?? 0) : 0;
 
     const opponentMoves = chess.moves({ verbose: true });
-    const opponentCapturesToSquare = opponentMoves.filter(
-      (m) => m.to === to && m.captured
-    );
+    const opponentCapturesToSquare = opponentMoves.filter((m) => m.to === to && m.captured);
 
     if (opponentCapturesToSquare.length === 0) return false;
 

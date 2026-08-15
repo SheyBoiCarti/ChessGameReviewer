@@ -2,16 +2,16 @@ import type { Square } from 'chess.js';
 
 import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
 import { Piece } from '@/components/board/Piece';
-import { boardSquares, type SquareModel } from '@/features/board/position';
+import type { BoardSquare } from '@/features/board/position';
 import type { MoveQuality } from '@/lib/engine/accuracy';
 
 export interface AccessibleBoardGridProps {
-  squares: readonly SquareModel[];
+  squares: readonly BoardSquare[];
   orientation: 'white' | 'black';
-  selectedSquare?: Square | null;
-  lastMove?: { from: Square; to: Square };
-  lastMoveBadge?: { square: Square; quality: MoveQuality };
-  legalTargetsStatus?: string;
+  selectedSquare?: Square | null | undefined;
+  lastMove?: { from: Square; to: Square } | undefined;
+  lastMoveBadge?: { square: Square; quality: MoveQuality } | undefined;
+  legalTargetsStatus?: string | undefined;
 }
 
 export function AccessibleBoardGrid({
@@ -30,7 +30,7 @@ export function AccessibleBoardGrid({
               const isSelected = square.name === selectedSquare;
               const isHighlighted =
                 isSelected || square.name === lastMove?.from || square.name === lastMove?.to;
-              const hasBadge = lastMoveBadge?.square === square.name;
+              const hasBadge = Boolean(lastMoveBadge && lastMoveBadge.square === square.name);
 
               return (
                 <div
@@ -46,7 +46,7 @@ export function AccessibleBoardGrid({
                     </span>
                   ) : null}
                   {square.piece ? <Piece piece={square.piece} square={square.name} /> : null}
-                  {hasBadge ? (
+                  {hasBadge && lastMoveBadge ? (
                     <MoveClassificationBadge quality={lastMoveBadge.quality} size="inline" />
                   ) : null}
                   {row === 7 ? (

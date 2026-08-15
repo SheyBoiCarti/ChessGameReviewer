@@ -189,7 +189,9 @@ describe('OpeningGraphBuilder', () => {
     const repeatingGame1 = parse('repeat-edge-1', '1. Nf3 Nf6 2. Ng1 Ng8 3. Nf3 Nf6 1/2-1/2');
     const repeatingGame2 = parse('repeat-edge-2', '1. Nf3 Nf6 2. Ng1 Ng8 3. Nf3 Nf6 1/2-1/2');
 
-    const singleGameGraph = new OpeningGraphBuilder({ maxOpeningPlies: 10 }).build([repeatingGame1]);
+    const singleGameGraph = new OpeningGraphBuilder({ maxOpeningPlies: 10 }).build([
+      repeatingGame1,
+    ]);
     const rootEdge = singleGameGraph.root.outgoing.get('g1f3');
     expect(rootEdge).toBeDefined();
     expect(rootEdge?.aggregate.games).toBe(1);

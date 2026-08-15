@@ -51,7 +51,10 @@ export function GameReviewSummaryCard({ result }: GameReviewSummaryCardProps): R
               const blackCount = blackSummary.breakdown[quality];
 
               return (
-                <tr key={quality} className={`game-review-summary__row game-review-summary__row--${quality}`}>
+                <tr
+                  key={quality}
+                  className={`game-review-summary__row game-review-summary__row--${quality}`}
+                >
                   <th scope="row" className="game-review-summary__quality-cell">
                     <MoveClassificationBadge quality={quality} size="summary" />
                     <span className="game-review-summary__quality-label">{details.label}</span>

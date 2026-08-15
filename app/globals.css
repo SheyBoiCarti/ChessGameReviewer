@@ -773,29 +773,18 @@ li[data-selected='true'] {
 }
 
 .chessboard {
-  position: relative;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-rows: repeat(8, minmax(0, 1fr));
+  gap: 1px;
+  padding: 1px;
   width: 100%;
   aspect-ratio: 1;
-  border-radius: 0.35rem;
-  overflow: hidden;
-}
-
-.accessible-board-grid {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
   border: 0;
-}
-
-.interactive-chessboard {
-  width: 100%;
-  height: 100%;
-  aspect-ratio: 1;
+  border-radius: 0.35rem;
+  background: #3f4e35;
+  overflow: hidden;
+  position: relative;
 }
 
 .legal-target-dot {

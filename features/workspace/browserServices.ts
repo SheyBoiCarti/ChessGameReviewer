@@ -3,6 +3,7 @@
 import { IngestionManager } from '@/features/ingestion/ingestionService';
 import type { IngestionDependencies } from '@/features/ingestion/types';
 import { GraphWorkerClient } from '@/features/opening-tree/graphWorkerClient';
+import type { WorkspaceServices } from './createWorkspaceController';
 import { analyzeGame } from '@/features/stockfish-analysis/analyzeGame';
 import { EngineService } from '@/features/stockfish-analysis/engineService';
 import {

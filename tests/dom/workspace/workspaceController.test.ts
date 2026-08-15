@@ -116,7 +116,7 @@ describe('workspace controller', () => {
   it('cancels and ignores selected-game analysis after the game selection changes', async () => {
     const pending = deferred<Awaited<ReturnType<WorkspaceServices['analysis']['analyze']>>>();
     const services = createServices(async () => result(secondQuery, [game]));
-    services.analysis.analyze = (_game, _strength, _capability, signal) => {
+    services.analysis.analyze = (_game, _strength, _capability, _context, signal) => {
       expect(signal.aborted).toBe(false);
       return pending.promise;
     };
@@ -146,8 +146,18 @@ describe('workspace controller', () => {
       analyzedPlies: 0,
       totalPlies: 0,
       summary: {
-        white: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0, breakdown: emptyBreakdown },
-        black: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0, breakdown: emptyBreakdown },
+        white: {
+          accuracyEstimate: null,
+          eligibleMoves: 0,
+          excludedMoves: 0,
+          breakdown: emptyBreakdown,
+        },
+        black: {
+          accuracyEstimate: null,
+          eligibleMoves: 0,
+          excludedMoves: 0,
+          breakdown: emptyBreakdown,
+        },
       },
     });
     await analysis;
@@ -177,7 +187,14 @@ describe('workspace controller', () => {
     controller.navigateGraph('position', 2);
     controller.selectPly(1);
     await controller.probeEngine();
-    services.analysis.analyze = async (_game, _strength, _capability, _context, _signal, progress) => {
+    services.analysis.analyze = async (
+      _game,
+      _strength,
+      _capability,
+      _context,
+      _signal,
+      progress
+    ) => {
       progress({ analyzedPlies: 1, totalPlies: 2 });
       return {
         status: 'partial',
@@ -185,8 +202,18 @@ describe('workspace controller', () => {
         analyzedPlies: 1,
         totalPlies: 2,
         summary: {
-          white: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0, breakdown: emptyBreakdown },
-          black: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0, breakdown: emptyBreakdown },
+          white: {
+            accuracyEstimate: null,
+            eligibleMoves: 0,
+            excludedMoves: 0,
+            breakdown: emptyBreakdown,
+          },
+          black: {
+            accuracyEstimate: null,
+            eligibleMoves: 0,
+            excludedMoves: 0,
+            breakdown: emptyBreakdown,
+          },
         },
       };
     };

@@ -13,7 +13,9 @@ export function startVariation(
   firstMove: AppliedBoardMove
 ): AnalysisVariationState {
   if (firstMove.fenBefore !== baseFen) {
-    throw new Error(`DISCONTINUOUS_VARIATION_MOVE: move fenBefore ${firstMove.fenBefore} does not match base FEN ${baseFen}`);
+    throw new Error(
+      `DISCONTINUOUS_VARIATION_MOVE: move fenBefore ${firstMove.fenBefore} does not match base FEN ${baseFen}`
+    );
   }
   return {
     basePly,
@@ -29,7 +31,9 @@ export function appendVariationMove(
 ): AnalysisVariationState {
   const currentFen = variationFen(state);
   if (move.fenBefore !== currentFen) {
-    throw new Error(`DISCONTINUOUS_VARIATION_MOVE: move fenBefore ${move.fenBefore} does not match current variation FEN ${currentFen}`);
+    throw new Error(
+      `DISCONTINUOUS_VARIATION_MOVE: move fenBefore ${move.fenBefore} does not match current variation FEN ${currentFen}`
+    );
   }
   const keptMoves = state.moves.slice(0, state.cursor);
   return {
