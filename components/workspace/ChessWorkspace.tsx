@@ -14,6 +14,7 @@ import { IngestionProgress } from '@/components/feedback/IngestionProgress';
 import { OfflineCacheNotice } from '@/components/feedback/OfflineCacheNotice';
 import { MoveOrderDialog } from '@/components/tree/MoveOrderDialog';
 import { OpeningTreeTable } from '@/components/tree/OpeningTreeTable';
+import { UnobservedMoveNotice } from '@/components/opening/UnobservedMoveNotice';
 import type { AppliedBoardMove } from '@/features/board/moves';
 import {
   appendVariationMove,
@@ -24,6 +25,8 @@ import {
 } from '@/features/board/variation';
 import {
   createGraphNavigation,
+  navigateCandidate,
+  resolveBoardMoveInGraph,
   type GraphNavigationState,
 } from '@/features/opening-tree/navigation';
 import { createBrowserWorkspaceServices } from '@/features/workspace/browserServices';
@@ -53,6 +56,12 @@ export function ChessWorkspace() {
   const [filtersOpen, setFiltersOpen] = useState(() => !state.ingestion.result);
   const [resultFocusVersion, setResultFocusVersion] = useState(0);
   const [variation, setVariation] = useState<AnalysisVariationState | null>(null);
+  const [unobservedMove, setUnobservedMove] = useState<{
+    move: AppliedBoardMove;
+    returnPositionKey: string;
+    returnPathId: number;
+  } | null>(null);
+
   const moveOrdersButton = useRef<HTMLButtonElement>(null);
   const filtersTrigger = useRef<HTMLButtonElement>(null);
   const loadedRegion = useRef<HTMLDivElement>(null);
@@ -88,8 +97,13 @@ export function ChessWorkspace() {
       : undefined;
 
   useEffect(() => {
-    if (graph) setNavigation(createGraphNavigation(graph));
-    else setNavigation(null);
+    if (graph) {
+      setNavigation(createGraphNavigation(graph));
+      setUnobservedMove(null);
+    } else {
+      setNavigation(null);
+      setUnobservedMove(null);
+    }
   }, [graph]);
 
   useEffect(() => {
@@ -123,7 +137,10 @@ export function ChessWorkspace() {
 
   const selectTab = (next: WorkspaceTab) => {
     setTab(next);
-    if (next !== 'opening') setMoveOrdersOpen(false);
+    if (next !== 'opening') {
+      setMoveOrdersOpen(false);
+      setUnobservedMove(null);
+    }
     if (next !== 'analysis') setVariation(null);
   };
 
@@ -160,12 +177,53 @@ export function ChessWorkspace() {
         }
       }
     }
+
+    if (tab === 'opening') {
+      if (!graph || !navigation) return false;
+      if (unobservedMove) return false;
+
+      const res = resolveBoardMoveInGraph(
+        graph,
+        navigation.positionKey,
+        navigation.pathId,
+        applied
+      );
+
+      if (res.observed && res.nextPathId !== null) {
+        setUnobservedMove(null);
+        setNavigation((prev) =>
+          prev
+            ? navigateCandidate(graph, prev, {
+                sourceKey: navigation.positionKey,
+                targetKey: res.nextPositionKey,
+                uci: applied.uci,
+                san: applied.san,
+                aggregate: { games: 0, whiteWins: 0, draws: 0, blackWins: 0 },
+              })
+            : null
+        );
+        controller.navigateGraph(res.nextPositionKey, res.nextPathId);
+        return true;
+      } else {
+        setUnobservedMove({
+          move: applied,
+          returnPositionKey: navigation.positionKey,
+          returnPathId: navigation.pathId,
+        });
+        return true;
+      }
+    }
+
     return false;
   };
 
   const isOpeningBoard = tab === 'opening' && Boolean(graph && navigation);
   const displayedBoardFen =
-    tab === 'analysis' && variation ? variationFen(variation) : displayedFen;
+    tab === 'analysis' && variation
+      ? variationFen(variation)
+      : tab === 'opening' && unobservedMove
+        ? unobservedMove.move.fenAfter
+        : displayedFen;
 
   const lastMoveValue: { from: Square; to: Square } | undefined =
     tab === 'analysis' && variation
@@ -175,12 +233,17 @@ export function ChessWorkspace() {
             to: variation.moves[variation.cursor - 1]!.to,
           }
         : undefined
-      : state.selection.ply > 0 && parsedGame
+      : tab === 'opening' && unobservedMove
         ? {
-            from: parsedGame.plies[state.selection.ply - 1]!.uci.slice(0, 2) as Square,
-            to: parsedGame.plies[state.selection.ply - 1]!.uci.slice(2, 4) as Square,
+            from: unobservedMove.move.from,
+            to: unobservedMove.move.to,
           }
-        : undefined;
+        : state.selection.ply > 0 && parsedGame
+          ? {
+              from: parsedGame.plies[state.selection.ply - 1]!.uci.slice(0, 2) as Square,
+              to: parsedGame.plies[state.selection.ply - 1]!.uci.slice(2, 4) as Square,
+            }
+          : undefined;
 
   const historyValue: MoveHistoryModel | undefined =
     isOpeningBoard || (tab === 'analysis' && variation)
@@ -206,6 +269,18 @@ export function ChessWorkspace() {
             setVariation((prev) => (prev ? moveVariationCursor(prev, cursor) : null))
           }
           onClose={() => setVariation(null)}
+        />
+      ) : null}
+      {tab === 'opening' && unobservedMove ? (
+        <UnobservedMoveNotice
+          san={unobservedMove.move.san}
+          onReturn={() => {
+            controller.navigateGraph(
+              unobservedMove.returnPositionKey,
+              unobservedMove.returnPathId
+            );
+            setUnobservedMove(null);
+          }}
         />
       ) : null}
       <BoardPanel
@@ -304,6 +379,7 @@ export function ChessWorkspace() {
                       navigation={navigation}
                       perspective={state.preferences.resultPerspective}
                       onNavigate={(next) => {
+                        setUnobservedMove(null);
                         setNavigation(next);
                         controller.navigateGraph(next.positionKey, next.pathId);
                       }}

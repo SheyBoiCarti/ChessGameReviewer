@@ -972,6 +972,41 @@ li[data-selected='true'] {
   cursor: not-allowed;
 }
 
+/* --- Unobserved Move Notice --- */
+.unobserved-move-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--accent-amber);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  flex-wrap: wrap;
+}
+
+.unobserved-move-notice__message {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.unobserved-move-notice__return-button {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.unobserved-move-notice__return-button:hover {
+  background: var(--surface-hover);
+}
+
 .evaluation-bar {
   position: relative;
   min-height: 0;

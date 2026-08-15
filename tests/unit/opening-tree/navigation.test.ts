@@ -7,10 +7,12 @@ import {
   navigateToHistoryIndex,
   navigationBreadcrumbs,
   perspectiveLabels,
+  resolveBoardMoveInGraph,
 } from '@/features/opening-tree/navigation';
 import { PathStore } from '@/lib/chess/graph/pathStore';
 import type { OpeningGraphSnapshot } from '@/lib/chess/graph/openingGraph';
 import type { OutcomeAggregate, PositionNode } from '@/lib/chess/graph/types';
+import type { AppliedBoardMove } from '@/features/board/moves';
 
 describe('opening graph navigation', () => {
   it('preserves the selected move order while two paths reach one position', () => {
@@ -45,6 +47,43 @@ describe('opening graph navigation', () => {
     expect(() => navigateToHistoryIndex(state, 0.5)).toThrow('INVALID_GRAPH_HISTORY_INDEX');
     expect(() => navigateToHistoryIndex(state, 1)).toThrow('INVALID_GRAPH_HISTORY_INDEX');
     expect(navigateBack(state)).toEqual(state);
+  });
+
+  it('resolves an observed board move in the graph', () => {
+    const graph = transpositionGraph();
+    const appliedMove: AppliedBoardMove = {
+      from: 'e2',
+      to: 'e4',
+      uci: 'e2e4',
+      san: 'e4',
+      fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      fenAfter: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
+    };
+
+    const result = resolveBoardMoveInGraph(graph, 'root', 0, appliedMove);
+    expect(result).toEqual({
+      observed: true,
+      nextPositionKey: 'after-e4',
+      nextPathId: 1,
+    });
+  });
+
+  it('returns unobserved result with warning when a legal board move is not in the graph', () => {
+    const graph = transpositionGraph();
+    const unobservedMove: AppliedBoardMove = {
+      from: 'c2',
+      to: 'c4',
+      uci: 'c2c4',
+      san: 'c4',
+      fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      fenAfter: 'rnbqkbnr/pppppppp/8/8/2P5/8/PP1PPPPP/RNBQKBNR b KQkq - 0 1',
+    };
+
+    const result = resolveBoardMoveInGraph(graph, 'root', 0, unobservedMove);
+    expect(result.observed).toBe(false);
+    expect(result.nextPositionKey).toBe(unobservedMove.fenAfter);
+    expect(result.nextPathId).toBeNull();
+    expect(result.warning).toMatch(/not appear in your imported games/i);
   });
 });
 
