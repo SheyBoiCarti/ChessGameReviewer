@@ -27,12 +27,25 @@ export function PromotionDialog({
 }: PromotionDialogProps): React.JSX.Element | null {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const firstButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (isOpen) {
+      previousFocusRef.current = document.activeElement as HTMLElement | null;
       firstButtonRef.current?.focus();
+    } else if (previousFocusRef.current) {
+      previousFocusRef.current.focus();
+      previousFocusRef.current = null;
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (previousFocusRef.current) {
+        previousFocusRef.current.focus();
+      }
+    };
+  }, []);
 
   if (!isOpen) return null;
 
@@ -40,6 +53,25 @@ export function PromotionDialog({
     if (event.key === 'Escape') {
       event.preventDefault();
       onCancel();
+      return;
+    }
+
+    if (event.key === 'Tab' && dialogRef.current) {
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll<HTMLButtonElement>('button:not([disabled])')
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
     }
   };
 

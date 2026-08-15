@@ -22,8 +22,6 @@ describe('InteractiveChessboard', () => {
       />
     );
 
-    // In react-chessboard or square click, clicking square e2 then e4
-    // Find e2 and e4 buttons/divs in the rendered board
     const squareE2 =
       container.querySelector('[data-square="e2"]') ||
       container.querySelector('[data-square-coord="e2"]');
@@ -31,14 +29,15 @@ describe('InteractiveChessboard', () => {
       container.querySelector('[data-square="e4"]') ||
       container.querySelector('[data-square-coord="e4"]');
 
-    if (squareE2 && squareE4) {
-      await user.click(squareE2);
-      await user.click(squareE4);
-      expect(onMove).toHaveBeenCalledTimes(1);
-      const move: AppliedBoardMove = onMove.mock.calls[0]![0];
-      expect(move.uci).toBe('e2e4');
-      expect(move.san).toBe('e4');
-    }
+    expect(squareE2).not.toBeNull();
+    expect(squareE4).not.toBeNull();
+
+    await user.click(squareE2!);
+    await user.click(squareE4!);
+    expect(onMove).toHaveBeenCalledTimes(1);
+    const move: AppliedBoardMove = onMove.mock.calls[0]![0];
+    expect(move.uci).toBe('e2e4');
+    expect(move.san).toBe('e4');
   });
 
   it('does not emit moves when isInteractive is false', async () => {
@@ -61,15 +60,16 @@ describe('InteractiveChessboard', () => {
       container.querySelector('[data-square="e4"]') ||
       container.querySelector('[data-square-coord="e4"]');
 
-    if (squareE2 && squareE4) {
-      await user.click(squareE2);
-      await user.click(squareE4);
-      expect(onMove).not.toHaveBeenCalled();
-    }
+    expect(squareE2).not.toBeNull();
+    expect(squareE4).not.toBeNull();
+
+    await user.click(squareE2!);
+    await user.click(squareE4!);
+    expect(onMove).not.toHaveBeenCalled();
   });
 
   it('renders destination badges and pv arrow when supplied', () => {
-    const { container } = render(
+    render(
       <InteractiveChessboard
         fen={initialFen}
         orientation="white"

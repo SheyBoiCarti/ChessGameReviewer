@@ -36,15 +36,47 @@ describe('PromotionDialog', () => {
     const onSelect = vi.fn();
     const onCancel = vi.fn();
 
-    const { rerender } = render(
-      <PromotionDialog isOpen={true} color="black" onSelect={onSelect} onCancel={onCancel} />
-    );
+    render(<PromotionDialog isOpen={true} color="black" onSelect={onSelect} onCancel={onCancel} />);
 
     await user.keyboard('{Escape}');
     expect(onCancel).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole('button', { name: /cancel/i }));
     expect(onCancel).toHaveBeenCalledTimes(2);
+  });
+
+  it('traps focus within the modal on Tab and Shift+Tab and restores focus on close', async () => {
+    const user = userEvent.setup();
+    const trigger = document.createElement('button');
+    trigger.setAttribute('id', 'invoking-square');
+    document.body.appendChild(trigger);
+    trigger.focus();
+    expect(document.activeElement).toBe(trigger);
+
+    const { rerender } = render(
+      <PromotionDialog isOpen={true} color="white" onSelect={vi.fn()} onCancel={vi.fn()} />
+    );
+
+    const queenBtn = screen.getByRole('button', { name: /queen/i });
+    const cancelBtn = screen.getByRole('button', { name: /cancel/i });
+
+    // Focus starts on first button (Queen)
+    expect(document.activeElement).toBe(queenBtn);
+
+    // Shift+Tab wraps to last button (Cancel)
+    await user.keyboard('{Shift>}{Tab}{/Shift}');
+    expect(document.activeElement).toBe(cancelBtn);
+
+    // Tab wraps back to first button (Queen)
+    await user.keyboard('{Tab}');
+    expect(document.activeElement).toBe(queenBtn);
+
+    // Closing modal restores focus to the invoking trigger button
+    rerender(
+      <PromotionDialog isOpen={false} color="white" onSelect={vi.fn()} onCancel={vi.fn()} />
+    );
+    expect(document.activeElement).toBe(trigger);
+    document.body.removeChild(trigger);
   });
 
   it('does not render when isOpen is false', () => {

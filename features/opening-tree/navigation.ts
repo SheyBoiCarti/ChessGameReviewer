@@ -85,7 +85,11 @@ export function resolveBoardMoveInGraph(
 
   const edge = currentNode.outgoing.get(move.uci);
   if (edge) {
-    const nextPathId = graph.paths.lookup(currentPathId, move.uci) ?? null;
+    const directPathId = graph.paths.lookup(currentPathId, move.uci);
+    const targetNode = graph.positions.get(edge.targetKey);
+    const fallbackPathId = targetNode?.arrivalsByPath.keys().next().value ?? null;
+    const nextPathId = directPathId ?? fallbackPathId ?? currentPathId;
+
     return {
       observed: true,
       nextPositionKey: edge.targetKey,

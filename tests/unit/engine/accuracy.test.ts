@@ -272,6 +272,32 @@ describe('Analyzer accuracy estimate v2', () => {
         isBook: false,
       })
     ).toMatchObject({ mateTransition: 'gained' });
+
+    const alreadyLost = classifyMoveAccuracy({
+      beforeScore: { kind: 'mate', value: -3 },
+      afterScore: { kind: 'mate', value: -2 },
+      mover: 'white',
+      fenBefore: '8/8/8/8/8/k7/8/K1Q5 w - - 0 1',
+      uci: 'c1b1',
+      bestMoveUci: 'c1b1',
+      isBook: false,
+    });
+    expect(alreadyLost).toMatchObject({ quality: 'best' });
+    expect(
+      alreadyLost.status === 'classified' ? alreadyLost.mateTransition : undefined
+    ).toBeUndefined();
+
+    expect(
+      classifyMoveAccuracy({
+        beforeScore: { kind: 'mate', value: 2 },
+        afterScore: { kind: 'mate', value: -2 },
+        mover: 'white',
+        fenBefore: '8/8/8/8/8/k7/8/K1Q5 w - - 0 1',
+        uci: 'c1a3',
+        bestMoveUci: 'c1b2',
+        isBook: false,
+      })
+    ).toMatchObject({ quality: 'miss', mateTransition: 'missed' });
   });
 
   it('correctly handles black perspective', () => {

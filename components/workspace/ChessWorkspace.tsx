@@ -276,7 +276,7 @@ export function ChessWorkspace() {
 
   const isInteractive =
     (tab === 'analysis' && Boolean(displayedBoardFen)) ||
-    (tab === 'opening' && Boolean(graph && navigation));
+    (tab === 'opening' && Boolean(graph && navigation) && !unobservedMove);
 
   const board = (
     <div className="workspace-board">
@@ -403,7 +403,10 @@ export function ChessWorkspace() {
                       ref={moveOrdersButton}
                       type="button"
                       onClick={() => setMoveOrdersOpen(true)}
-                      disabled={!graph.positions.get(navigation.positionKey)?.arrivalsByPath.size}
+                      disabled={
+                        Boolean(unobservedMove) ||
+                        !graph.positions.get(navigation.positionKey)?.arrivalsByPath.size
+                      }
                     >
                       View move orders
                     </button>

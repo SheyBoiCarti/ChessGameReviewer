@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
 import type { Square } from 'chess.js';
 
 import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
@@ -62,16 +62,22 @@ export function ChessboardView({
   selectedSquare: controlledSelectedSquare,
 }: ChessboardViewProps) {
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
+  const [focusedSquare, setFocusedSquare] = useState<Square | null>(null);
   const [legalTargets, setLegalTargets] = useState<readonly Square[]>([]);
+  const [announcement, setAnnouncement] = useState<string>('');
   const [pendingPromotion, setPendingPromotion] = useState<{
     from: Square;
     to: Square;
   } | null>(null);
 
+  const boardRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     setSelectedSquare(null);
+    setFocusedSquare(null);
     setLegalTargets([]);
     setPendingPromotion(null);
+    setAnnouncement('');
   }, [fen, orientation, isInteractive]);
 
   let mover: PlayerColor = 'white';
@@ -109,25 +115,30 @@ export function ChessboardView({
     );
   }
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!historyModel) return;
-    let next: number | null = null;
-    if (event.key === 'ArrowLeft') next = Math.max(0, historyModel.currentPly - 1);
-    if (event.key === 'ArrowRight')
-      next = Math.min(historyModel.totalPlies, historyModel.currentPly + 1);
-    if (event.key === 'Home') next = 0;
-    if (event.key === 'End') next = historyModel.totalPlies;
-    if (next !== null) {
-      event.preventDefault();
-      historyModel.onPlyChange(next);
+  const activeSelectedSquare = (controlledSelectedSquare as Square | undefined) ?? selectedSquare;
+
+  const executeMove = (from: Square, to: Square, promotion?: PromotionPiece) => {
+    if (promotionRequired(fen, { from, to }) && !promotion) {
+      setPendingPromotion({ from, to });
+      return;
+    }
+
+    const move = applyBoardMove(fen, { from, to, ...(promotion ? { promotion } : {}) });
+    if (move) {
+      const accepted = onMove?.(move);
+      if (accepted !== false) {
+        setSelectedSquare(null);
+        setLegalTargets([]);
+        setFocusedSquare(to);
+        setAnnouncement(`Played ${move.san}.`);
+      }
     }
   };
-
-  const activeSelectedSquare = (controlledSelectedSquare as Square | undefined) ?? selectedSquare;
 
   const handleSquareClick = (squareName: Square) => {
     if (!isInteractive) return;
 
+    setFocusedSquare(squareName);
     const squareObj = squares.find((s) => s.name === squareName);
     const piece = squareObj?.piece;
 
@@ -135,23 +146,12 @@ export function ChessboardView({
       if (squareName === selectedSquare) {
         setSelectedSquare(null);
         setLegalTargets([]);
+        setAnnouncement('Selection cleared.');
         return;
       }
 
       if (legalTargets.includes(squareName)) {
-        if (promotionRequired(fen, { from: selectedSquare, to: squareName })) {
-          setPendingPromotion({ from: selectedSquare, to: squareName });
-          return;
-        }
-
-        const move = applyBoardMove(fen, { from: selectedSquare, to: squareName });
-        if (move) {
-          const accepted = onMove?.(move);
-          if (accepted !== false) {
-            setSelectedSquare(null);
-            setLegalTargets([]);
-          }
-        }
+        executeMove(selectedSquare, squareName);
         return;
       }
 
@@ -159,16 +159,92 @@ export function ChessboardView({
         const destinations = legalDestinations(fen, squareName);
         setSelectedSquare(squareName);
         setLegalTargets(destinations);
+        setAnnouncement(
+          `Selected ${squareName}. ${destinations.length} legal destinations: ${destinations.join(', ')}.`
+        );
         return;
       }
 
       setSelectedSquare(null);
       setLegalTargets([]);
+      setAnnouncement('Selection cleared.');
     } else {
       if (piece && piece.color === mover) {
         const destinations = legalDestinations(fen, squareName);
         setSelectedSquare(squareName);
         setLegalTargets(destinations);
+        setAnnouncement(
+          `Selected ${squareName}. ${destinations.length} legal destinations: ${destinations.join(', ')}.`
+        );
+      }
+    }
+  };
+
+  const offsetSquare = (current: Square, deltaFile: number, deltaRank: number): Square => {
+    const file = current.charCodeAt(0) - 97;
+    const rank = Number(current[1]) - 1;
+    const newFile = Math.max(0, Math.min(7, file + deltaFile));
+    const newRank = Math.max(0, Math.min(7, rank + deltaRank));
+    return `${String.fromCharCode(97 + newFile)}${newRank + 1}` as Square;
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      if (selectedSquare) {
+        event.preventDefault();
+        setSelectedSquare(null);
+        setLegalTargets([]);
+        setAnnouncement('Selection cleared.');
+      }
+      return;
+    }
+
+    if (isInteractive) {
+      const current = focusedSquare ?? (orientation === 'white' ? 'e2' : 'e7');
+      const fileStep = orientation === 'white' ? 1 : -1;
+      const rankStep = orientation === 'white' ? 1 : -1;
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        const next = offsetSquare(current, 0, rankStep);
+        setFocusedSquare(next);
+        return;
+      }
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        const next = offsetSquare(current, 0, -rankStep);
+        setFocusedSquare(next);
+        return;
+      }
+      if (event.key === 'ArrowLeft' && selectedSquare !== null) {
+        event.preventDefault();
+        const next = offsetSquare(current, -fileStep, 0);
+        setFocusedSquare(next);
+        return;
+      }
+      if (event.key === 'ArrowRight' && selectedSquare !== null) {
+        event.preventDefault();
+        const next = offsetSquare(current, fileStep, 0);
+        setFocusedSquare(next);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        handleSquareClick(current);
+        return;
+      }
+    }
+
+    if (historyModel && selectedSquare === null) {
+      let next: number | null = null;
+      if (event.key === 'ArrowLeft') next = Math.max(0, historyModel.currentPly - 1);
+      if (event.key === 'ArrowRight')
+        next = Math.min(historyModel.totalPlies, historyModel.currentPly + 1);
+      if (event.key === 'Home') next = 0;
+      if (event.key === 'End') next = historyModel.totalPlies;
+      if (next !== null) {
+        event.preventDefault();
+        historyModel.onPlyChange(next);
       }
     }
   };
@@ -179,6 +255,7 @@ export function ChessboardView({
     if (!squareObj?.piece || squareObj.piece.color !== mover) return;
     e.dataTransfer.setData('text/plain', squareName);
     setSelectedSquare(squareName);
+    setFocusedSquare(squareName);
     setLegalTargets(legalDestinations(fen, squareName));
   };
 
@@ -187,31 +264,13 @@ export function ChessboardView({
     e.preventDefault();
     const from = e.dataTransfer.getData('text/plain') as Square;
     if (!from || from === targetSquare) return;
-
-    if (promotionRequired(fen, { from, to: targetSquare })) {
-      setPendingPromotion({ from, to: targetSquare });
-      return;
-    }
-
-    const move = applyBoardMove(fen, { from, to: targetSquare });
-    if (!move) return;
-
-    const accepted = onMove?.(move);
-    if (accepted !== false) {
-      setSelectedSquare(null);
-      setLegalTargets([]);
-    }
+    executeMove(from, targetSquare);
   };
 
   const handlePromotionSelect = (promotion: PromotionPiece) => {
     if (pendingPromotion) {
-      const move = applyBoardMove(fen, { ...pendingPromotion, promotion });
-      if (move) {
-        onMove?.(move);
-      }
+      executeMove(pendingPromotion.from, pendingPromotion.to, promotion);
       setPendingPromotion(null);
-      setSelectedSquare(null);
-      setLegalTargets([]);
     }
   };
 
@@ -225,13 +284,20 @@ export function ChessboardView({
         {evaluationScore ? <EvaluationBar score={evaluationScore} /> : null}
         <div className="chessboard-frame">
           <div
+            ref={boardRef}
             className="chessboard"
             role="grid"
             aria-label="Chess board"
             data-orientation={orientation}
             tabIndex={0}
             onKeyDown={handleKeyDown}
-            aria-describedby={historyModel ? 'board-keyboard-help' : undefined}
+            aria-describedby={
+              isInteractive
+                ? 'board-keyboard-interactive-help'
+                : historyModel
+                  ? 'board-keyboard-help'
+                  : undefined
+            }
           >
             {Array.from({ length: 8 }, (_, row) => (
               <div className="board-row" role="row" key={row}>
@@ -240,13 +306,15 @@ export function ChessboardView({
                   const isHighlighted =
                     isSelected || square.name === lastMove?.from || square.name === lastMove?.to;
                   const isLegalTarget = legalTargets.includes(square.name as Square);
+                  const isFocused = square.name === focusedSquare;
                   const hasBadge = Boolean(lastMoveBadge && lastMoveBadge.square === square.name);
 
                   return (
                     <div
-                      className={`board-square ${square.isLight ? 'square-light' : 'square-dark'}${isHighlighted ? ' square-highlighted' : ''}${isSelected ? ' square-selected' : ''}`}
+                      className={`board-square ${square.isLight ? 'square-light' : 'square-dark'}${isHighlighted ? ' square-highlighted' : ''}${isSelected ? ' square-selected' : ''}${isFocused ? ' square-focused' : ''}`}
                       role="gridcell"
                       aria-label={square.name}
+                      aria-selected={isSelected}
                       data-square={square.name}
                       key={square.name}
                       onClick={() => handleSquareClick(square.name as Square)}
@@ -294,6 +362,16 @@ export function ChessboardView({
         onSelect={handlePromotionSelect}
         onCancel={handlePromotionCancel}
       />
+      {announcement ? (
+        <span className="sr-only" role="status" aria-live="polite">
+          {announcement}
+        </span>
+      ) : null}
+      <p id="board-keyboard-interactive-help" className="sr-only">
+        Use Arrow keys to navigate squares. Press Enter or Space to select a piece and choose a
+        legal destination. Press Escape to clear selection. Left and Right Arrow navigate history
+        when no piece is selected.
+      </p>
       {historyModel ? (
         <>
           <p id="board-keyboard-help" className="sr-only">

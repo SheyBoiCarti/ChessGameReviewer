@@ -66,6 +66,47 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
   await expect(page.getByText('No stored usernames were found.')).toBeVisible();
 });
 
+test('supports interactive board moves, variation sandbox, and unobserved opening notices', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+
+  // Switch to Opening Tree tab and play an unobserved novelty directly on board
+  await page.getByRole('tab', { name: 'Opening tree' }).click();
+  const board = page.getByRole('grid', { name: 'Chess board' });
+  await expect(board).toBeVisible();
+
+  // Click h2 then h4 (an unobserved move in fixture games)
+  await page.locator('[data-square="h2"]').click();
+  await page.locator('[data-square="h4"]').click();
+
+  // Unobserved move notice appears
+  await expect(page.locator('.unobserved-move-notice')).toContainText(
+    /the move h4 was not played in any imported games/i
+  );
+
+  // Click Return to observed opening tree
+  await page.getByRole('button', { name: /return to observed opening tree/i }).click();
+  await expect(page.locator('.unobserved-move-notice')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Opening candidates' })).toBeVisible();
+
+  // Switch to Analysis tab and play alternative moves to enter sandbox
+  await page.getByRole('tab', { name: 'Analysis' }).click();
+  await page.locator('[data-square="e2"]').click();
+  await page.locator('[data-square="e4"]').click();
+
+  // Variation Sandbox Banner should appear
+  await expect(page.locator('.variation-sandbox-banner')).toBeVisible();
+  await expect(page.getByRole('button', { name: /return to main game/i })).toBeVisible();
+
+  // Return to main game
+  await page.getByRole('button', { name: /return to main game/i }).click();
+  await expect(page.locator('.variation-sandbox-banner')).toHaveCount(0);
+});
+
 test('keeps opening data usable when Stockfish is unavailable', async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto('/?engine=unavailable');

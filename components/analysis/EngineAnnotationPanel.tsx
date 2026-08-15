@@ -28,7 +28,11 @@ export function EngineAnnotationPanel({
           <dt>Quality</dt>
           <dd>
             {annotation.accuracy.status === 'classified' ? (
-              <MoveClassificationBadge quality={annotation.accuracy.quality} size="inline" />
+              <MoveClassificationBadge
+                quality={annotation.accuracy.quality}
+                size="inline"
+                ariaHidden
+              />
             ) : null}
             <span>{qualityLabel(annotation.accuracy)}</span>
           </dd>

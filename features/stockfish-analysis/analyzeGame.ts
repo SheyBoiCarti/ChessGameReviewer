@@ -110,7 +110,9 @@ export async function analyzeGame(input: AnalyzeGameInput): Promise<GameAnalysis
       if (input.signal?.aborted) return result('cancelled', annotations, plies.length);
       const after = await getPositionEvaluation(ply.fenAfter, input, evaluations);
 
-      const secondBestScore = before.candidates.find(({ multiPv }) => multiPv === 2)?.score;
+      const secondBestScore = before.candidates.find(
+        ({ multiPv, depth }) => multiPv === 2 && depth === before.depth
+      )?.score;
       const isBook = input.bookMoveKeys?.has(bookMoveKey(ply.positionBefore, ply.uci)) ?? false;
 
       const accuracy = classifyMoveAccuracy({
@@ -238,11 +240,17 @@ function normalizeCandidates(raw: EvaluationResult, fen: string): PositionEvalua
   }
   candidates.sort((a, b) => a.multiPv - b.multiPv);
 
+  const primaryBestMove = primary.pv[0];
+  const bestMove =
+    primaryBestMove && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(primaryBestMove)
+      ? primaryBestMove
+      : raw.bestMove;
+
   return {
     score,
     depth: primary.depth,
     pv: primary.pv,
-    bestMove: raw.bestMove,
+    bestMove,
     candidates,
   };
 }

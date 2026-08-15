@@ -240,11 +240,14 @@ function classifyMateTransition(
 ): MateTransition | undefined {
   const beforeOwnMate = isForcedMateForMover(before, mover);
   const afterOwnMate = isForcedMateForMover(after, mover);
+  const beforeOpponentMate = isForcedMateForOpponent(before, mover);
   const afterOpponentMate = isForcedMateForOpponent(after, mover);
 
-  if (afterOpponentMate) return 'conceded';
-  if (beforeOwnMate) return afterOwnMate ? 'retained' : 'missed';
-  return afterOwnMate ? 'gained' : undefined;
+  if (beforeOwnMate && !afterOwnMate) return 'missed';
+  if (beforeOwnMate && afterOwnMate) return 'retained';
+  if (!beforeOwnMate && afterOwnMate) return 'gained';
+  if (!beforeOpponentMate && afterOpponentMate) return 'conceded';
+  return undefined;
 }
 
 function isForcedMateForMover(score: EvaluationScore, mover: PlayerColor): boolean {
