@@ -1,36 +1,60 @@
 'use client';
 
-import type { KeyboardEvent } from 'react';
+import { useState, type KeyboardEvent } from 'react';
+import type { Square } from 'chess.js';
 
+import { AccessibleBoardGrid } from '@/components/board/AccessibleBoardGrid';
+import { InteractiveChessboard, type InteractiveChessboardProps } from '@/components/board/InteractiveChessboard';
 import { boardSquares, InvalidBoardPositionError } from '@/features/board/position';
-import type { BoardOrientation } from '@/features/workspace/types';
 import type { EvaluationScore } from '@/lib/engine/evaluation';
 
 import { EvaluationBar } from './EvaluationBar';
 import { MoveHistoryControls } from './MoveHistoryControls';
-import { Piece } from './Piece';
+
+export interface MoveHistoryModel {
+  currentPly: number;
+  totalPlies: number;
+  onPlyChange(ply: number): void;
+}
+
+export interface ChessboardViewProps extends InteractiveChessboardProps {
+  history?: MoveHistoryModel;
+  evaluationScore?: EvaluationScore;
+  currentPly?: number;
+  totalPlies?: number;
+  onPlyChange?(ply: number): void;
+  selectedSquare?: string;
+}
 
 export function ChessboardView({
   fen,
   orientation,
+  isInteractive = false,
+  onMove,
+  lastMove,
+  lastMoveBadge,
+  pvArrow,
+  history,
+  evaluationScore,
   currentPly,
   totalPlies,
   onPlyChange,
-  lastMove,
-  selectedSquare,
-  pvArrow,
-  evaluationScore,
-}: {
-  fen: string;
-  orientation: BoardOrientation;
-  currentPly: number;
-  totalPlies: number;
-  onPlyChange(ply: number): void;
-  lastMove?: { from: string; to: string };
-  selectedSquare?: string;
-  pvArrow?: { from: string; to: string };
-  evaluationScore?: EvaluationScore;
-}) {
+  selectedSquare: controlledSelectedSquare,
+}: ChessboardViewProps) {
+  const [selection, setSelection] = useState<{
+    selectedSquare: Square | null;
+    legalTargets: readonly Square[];
+  }>({
+    selectedSquare: null,
+    legalTargets: [],
+  });
+
+  const historyModel: MoveHistoryModel | undefined =
+    history ??
+    (onPlyChange && currentPly !== undefined && totalPlies !== undefined
+      ? { currentPly, totalPlies, onPlyChange }
+      : undefined);
+
   let squares;
   try {
     squares = boardSquares(fen, orientation);
@@ -39,7 +63,14 @@ export function ChessboardView({
     return (
       <div className="board-error" role="alert">
         <p>The selected chess position is invalid and cannot be displayed.</p>
-        <button type="button" onClick={() => onPlyChange(0)}>
+        <button
+          type="button"
+          onClick={() => {
+            if (historyModel) {
+              historyModel.onPlyChange(0);
+            }
+          }}
+        >
           Return to start
         </button>
       </div>
@@ -47,16 +78,26 @@ export function ChessboardView({
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!historyModel) return;
     let next: number | null = null;
-    if (event.key === 'ArrowLeft') next = Math.max(0, currentPly - 1);
-    if (event.key === 'ArrowRight') next = Math.min(totalPlies, currentPly + 1);
+    if (event.key === 'ArrowLeft') next = Math.max(0, historyModel.currentPly - 1);
+    if (event.key === 'ArrowRight')
+      next = Math.min(historyModel.totalPlies, historyModel.currentPly + 1);
     if (event.key === 'Home') next = 0;
-    if (event.key === 'End') next = totalPlies;
+    if (event.key === 'End') next = historyModel.totalPlies;
     if (next !== null) {
       event.preventDefault();
-      onPlyChange(next);
+      historyModel.onPlyChange(next);
     }
   };
+
+  const activeSelectedSquare =
+    (controlledSelectedSquare as Square | undefined) ?? selection.selectedSquare;
+
+  const legalTargetsStatus =
+    selection.selectedSquare && selection.legalTargets.length > 0
+      ? `Selected ${selection.selectedSquare}. Legal destinations: ${selection.legalTargets.join(', ')}.`
+      : undefined;
 
   return (
     <div className="board-region">
@@ -70,51 +111,45 @@ export function ChessboardView({
             data-orientation={orientation}
             tabIndex={0}
             onKeyDown={handleKeyDown}
-            aria-describedby="board-keyboard-help"
+            aria-describedby={historyModel ? 'board-keyboard-help' : undefined}
           >
-            {Array.from({ length: 8 }, (_, row) => (
-              <div className="board-row" role="row" key={row}>
-                {squares.slice(row * 8, row * 8 + 8).map((square, column) => {
-                  const selected = square.name === selectedSquare;
-                  const highlighted =
-                    selected || square.name === lastMove?.from || square.name === lastMove?.to;
-                  return (
-                    <div
-                      className={`board-square ${square.isLight ? 'square-light' : 'square-dark'}${highlighted ? ' square-highlighted' : ''}${selected ? ' square-selected' : ''}`}
-                      role="gridcell"
-                      aria-label={square.name}
-                      data-square={square.name}
-                      key={square.name}
-                    >
-                      {column === 0 ? (
-                        <span className="board-rank-label" aria-hidden="true">
-                          {square.rank}
-                        </span>
-                      ) : null}
-                      {square.piece ? <Piece piece={square.piece} square={square.name} /> : null}
-                      {row === 7 ? (
-                        <span className="board-file-label" aria-hidden="true">
-                          {square.file}
-                        </span>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+            <AccessibleBoardGrid
+              squares={squares}
+              orientation={orientation}
+              selectedSquare={activeSelectedSquare}
+              lastMove={lastMove}
+              lastMoveBadge={lastMoveBadge}
+              legalTargetsStatus={legalTargetsStatus}
+            />
+            <InteractiveChessboard
+              fen={fen}
+              orientation={orientation}
+              isInteractive={isInteractive}
+              onMove={onMove}
+              lastMove={lastMove}
+              lastMoveBadge={lastMoveBadge}
+              pvArrow={pvArrow}
+              onSelectionChange={setSelection}
+            />
           </div>
-          {pvArrow ? <BoardArrow move={pvArrow} orientation={orientation} /> : null}
+          {pvArrow ? (
+            <BoardArrow move={pvArrow} orientation={orientation} />
+          ) : null}
         </div>
       </div>
-      <p id="board-keyboard-help" className="sr-only">
-        Use Left and Right Arrow to move through history. Home returns to the first position and End
-        moves to the last.
-      </p>
-      <MoveHistoryControls
-        currentPly={currentPly}
-        totalPlies={totalPlies}
-        onPlyChange={onPlyChange}
-      />
+      {historyModel ? (
+        <>
+          <p id="board-keyboard-help" className="sr-only">
+            Use Left and Right Arrow to move through history. Home returns to the first position and
+            End moves to the last.
+          </p>
+          <MoveHistoryControls
+            currentPly={historyModel.currentPly}
+            totalPlies={historyModel.totalPlies}
+            onPlyChange={historyModel.onPlyChange}
+          />
+        </>
+      ) : null}
     </div>
   );
 }
@@ -124,7 +159,7 @@ function BoardArrow({
   orientation,
 }: {
   move: { from: string; to: string };
-  orientation: BoardOrientation;
+  orientation: 'white' | 'black';
 }) {
   const from = squareCenter(move.from, orientation);
   const to = squareCenter(move.to, orientation);
@@ -153,7 +188,7 @@ function BoardArrow({
   );
 }
 
-function squareCenter(square: string, orientation: BoardOrientation) {
+function squareCenter(square: string, orientation: 'white' | 'black') {
   if (!/^[a-h][1-8]$/.test(square)) return null;
   const file = square.charCodeAt(0) - 97;
   const rank = Number(square[1]) - 1;

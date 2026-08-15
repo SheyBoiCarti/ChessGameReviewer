@@ -773,17 +773,104 @@ li[data-selected='true'] {
 }
 
 .chessboard {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  grid-template-rows: repeat(8, minmax(0, 1fr));
-  gap: 1px;
-  padding: 1px;
+  position: relative;
   width: 100%;
   aspect-ratio: 1;
-  border: 0;
   border-radius: 0.35rem;
-  background: #3f4e35;
   overflow: hidden;
+}
+
+.accessible-board-grid {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.interactive-chessboard {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1;
+}
+
+.legal-target-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 24%;
+  height: 24%;
+  border-radius: 50%;
+  background-color: rgba(45, 212, 191, 0.7);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.legal-target-dot--capture {
+  width: 80%;
+  height: 80%;
+  border-radius: 50%;
+  background-color: transparent;
+  border: 4px solid rgba(45, 212, 191, 0.7);
+}
+
+/* --- Promotion Dialog --- */
+.promotion-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  max-width: 24rem;
+  width: 90vw;
+  margin: auto;
+  text-align: center;
+}
+
+.promotion-dialog__choices {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+}
+
+.promotion-dialog__button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  min-height: 44px;
+  min-width: 44px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+
+.promotion-dialog__button:hover {
+  background: var(--surface-hover);
+}
+
+.promotion-dialog__piece-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  object-fit: contain;
+}
+
+.promotion-dialog__piece-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.promotion-dialog__cancel-button {
+  min-height: 44px;
+  margin-top: var(--space-2);
 }
 
 .evaluation-bar {
