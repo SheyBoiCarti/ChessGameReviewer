@@ -1102,6 +1102,195 @@ li[data-selected='true'] {
   font-variant-numeric: tabular-nums;
 }
 
+/* --- Move Classification Badges --- */
+.move-classification-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.move-classification-badge--inline {
+  padding: 0.15rem 0.35rem;
+  font-size: 0.75rem;
+  margin-left: var(--space-2);
+}
+
+.move-classification-badge--square {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 1.25rem;
+  height: 1.25rem;
+  font-size: 0.65rem;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  z-index: 6;
+  pointer-events: none;
+}
+
+.move-classification-badge--summary {
+  width: 1.6rem;
+  height: 1.6rem;
+  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
+}
+
+.badge-brilliant {
+  background-color: #1ba69c;
+  color: #ffffff;
+}
+
+.badge-great {
+  background-color: #5c8bb0;
+  color: #ffffff;
+}
+
+.badge-best {
+  background-color: #96bc4b;
+  color: #ffffff;
+}
+
+.badge-excellent {
+  background-color: #96bc4b;
+  color: #ffffff;
+}
+
+.badge-good {
+  background-color: #85a94e;
+  color: #ffffff;
+}
+
+.badge-book {
+  background-color: #a88865;
+  color: #ffffff;
+}
+
+.badge-inaccuracy {
+  background-color: #f0c15c;
+  color: #1a1a1a;
+}
+
+.badge-mistake {
+  background-color: #e6912c;
+  color: #ffffff;
+}
+
+.badge-blunder {
+  background-color: #ca3431;
+  color: #ffffff;
+}
+
+.badge-miss {
+  background-color: #db5c49;
+  color: #ffffff;
+}
+
+.badge-forced {
+  background-color: #7c8594;
+  color: #ffffff;
+}
+
+/* --- Game Review Summary Card --- */
+.game-review-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: var(--space-4);
+}
+
+.game-review-summary__coverage {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.game-review-summary__accuracies {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.game-review-summary__accuracy-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-3);
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.game-review-summary__player-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.game-review-summary__player-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  margin-top: var(--space-1);
+}
+
+.game-review-summary__table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.game-review-summary__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.game-review-summary__table th,
+.game-review-summary__table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.game-review-summary__table thead th {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.game-review-summary__quality-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.game-review-summary__count-cell {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+@media (forced-colors: active) {
+  .move-classification-badge {
+    border: 1px solid ButtonText;
+  }
+  .game-review-summary__accuracy-card {
+    border: 1px solid ButtonText;
+  }
+}
+
 .error-page {
   max-width: 40rem;
   margin: 4rem auto;

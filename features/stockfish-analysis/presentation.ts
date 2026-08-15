@@ -1,9 +1,89 @@
 import { Chess } from 'chess.js';
 
 import type { AnalysisStrength } from '@/features/workspace/types';
-import type { MoveAccuracy } from '@/lib/engine/accuracy';
+import type { MoveAccuracy, MoveQuality } from '@/lib/engine/accuracy';
 import type { EvaluationScore } from '@/lib/engine/evaluation';
 import type { EvaluationLimit } from '@/lib/engine/stockfishAdapter';
+
+export interface MoveQualityDetails {
+  label: string;
+  symbol: string;
+  colorClass: string;
+  description: string;
+}
+
+const QUALITY_METADATA: Record<MoveQuality, MoveQualityDetails> = {
+  brilliant: {
+    label: 'Brilliant',
+    symbol: '!!',
+    colorClass: 'badge-brilliant',
+    description: 'Best move that sacrifices material to gain an advantage',
+  },
+  great: {
+    label: 'Great',
+    symbol: '!',
+    colorClass: 'badge-great',
+    description: 'Finds the only winning move or defends against a major threat',
+  },
+  best: {
+    label: 'Best',
+    symbol: '★',
+    colorClass: 'badge-best',
+    description: 'The best move according to the engine',
+  },
+  excellent: {
+    label: 'Excellent',
+    symbol: '✓✓',
+    colorClass: 'badge-excellent',
+    description: 'An almost optimal move',
+  },
+  good: {
+    label: 'Good',
+    symbol: '✓',
+    colorClass: 'badge-good',
+    description: 'A solid, playable move',
+  },
+  book: {
+    label: 'Book',
+    symbol: '♟',
+    colorClass: 'badge-book',
+    description: 'A recognized opening move from your games',
+  },
+  inaccuracy: {
+    label: 'Inaccuracy',
+    symbol: '?!',
+    colorClass: 'badge-inaccuracy',
+    description: 'A slight mistake that gives away some advantage',
+  },
+  mistake: {
+    label: 'Mistake',
+    symbol: '?',
+    colorClass: 'badge-mistake',
+    description: 'A bad move that significantly hurts your position',
+  },
+  blunder: {
+    label: 'Blunder',
+    symbol: '??',
+    colorClass: 'badge-blunder',
+    description: 'A catastrophic mistake that loses material or the game',
+  },
+  miss: {
+    label: 'Miss',
+    symbol: '✕',
+    colorClass: 'badge-miss',
+    description: 'Missed an opportunity to win material or mate',
+  },
+  forced: {
+    label: 'Forced',
+    symbol: '□',
+    colorClass: 'badge-forced',
+    description: 'The only legal move available',
+  },
+};
+
+export function moveQualityDetails(quality: MoveQuality): MoveQualityDetails {
+  return QUALITY_METADATA[quality];
+}
 
 export interface AnalysisPreset {
   limit: EvaluationLimit;
@@ -61,10 +141,7 @@ export function qualityLabel(accuracy: MoveAccuracy): string {
     if (accuracy.reason === 'non-finite-score') return 'Indeterminate (invalid score)';
     return 'Indeterminate (probability unavailable)';
   }
-  return accuracy.quality
-    .split('-')
-    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
-    .join(' ');
+  return moveQualityDetails(accuracy.quality).label;
 }
 
 export interface ConvertedPrincipalVariation {
