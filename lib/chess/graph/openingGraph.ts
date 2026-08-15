@@ -142,6 +142,7 @@ export class OpeningGraphBuilder {
     };
     addVisit(state.root.aggregate, visit);
     const visitedPositions = new Set<string>([state.root.key]);
+    const visitedEdges = new Set<string>();
     let source = state.root;
     let pathId = 0;
     for (const ply of plies) {
@@ -157,7 +158,11 @@ export class OpeningGraphBuilder {
       if (edge.targetKey !== target.key || edge.san !== ply.san)
         throw new Error('INCONSISTENT_EDGE');
       pathId = state.paths.intern(pathId, ply.uci, ply.san);
-      addVisit(edge.aggregate, visit);
+      const edgeKey = `${source.key}\u0000${ply.uci}`;
+      if (!visitedEdges.has(edgeKey)) {
+        addVisit(edge.aggregate, visit);
+        visitedEdges.add(edgeKey);
+      }
       const firstVisit = !visitedPositions.has(target.key);
       if (this.options.includeRepeatedPositions || firstVisit) {
         addVisit(target.aggregate, visit);

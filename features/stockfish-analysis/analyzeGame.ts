@@ -1,7 +1,13 @@
 import type { ParsedGame } from '@/lib/chess/pgnParser';
 import { Chess } from 'chess.js';
-import { classifyMoveAccuracy, type MoveAccuracy } from '@/lib/engine/accuracy';
 import {
+  classifyMoveAccuracy,
+  REVIEW_MOVE_QUALITIES,
+  type MoveAccuracy,
+  type MoveQuality,
+} from '@/lib/engine/accuracy';
+import {
+  isExactScore,
   normalizeUciScoreToWhite,
   parseFenSideToMove,
   type EvaluationScore,
@@ -9,6 +15,7 @@ import {
 } from '@/lib/engine/evaluation';
 import type { EvaluationResult } from '@/lib/engine/stockfishAdapter';
 
+import { bookMoveKey } from './bookMoves';
 import { EvaluationCache, serializeEvaluationKey, type EvaluationKey } from './evaluationCache';
 
 export interface AnalysisEngine {
@@ -22,11 +29,19 @@ export interface AnalysisEngine {
 
 export type AnalysisSettings = Omit<EvaluationKey, 'fen'>;
 
+export interface PositionCandidate {
+  multiPv: number;
+  score: EvaluationScore;
+  depth: number;
+  pv: readonly string[];
+}
+
 export interface PositionEvaluation {
   score: EvaluationScore;
   depth: number;
   pv: readonly string[];
   bestMove: string;
+  candidates: readonly PositionCandidate[];
 }
 
 export interface GameAnnotation {
@@ -40,10 +55,13 @@ export interface GameAnnotation {
   settings: AnalysisSettings;
 }
 
+export type MoveBreakdown = Record<MoveQuality, number>;
+
 export interface ColorAnalysisSummary {
   accuracyEstimate: number | null;
   eligibleMoves: number;
   excludedMoves: number;
+  breakdown: MoveBreakdown;
 }
 
 export interface GameAnalysisSummary {
@@ -69,6 +87,7 @@ export interface AnalyzeGameInput {
   cache: EvaluationCache;
   /** A subset of one-based ply numbers; omitted means all legal plies. */
   plies?: readonly number[];
+  bookMoveKeys?: ReadonlySet<string>;
   signal?: AbortSignal;
   onProgress?: (progress: { analyzedPlies: number; totalPlies: number }) => void;
 }
@@ -90,7 +109,22 @@ export async function analyzeGame(input: AnalyzeGameInput): Promise<GameAnalysis
       const before = await getPositionEvaluation(ply.fenBefore, input, evaluations);
       if (input.signal?.aborted) return result('cancelled', annotations, plies.length);
       const after = await getPositionEvaluation(ply.fenAfter, input, evaluations);
-      const accuracy = classifyMoveAccuracy({ before: before.score, after: after.score, mover });
+
+      const secondBestScore = before.candidates.find(({ multiPv }) => multiPv === 2)?.score;
+      const isBook =
+        input.bookMoveKeys?.has(bookMoveKey(ply.positionBefore, ply.uci)) ?? false;
+
+      const accuracy = classifyMoveAccuracy({
+        beforeScore: before.score,
+        afterScore: after.score,
+        mover,
+        fenBefore: ply.fenBefore,
+        uci: ply.uci,
+        bestMoveUci: before.bestMove,
+        ...(secondBestScore ? { secondBestScore } : {}),
+        isBook,
+      });
+
       annotations.push({
         ply: ply.ply,
         san: ply.san,
@@ -149,7 +183,7 @@ async function getPositionEvaluation(
         // Quota/persistence errors retain the in-memory result for this session.
       }
     }
-    return normalizePrimaryLine(raw, fen);
+    return normalizeCandidates(raw, fen);
   })();
   inflight.set(serialized, evaluation);
   return evaluation;
@@ -163,6 +197,7 @@ function terminalPositionEvaluation(fen: string): PositionEvaluation | undefined
       depth: 0,
       pv: [],
       bestMove: '(terminal)',
+      candidates: [],
     };
   }
   if (
@@ -171,17 +206,46 @@ function terminalPositionEvaluation(fen: string): PositionEvaluation | undefined
     chess.isInsufficientMaterial() ||
     chess.isThreefoldRepetition()
   ) {
-    return { score: { kind: 'cp', value: 0 }, depth: 0, pv: [], bestMove: '(terminal)' };
+    return {
+      score: { kind: 'cp', value: 0 },
+      depth: 0,
+      pv: [],
+      bestMove: '(terminal)',
+      candidates: [],
+    };
   }
   return undefined;
 }
 
-function normalizePrimaryLine(raw: EvaluationResult, fen: string): PositionEvaluation {
+function normalizeCandidates(raw: EvaluationResult, fen: string): PositionEvaluation {
   const primary = raw.lines.find((line) => line.multiPv === 1 && line.pv.length > 0);
   if (!primary) throw new Error('Engine evaluation did not contain a primary PV line.');
   const score = normalizeUciScoreToWhite(primary.score, fen);
   if (!score) throw new Error('Engine evaluation contained a non-finite score.');
-  return { score, depth: primary.depth, pv: primary.pv, bestMove: raw.bestMove };
+
+  const candidates: PositionCandidate[] = [];
+  for (const line of raw.lines) {
+    if (line.pv.length > 0) {
+      const candidateScore = normalizeUciScoreToWhite(line.score, fen);
+      if (candidateScore && isExactScore(candidateScore)) {
+        candidates.push({
+          multiPv: line.multiPv,
+          score: candidateScore,
+          depth: line.depth,
+          pv: line.pv,
+        });
+      }
+    }
+  }
+  candidates.sort((a, b) => a.multiPv - b.multiPv);
+
+  return {
+    score,
+    depth: primary.depth,
+    pv: primary.pv,
+    bestMove: raw.bestMove,
+    candidates,
+  };
 }
 
 function selectAndValidatePlies(game: ParsedGame, requested: readonly number[] | undefined) {
@@ -229,14 +293,29 @@ function summarize(annotations: readonly GameAnnotation[]): GameAnalysisSummary 
   };
 }
 
+function emptyBreakdown(): MoveBreakdown {
+  const breakdown = {} as MoveBreakdown;
+  for (const quality of REVIEW_MOVE_QUALITIES) {
+    breakdown[quality] = 0;
+  }
+  return breakdown;
+}
+
 function summarizeColor(
   annotations: readonly GameAnnotation[],
   color: PlayerColor
 ): ColorAnalysisSummary {
   const moves = annotations.filter((annotation) => annotation.mover === color);
-  const estimates = moves.flatMap((annotation) =>
-    annotation.accuracy.status === 'classified' ? [annotation.accuracy.accuracyEstimate] : []
-  );
+  const breakdown = emptyBreakdown();
+  const estimates: number[] = [];
+
+  for (const annotation of moves) {
+    if (annotation.accuracy.status === 'classified') {
+      estimates.push(annotation.accuracy.accuracyEstimate);
+      breakdown[annotation.accuracy.quality] += 1;
+    }
+  }
+
   return {
     accuracyEstimate:
       estimates.length === 0
@@ -244,6 +323,7 @@ function summarizeColor(
         : estimates.reduce((sum, estimate) => sum + estimate, 0) / estimates.length,
     eligibleMoves: estimates.length,
     excludedMoves: moves.length - estimates.length,
+    breakdown,
   };
 }
 

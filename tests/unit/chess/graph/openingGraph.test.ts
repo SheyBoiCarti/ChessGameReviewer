@@ -180,9 +180,26 @@ describe('OpeningGraphBuilder', () => {
       { maxOpeningPlies: 2 },
       { maxPositions: 3, maxEdges: 2, maxPathNodes: 3 }
     ).build([corrupt, valid, parse('limited', '1. d4 d5 1-0')]);
-
     expect(graph.status).toBe('limited');
     expect(graph.includedGameCount).toBe(1);
     expect(graph.remainingGameCount).toBe(1);
+  });
+
+  it('counts edge aggregate games at most once per distinct game', () => {
+    const repeatingGame1 = parse('repeat-edge-1', '1. Nf3 Nf6 2. Ng1 Ng8 3. Nf3 Nf6 1/2-1/2');
+    const repeatingGame2 = parse('repeat-edge-2', '1. Nf3 Nf6 2. Ng1 Ng8 3. Nf3 Nf6 1/2-1/2');
+
+    const singleGameGraph = new OpeningGraphBuilder({ maxOpeningPlies: 10 }).build([repeatingGame1]);
+    const rootEdge = singleGameGraph.root.outgoing.get('g1f3');
+    expect(rootEdge).toBeDefined();
+    expect(rootEdge?.aggregate.games).toBe(1);
+
+    const twoGamesGraph = new OpeningGraphBuilder({ maxOpeningPlies: 10 }).build([
+      repeatingGame1,
+      repeatingGame2,
+    ]);
+    const twoGamesRootEdge = twoGamesGraph.root.outgoing.get('g1f3');
+    expect(twoGamesRootEdge).toBeDefined();
+    expect(twoGamesRootEdge?.aggregate.games).toBe(2);
   });
 });
