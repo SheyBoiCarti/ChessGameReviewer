@@ -207,13 +207,7 @@ function terminalPositionEvaluation(fen: string): PositionEvaluation | undefined
     chess.isInsufficientMaterial() ||
     chess.isThreefoldRepetition()
   ) {
-    return {
-      score: { kind: 'cp', value: 0 },
-      depth: 0,
-      pv: [],
-      bestMove: '(terminal)',
-      candidates: [],
-    };
+    return { score: { kind: 'cp', value: 0 }, depth: 0, pv: [], bestMove: '(terminal)' };
   }
   return undefined;
 }
