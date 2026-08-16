@@ -54,12 +54,12 @@ describe('Stockfish analysis presentation', () => {
     expect(
       qualityLabel({
         status: 'classified',
-        quality: 'mate-conceded',
+        quality: 'blunder',
         probabilityLoss: 1,
         accuracyEstimate: 0,
-        heuristicVersion: 'analyzer-accuracy-v1',
+        heuristicVersion: 'analyzer-accuracy-v2',
       })
-    ).toBe('Mate Conceded');
+    ).toBe('Blunder');
   });
 
   it('converts a legal PV from its start FEN to SAN', () => {
