@@ -784,6 +784,216 @@ li[data-selected='true'] {
   border-radius: 0.35rem;
   background: #3f4e35;
   overflow: hidden;
+  position: relative;
+}
+
+.legal-target-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 24%;
+  height: 24%;
+  border-radius: 50%;
+  background-color: rgba(45, 212, 191, 0.7);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.legal-target-dot--capture {
+  width: 80%;
+  height: 80%;
+  border-radius: 50%;
+  background-color: transparent;
+  border: 4px solid rgba(45, 212, 191, 0.7);
+}
+
+/* --- Promotion Dialog --- */
+.promotion-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  max-width: 24rem;
+  width: 90vw;
+  margin: auto;
+  text-align: center;
+}
+
+.promotion-dialog__choices {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+}
+
+.promotion-dialog__button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  min-height: 44px;
+  min-width: 44px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+
+.promotion-dialog__button:hover {
+  background: var(--surface-hover);
+}
+
+.promotion-dialog__piece-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  object-fit: contain;
+}
+
+.promotion-dialog__piece-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.promotion-dialog__cancel-button {
+  min-height: 44px;
+  margin-top: var(--space-2);
+}
+
+/* --- Variation Sandbox Banner --- */
+.variation-sandbox-banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--accent-teal);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.variation-sandbox-banner__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.variation-sandbox-banner__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.variation-sandbox-banner__close-button {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.8rem;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.variation-sandbox-banner__close-button:hover {
+  background: var(--surface-hover);
+}
+
+.variation-sandbox-banner__body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.variation-sandbox-banner__breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.variation-sandbox-banner__breadcrumb-node {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.variation-sandbox-banner__breadcrumb-node:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.variation-sandbox-banner__breadcrumb-node.is-active {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  font-weight: 700;
+  border-color: var(--border-strong);
+}
+
+.variation-sandbox-banner__controls {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.variation-sandbox-banner__step-button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.variation-sandbox-banner__step-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Unobserved Move Notice --- */
+.unobserved-move-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--accent-amber);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  flex-wrap: wrap;
+}
+
+.unobserved-move-notice__message {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.unobserved-move-notice__return-button {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.unobserved-move-notice__return-button:hover {
+  background: var(--surface-hover);
 }
 
 .evaluation-bar {
@@ -1100,6 +1310,195 @@ li[data-selected='true'] {
 
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/* --- Move Classification Badges --- */
+.move-classification-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.move-classification-badge--inline {
+  padding: 0.15rem 0.35rem;
+  font-size: 0.75rem;
+  margin-left: var(--space-2);
+}
+
+.move-classification-badge--square {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 1.25rem;
+  height: 1.25rem;
+  font-size: 0.65rem;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  z-index: 6;
+  pointer-events: none;
+}
+
+.move-classification-badge--summary {
+  width: 1.6rem;
+  height: 1.6rem;
+  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
+}
+
+.badge-brilliant {
+  background-color: #1ba69c;
+  color: #ffffff;
+}
+
+.badge-great {
+  background-color: #5c8bb0;
+  color: #ffffff;
+}
+
+.badge-best {
+  background-color: #96bc4b;
+  color: #ffffff;
+}
+
+.badge-excellent {
+  background-color: #96bc4b;
+  color: #ffffff;
+}
+
+.badge-good {
+  background-color: #85a94e;
+  color: #ffffff;
+}
+
+.badge-book {
+  background-color: #a88865;
+  color: #ffffff;
+}
+
+.badge-inaccuracy {
+  background-color: #f0c15c;
+  color: #1a1a1a;
+}
+
+.badge-mistake {
+  background-color: #e6912c;
+  color: #ffffff;
+}
+
+.badge-blunder {
+  background-color: #ca3431;
+  color: #ffffff;
+}
+
+.badge-miss {
+  background-color: #db5c49;
+  color: #ffffff;
+}
+
+.badge-forced {
+  background-color: #7c8594;
+  color: #ffffff;
+}
+
+/* --- Game Review Summary Card --- */
+.game-review-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: var(--space-4);
+}
+
+.game-review-summary__coverage {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.game-review-summary__accuracies {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.game-review-summary__accuracy-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-3);
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.game-review-summary__player-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.game-review-summary__player-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  margin-top: var(--space-1);
+}
+
+.game-review-summary__table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.game-review-summary__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.game-review-summary__table th,
+.game-review-summary__table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.game-review-summary__table thead th {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.game-review-summary__quality-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.game-review-summary__count-cell {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+@media (forced-colors: active) {
+  .move-classification-badge {
+    border: 1px solid ButtonText;
+  }
+  .game-review-summary__accuracy-card {
+    border: 1px solid ButtonText;
+  }
 }
 
 .error-page {

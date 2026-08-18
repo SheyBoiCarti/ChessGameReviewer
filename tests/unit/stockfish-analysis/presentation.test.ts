@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   analysisPreset,
   convertPvToSan,
+  moveQualityDetails,
   qualityLabel,
   toGraphPoints,
 } from '@/features/stockfish-analysis/presentation';
+import { REVIEW_MOVE_QUALITIES, type MoveQuality } from '@/lib/engine/accuracy';
 
 describe('Stockfish analysis presentation', () => {
   it('maps named strength presets to bounded documented limits', () => {
@@ -13,6 +15,17 @@ describe('Stockfish analysis presentation', () => {
     expect(analysisPreset('balanced')).toEqual({ limit: { depth: 14 }, multiPv: 2 });
     expect(analysisPreset('deep')).toEqual({ limit: { movetimeMs: 3000 }, multiPv: 3 });
   });
+
+  it.each(REVIEW_MOVE_QUALITIES)(
+    'provides non-empty metadata for move quality %s',
+    (quality: MoveQuality) => {
+      const details = moveQualityDetails(quality);
+      expect(details.label).toBeTruthy();
+      expect(details.symbol).toBeTruthy();
+      expect(details.colorClass).toBeTruthy();
+      expect(details.description).toBeTruthy();
+    }
+  );
 
   it('preserves unknown evaluations as discontinuities instead of zero', () => {
     expect(
@@ -41,12 +54,12 @@ describe('Stockfish analysis presentation', () => {
     expect(
       qualityLabel({
         status: 'classified',
-        quality: 'mate-conceded',
+        quality: 'blunder',
         probabilityLoss: 1,
         accuracyEstimate: 0,
-        heuristicVersion: 'analyzer-accuracy-v1',
+        heuristicVersion: 'analyzer-accuracy-v2',
       })
-    ).toBe('Mate Conceded');
+    ).toBe('Blunder');
   });
 
   it('converts a legal PV from its start FEN to SAN', () => {

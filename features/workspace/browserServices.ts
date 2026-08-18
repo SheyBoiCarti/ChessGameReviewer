@@ -3,6 +3,7 @@
 import { IngestionManager } from '@/features/ingestion/ingestionService';
 import type { IngestionDependencies } from '@/features/ingestion/types';
 import { GraphWorkerClient } from '@/features/opening-tree/graphWorkerClient';
+import type { WorkspaceServices } from './createWorkspaceController';
 import { analyzeGame } from '@/features/stockfish-analysis/analyzeGame';
 import { EngineService } from '@/features/stockfish-analysis/engineService';
 import {
@@ -21,10 +22,8 @@ import {
   putArchiveListMeta,
   saveSyncBatch,
 } from '@/lib/db/repositories';
-import { ACCURACY_HEURISTIC_VERSION } from '@/lib/engine/accuracy';
-
-import type { WorkspaceServices } from './createWorkspaceController';
-
+// Legacy serialized value retained only as the raw evaluation cache identity.
+const ENGINE_EVALUATION_CACHE_VERSION = 'analyzer-accuracy-v1';
 const ENGINE_BUILD = 'Stockfish 18';
 const NETWORK_HASH = '9067e33176e';
 const NORMALIZATION_VERSION = 'white-perspective-v1';
@@ -96,7 +95,7 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
       },
     },
     analysis: {
-      async analyze(game, strength, capability, signal, onProgress) {
+      async analyze(game, strength, capability, context, signal, onProgress) {
         const parsed = parseGamePgn({
           game: {
             id: game.id,
@@ -128,7 +127,7 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
             multiPv: preset.multiPv,
             threads: capability.threads,
             hashMb: capability.hashMb,
-            analysisVersion: ACCURACY_HEURISTIC_VERSION,
+            analysisVersion: ENGINE_EVALUATION_CACHE_VERSION,
             normalizationVersion: NORMALIZATION_VERSION,
           },
           engine: {
@@ -146,6 +145,7 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
               }),
           },
           cache,
+          bookMoveKeys: new Set(context.bookMoveKeys),
           signal,
           onProgress,
         });

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AnalyzerWorkspace } from '@/components/analysis/AnalyzerWorkspace';
 import type { GameAnalysisResult, GameAnnotation } from '@/features/stockfish-analysis/analyzeGame';
+import { REVIEW_MOVE_QUALITIES, type MoveBreakdown } from '@/lib/engine/accuracy';
 import type { EngineCapability } from '@/lib/engine/capabilities';
 
 describe('AnalyzerWorkspace', () => {
@@ -83,7 +84,59 @@ describe('AnalyzerWorkspace', () => {
     expect(onStart).toHaveBeenCalledWith('quick');
   });
 
-  it('supports cancel and partial resume while navigating real annotations', async () => {
+  it('renders GameReviewSummaryCard with all eleven quality rows and player accuracies', () => {
+    const completeResult: GameAnalysisResult = {
+      status: 'complete',
+      annotations: [annotation()],
+      analyzedPlies: 2,
+      totalPlies: 2,
+      summary: {
+        white: {
+          accuracyEstimate: 94.5,
+          eligibleMoves: 1,
+          excludedMoves: 0,
+          breakdown: { ...emptyBreakdown(), excellent: 1 },
+        },
+        black: {
+          accuracyEstimate: 88.2,
+          eligibleMoves: 1,
+          excludedMoves: 0,
+          breakdown: { ...emptyBreakdown(), good: 1 },
+        },
+      },
+    };
+
+    render(
+      <AnalyzerWorkspace
+        capability={capability('threaded')}
+        status="complete"
+        result={completeResult}
+        progress={null}
+        strength="balanced"
+        onStrengthChange={vi.fn()}
+        onStart={vi.fn()}
+        onCancel={vi.fn()}
+        onResume={vi.fn()}
+        onSelectPly={vi.fn()}
+        fenByPly={{ 1: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }}
+      />
+    );
+
+    expect(screen.getByText('Game Review Summary')).toBeInTheDocument();
+    expect(screen.getByText('94.5%')).toBeInTheDocument();
+    expect(screen.getByText('88.2%')).toBeInTheDocument();
+
+    for (const quality of REVIEW_MOVE_QUALITIES) {
+      const label = quality.charAt(0).toUpperCase() + quality.slice(1);
+      expect(screen.getAllByText(label).length).toBeGreaterThanOrEqual(1);
+    }
+
+    expect(screen.getAllByRole('table').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('columnheader', { name: 'White' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Black' })).toBeInTheDocument();
+  });
+
+  it('supports cancel and partial resume while navigating real annotations and displaying coverage', async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();
     const onResume = vi.fn();
@@ -125,6 +178,7 @@ describe('AnalyzerWorkspace', () => {
       />
     );
     expect(screen.getByRole('alert')).toHaveTextContent(/partial analysis/i);
+    expect(screen.getByText(/Coverage: 1 of 2 eligible plies/i)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /resume analysis/i }));
     await user.click(screen.getByRole('button', { name: /select ply 1/i }));
     expect(onResume).toHaveBeenCalledTimes(1);
@@ -133,6 +187,22 @@ describe('AnalyzerWorkspace', () => {
     expect(document.body).not.toHaveTextContent(/chess\.com affiliation|parity/i);
   });
 });
+
+function emptyBreakdown(): MoveBreakdown {
+  return {
+    brilliant: 0,
+    great: 0,
+    best: 0,
+    excellent: 0,
+    good: 0,
+    book: 0,
+    inaccuracy: 0,
+    mistake: 0,
+    blunder: 0,
+    miss: 0,
+    forced: 0,
+  };
+}
 
 function capability(mode: EngineCapability['mode']): EngineCapability {
   return {
@@ -154,8 +224,18 @@ function analysisResult(): GameAnalysisResult {
     analyzedPlies: 1,
     totalPlies: 2,
     summary: {
-      white: { accuracyEstimate: 98, eligibleMoves: 1, excludedMoves: 0 },
-      black: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0 },
+      white: {
+        accuracyEstimate: 98,
+        eligibleMoves: 1,
+        excludedMoves: 0,
+        breakdown: { ...emptyBreakdown(), excellent: 1 },
+      },
+      black: {
+        accuracyEstimate: null,
+        eligibleMoves: 0,
+        excludedMoves: 0,
+        breakdown: emptyBreakdown(),
+      },
     },
     error: 'Analysis was interrupted.',
   };
@@ -182,19 +262,21 @@ function annotation(): GameAnnotation {
       depth: 14,
       pv: ['e2e4', 'e7e5'],
       bestMove: 'e2e4',
+      candidates: [],
     },
     after: {
       score: { kind: 'cp', value: 18 },
       depth: 14,
       pv: ['e7e5', 'g1f3'],
       bestMove: 'e7e5',
+      candidates: [],
     },
     accuracy: {
       status: 'classified',
       quality: 'excellent',
       probabilityLoss: 0.01,
       accuracyEstimate: 99,
-      heuristicVersion: 'analyzer-accuracy-v1',
+      heuristicVersion: 'analyzer-accuracy-v2',
     },
     settings,
   };

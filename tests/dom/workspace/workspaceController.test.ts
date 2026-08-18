@@ -116,7 +116,7 @@ describe('workspace controller', () => {
   it('cancels and ignores selected-game analysis after the game selection changes', async () => {
     const pending = deferred<Awaited<ReturnType<WorkspaceServices['analysis']['analyze']>>>();
     const services = createServices(async () => result(secondQuery, [game]));
-    services.analysis.analyze = (_game, _strength, _capability, signal) => {
+    services.analysis.analyze = (_game, _strength, _capability, _context, signal) => {
       expect(signal.aborted).toBe(false);
       return pending.promise;
     };
@@ -127,14 +127,37 @@ describe('workspace controller', () => {
 
     const analysis = controller.startAnalysis('quick');
     controller.selectGame(null);
+    const emptyBreakdown = {
+      brilliant: 0,
+      great: 0,
+      best: 0,
+      excellent: 0,
+      good: 0,
+      book: 0,
+      inaccuracy: 0,
+      mistake: 0,
+      blunder: 0,
+      miss: 0,
+      forced: 0,
+    };
     pending.resolve({
       status: 'complete',
       annotations: [],
       analyzedPlies: 0,
       totalPlies: 0,
       summary: {
-        white: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0 },
-        black: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0 },
+        white: {
+          accuracyEstimate: null,
+          eligibleMoves: 0,
+          excludedMoves: 0,
+          breakdown: emptyBreakdown,
+        },
+        black: {
+          accuracyEstimate: null,
+          eligibleMoves: 0,
+          excludedMoves: 0,
+          breakdown: emptyBreakdown,
+        },
       },
     });
     await analysis;
@@ -144,6 +167,19 @@ describe('workspace controller', () => {
   });
 
   it('runs analysis progress, cancellation, navigation, clearing, and engine fallback paths', async () => {
+    const emptyBreakdown = {
+      brilliant: 0,
+      great: 0,
+      best: 0,
+      excellent: 0,
+      good: 0,
+      book: 0,
+      inaccuracy: 0,
+      mistake: 0,
+      blunder: 0,
+      miss: 0,
+      forced: 0,
+    };
     const services = createServices(async () => result(secondQuery, [game]));
     const controller = createWorkspaceController(services);
     await controller.submitQuery(secondQuery, { manualRefresh: true });
@@ -151,7 +187,14 @@ describe('workspace controller', () => {
     controller.navigateGraph('position', 2);
     controller.selectPly(1);
     await controller.probeEngine();
-    services.analysis.analyze = async (_game, _strength, _capability, _signal, progress) => {
+    services.analysis.analyze = async (
+      _game,
+      _strength,
+      _capability,
+      _context,
+      _signal,
+      progress
+    ) => {
       progress({ analyzedPlies: 1, totalPlies: 2 });
       return {
         status: 'partial',
@@ -159,8 +202,18 @@ describe('workspace controller', () => {
         analyzedPlies: 1,
         totalPlies: 2,
         summary: {
-          white: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0 },
-          black: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0 },
+          white: {
+            accuracyEstimate: null,
+            eligibleMoves: 0,
+            excludedMoves: 0,
+            breakdown: emptyBreakdown,
+          },
+          black: {
+            accuracyEstimate: null,
+            eligibleMoves: 0,
+            excludedMoves: 0,
+            breakdown: emptyBreakdown,
+          },
         },
       };
     };
@@ -290,8 +343,42 @@ function createServices(
         analyzedPlies: 0,
         totalPlies: 0,
         summary: {
-          white: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0 },
-          black: { accuracyEstimate: null, eligibleMoves: 0, excludedMoves: 0 },
+          white: {
+            accuracyEstimate: null,
+            eligibleMoves: 0,
+            excludedMoves: 0,
+            breakdown: {
+              brilliant: 0,
+              great: 0,
+              best: 0,
+              excellent: 0,
+              good: 0,
+              book: 0,
+              inaccuracy: 0,
+              mistake: 0,
+              blunder: 0,
+              miss: 0,
+              forced: 0,
+            },
+          },
+          black: {
+            accuracyEstimate: null,
+            eligibleMoves: 0,
+            excludedMoves: 0,
+            breakdown: {
+              brilliant: 0,
+              great: 0,
+              best: 0,
+              excellent: 0,
+              good: 0,
+              book: 0,
+              inaccuracy: 0,
+              mistake: 0,
+              blunder: 0,
+              miss: 0,
+              forced: 0,
+            },
+          },
         },
       }),
     },

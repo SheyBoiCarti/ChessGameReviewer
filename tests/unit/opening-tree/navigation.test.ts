@@ -7,10 +7,12 @@ import {
   navigateToHistoryIndex,
   navigationBreadcrumbs,
   perspectiveLabels,
+  resolveBoardMoveInGraph,
 } from '@/features/opening-tree/navigation';
 import { PathStore } from '@/lib/chess/graph/pathStore';
 import type { OpeningGraphSnapshot } from '@/lib/chess/graph/openingGraph';
 import type { OutcomeAggregate, PositionNode } from '@/lib/chess/graph/types';
+import type { AppliedBoardMove } from '@/features/board/moves';
 
 describe('opening graph navigation', () => {
   it('preserves the selected move order while two paths reach one position', () => {
@@ -45,6 +47,70 @@ describe('opening graph navigation', () => {
     expect(() => navigateToHistoryIndex(state, 0.5)).toThrow('INVALID_GRAPH_HISTORY_INDEX');
     expect(() => navigateToHistoryIndex(state, 1)).toThrow('INVALID_GRAPH_HISTORY_INDEX');
     expect(navigateBack(state)).toEqual(state);
+  });
+
+  it('resolves an observed board move in the graph', () => {
+    const graph = transpositionGraph();
+    const appliedMove: AppliedBoardMove = {
+      from: 'e2',
+      to: 'e4',
+      uci: 'e2e4',
+      san: 'e4',
+      fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      fenAfter: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
+    };
+
+    const result = resolveBoardMoveInGraph(graph, 'root', 0, appliedMove);
+    expect(result).toEqual({
+      observed: true,
+      nextPositionKey: 'after-e4',
+      nextPathId: 1,
+    });
+  });
+
+  it('returns unobserved result with warning when a legal board move is not in the graph', () => {
+    const graph = transpositionGraph();
+    const unobservedMove: AppliedBoardMove = {
+      from: 'c2',
+      to: 'c4',
+      uci: 'c2c4',
+      san: 'c4',
+      fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      fenAfter: 'rnbqkbnr/pppppppp/8/8/2P5/8/PP1PPPPP/RNBQKBNR b KQkq - 0 1',
+    };
+
+    const result = resolveBoardMoveInGraph(graph, 'root', 0, unobservedMove);
+    expect(result.observed).toBe(false);
+    expect(result.warning).toMatch(/not appear in your imported games/i);
+  });
+
+  it('resolves an observed board move from a transposed position even if current path lacks continuation', () => {
+    const graph = transpositionGraph();
+    // Path 6 is d4 d5 Nf3 reaching transposed-target.
+    // In transposed-target, pretend an outgoing edge e7e5 exists to after-e5.
+    const target = graph.positions.get('transposed-target')!;
+    target.outgoing.set('e7e5', {
+      uci: 'e7e5',
+      san: 'e5',
+      targetKey: 'after-e5',
+      aggregate: aggregate(3, 2, 0, 1),
+    });
+    // Path 6 does not have e7e5 child in pathStore, but after-e5 has arrival path 2.
+    const afterE5 = graph.positions.get('after-e5')!;
+    afterE5.arrivalsByPath.set(2, aggregate(3, 2, 0, 1));
+
+    const result = resolveBoardMoveInGraph(graph, 'transposed-target', 6, {
+      from: 'e7',
+      to: 'e5',
+      uci: 'e7e5',
+      san: 'e5',
+      fenBefore: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2',
+      fenAfter: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3',
+    });
+
+    expect(result.observed).toBe(true);
+    expect(result.nextPositionKey).toBe('after-e5');
+    expect(result.nextPathId).toBe(2);
   });
 });
 

@@ -1,5 +1,6 @@
 import type { GameAnnotation } from '@/features/stockfish-analysis/analyzeGame';
 import { qualityLabel } from '@/features/stockfish-analysis/presentation';
+import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
 
 import { PrincipalVariationList } from './PrincipalVariationList';
 
@@ -15,12 +16,26 @@ export function EngineAnnotationPanel({
   return (
     <article className="annotation-panel">
       <h4>
-        Ply {annotation.ply}: {annotation.san}
+        <span>
+          Ply {annotation.ply}: {annotation.san}
+        </span>
+        {annotation.accuracy.status === 'classified' ? (
+          <MoveClassificationBadge quality={annotation.accuracy.quality} size="inline" />
+        ) : null}
       </h4>
       <dl>
         <div>
           <dt>Quality</dt>
-          <dd>{qualityLabel(annotation.accuracy)}</dd>
+          <dd>
+            {annotation.accuracy.status === 'classified' ? (
+              <MoveClassificationBadge
+                quality={annotation.accuracy.quality}
+                size="inline"
+                ariaHidden
+              />
+            ) : null}
+            <span>{qualityLabel(annotation.accuracy)}</span>
+          </dd>
         </div>
         <div>
           <dt>Played move</dt>
