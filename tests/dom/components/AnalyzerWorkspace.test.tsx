@@ -6,6 +6,7 @@ import { AnalyzerWorkspace } from '@/components/analysis/AnalyzerWorkspace';
 import type { GameAnalysisResult, GameAnnotation } from '@/features/stockfish-analysis/analyzeGame';
 import { REVIEW_MOVE_QUALITIES, type MoveBreakdown } from '@/lib/engine/accuracy';
 import type { EngineCapability } from '@/lib/engine/capabilities';
+import { createLongGameAnalysisResult } from '../../fixtures/longAnalysisFixture';
 
 describe('AnalyzerWorkspace', () => {
   it.each([
@@ -28,6 +29,7 @@ describe('AnalyzerWorkspace', () => {
         onCancel={vi.fn()}
         onResume={vi.fn()}
         onSelectPly={vi.fn()}
+        selectedPly={0}
         fenByPly={{}}
       />
     );
@@ -48,6 +50,7 @@ describe('AnalyzerWorkspace', () => {
         onCancel={vi.fn()}
         onResume={vi.fn()}
         onSelectPly={vi.fn()}
+        selectedPly={0}
         fenByPly={{}}
       />
     );
@@ -73,6 +76,7 @@ describe('AnalyzerWorkspace', () => {
         onCancel={vi.fn()}
         onResume={vi.fn()}
         onSelectPly={vi.fn()}
+        selectedPly={0}
         fenByPly={{}}
       />
     );
@@ -118,6 +122,7 @@ describe('AnalyzerWorkspace', () => {
         onCancel={vi.fn()}
         onResume={vi.fn()}
         onSelectPly={vi.fn()}
+        selectedPly={1}
         fenByPly={{ 1: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }}
       />
     );
@@ -153,6 +158,7 @@ describe('AnalyzerWorkspace', () => {
         onCancel={onCancel}
         onResume={onResume}
         onSelectPly={onSelectPly}
+        selectedPly={0}
         fenByPly={{}}
       />
     );
@@ -172,6 +178,7 @@ describe('AnalyzerWorkspace', () => {
         onCancel={onCancel}
         onResume={onResume}
         onSelectPly={onSelectPly}
+        selectedPly={1}
         fenByPly={{
           1: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
         }}
@@ -180,11 +187,86 @@ describe('AnalyzerWorkspace', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/partial analysis/i);
     expect(screen.getByText(/Coverage: 1 of 2 eligible plies/i)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /resume analysis/i }));
-    await user.click(screen.getByRole('button', { name: /select ply 1/i }));
     expect(onResume).toHaveBeenCalledTimes(1);
+
+    // Select ply 1 from the move list
+    const plyButton = screen.getByRole('button', { name: /ply 1|1\.\s*e4/i });
+    await user.click(plyButton);
     expect(onSelectPly).toHaveBeenCalledWith(1);
     expect(screen.getByText('e4 e5')).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/chess\.com affiliation|parity/i);
+  });
+
+  it('renders 41 compact move rows and at most one EngineAnnotationPanel for a 41-ply game', () => {
+    const longResult = createLongGameAnalysisResult(41);
+
+    const { rerender } = render(
+      <AnalyzerWorkspace
+        capability={capability('threaded')}
+        status="complete"
+        result={longResult}
+        progress={null}
+        strength="balanced"
+        onStrengthChange={vi.fn()}
+        onStart={vi.fn()}
+        onCancel={vi.fn()}
+        onResume={vi.fn()}
+        onSelectPly={vi.fn()}
+        selectedPly={1}
+        fenByPly={{ 1: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }}
+      />
+    );
+
+    // Exactly one detailed EngineAnnotationPanel (role="article")
+    const panels = screen.getAllByRole('article');
+    expect(panels).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 4, name: /ply 1:\s*e4/i })).toBeInTheDocument();
+
+    // Rerender with selectedPly = 15
+    rerender(
+      <AnalyzerWorkspace
+        capability={capability('threaded')}
+        status="complete"
+        result={longResult}
+        progress={null}
+        strength="balanced"
+        onStrengthChange={vi.fn()}
+        onStart={vi.fn()}
+        onCancel={vi.fn()}
+        onResume={vi.fn()}
+        onSelectPly={vi.fn()}
+        selectedPly={15}
+        fenByPly={{ 15: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }}
+      />
+    );
+
+    const updatedPanels = screen.getAllByRole('article');
+    expect(updatedPanels).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 4, name: /ply 15:/i })).toBeInTheDocument();
+  });
+
+  it('renders empty/instruction state when selectedPly is 0 and does not render any EngineAnnotationPanel', () => {
+    const longResult = createLongGameAnalysisResult(41);
+
+    render(
+      <AnalyzerWorkspace
+        capability={capability('threaded')}
+        status="complete"
+        result={longResult}
+        progress={null}
+        strength="balanced"
+        onStrengthChange={vi.fn()}
+        onStart={vi.fn()}
+        onCancel={vi.fn()}
+        onResume={vi.fn()}
+        onSelectPly={vi.fn()}
+        selectedPly={0}
+        fenByPly={{}}
+      />
+    );
+
+    expect(screen.queryByRole('article')).not.toBeInTheDocument();
+    expect(screen.getByText(/select a move/i)).toBeInTheDocument();
   });
 });
 

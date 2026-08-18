@@ -14,3 +14,5 @@ tsconfig.tsbuildinfo
 .env.production.local
 
 .worktrees/
+docs/superpowers/
+.superpowers/

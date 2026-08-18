@@ -1,14 +1,14 @@
 import { useMemo } from 'react';
 
 import type { GameAnnotation } from '@/features/stockfish-analysis/analyzeGame';
-import { qualityLabel, toGraphPoints } from '@/features/stockfish-analysis/presentation';
+import { toGraphPoints } from '@/features/stockfish-analysis/presentation';
 
 export function MoveAccuracyGraph({
   annotations,
   onSelectPly,
 }: {
   annotations: readonly GameAnnotation[];
-  onSelectPly(ply: number): void;
+  onSelectPly?: ((ply: number) => void) | undefined;
 }) {
   const points = useMemo(
     () =>
@@ -24,36 +24,17 @@ export function MoveAccuracyGraph({
   return (
     <section aria-labelledby="accuracy-graph-title">
       <h4 id="accuracy-graph-title">White-perspective evaluation by move</h4>
-      <svg className="accuracy-graph" viewBox="0 0 100 48" role="img" aria-label="Evaluation graph">
+      <svg
+        className="accuracy-graph"
+        viewBox="0 0 100 48"
+        role="img"
+        aria-label="Evaluation graph"
+        aria-describedby="analysis-move-list"
+      >
         {segments.map((segment, index) => (
           <polyline key={index} points={segment} fill="none" vectorEffect="non-scaling-stroke" />
         ))}
       </svg>
-      <table>
-        <caption>Text alternative for the evaluation graph</caption>
-        <thead>
-          <tr>
-            <th>Ply</th>
-            <th>Played</th>
-            <th>Evaluation</th>
-            <th>Quality</th>
-          </tr>
-        </thead>
-        <tbody>
-          {annotations.map((annotation, index) => (
-            <tr key={annotation.ply}>
-              <td>
-                <button type="button" onClick={() => onSelectPly(annotation.ply)}>
-                  Select ply {annotation.ply}
-                </button>
-              </td>
-              <td>{annotation.san}</td>
-              <td>{points[index]?.label ?? 'Evaluation unavailable'}</td>
-              <td>{qualityLabel(annotation.accuracy)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </section>
   );
 }

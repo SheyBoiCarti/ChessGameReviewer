@@ -1,0 +1,41 @@
+name: Update Visual Snapshots
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-snapshots:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: 'npm'
+
+      - name: Clean install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+
+      - name: Build Next.js app
+        run: npm run build
+
+      - name: Update Visual Snapshots
+        run: npx playwright test tests/e2e/workspace-visual.spec.ts --update-snapshots
+
+      - name: Commit and push updated snapshots
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'test(visual): update Linux visual regression snapshots'
+          file_pattern: 'tests/e2e/workspace-visual.spec.ts-snapshots/*-linux.png'
