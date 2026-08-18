@@ -4,6 +4,7 @@ import type { EngineCapability } from '@/lib/engine/capabilities';
 import type { ClearAllResult, DeletionResult } from '@/lib/db/deleteLocalData';
 import type { GameRecord } from '@/lib/db/schema';
 
+import { collectPersonalBookMoveKeys } from '../stockfish-analysis/bookMoves';
 import type { GameAnalysisResult } from '../stockfish-analysis/analyzeGame';
 import type { AnalysisStrength } from './types';
 import type { GraphBuildWorkerResult } from '../opening-tree/graphWorkerClient';
@@ -44,6 +45,7 @@ export interface WorkspaceServices {
       game: GameRecord,
       strength: AnalysisStrength,
       capability: EngineCapability,
+      context: { bookMoveKeys: readonly string[] },
       signal: AbortSignal,
       onProgress: (progress: { analyzedPlies: number; totalPlies: number }) => void
     ): Promise<GameAnalysisResult>;
@@ -165,11 +167,13 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
       analysisController = new AbortController();
       const token = state.query.token;
       dispatch({ type: 'analysis/started', token });
+      const bookMoveKeys = collectPersonalBookMoveKeys(state.graph.snapshot);
       try {
         const result = await services.analysis.analyze(
           game,
           strength,
           capability,
+          { bookMoveKeys },
           analysisController.signal,
           (progress) => {
             if (sequence === analysisSequence) {

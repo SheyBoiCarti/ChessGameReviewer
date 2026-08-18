@@ -170,18 +170,18 @@ describe('Retention & LRU Eviction', () => {
       await expect(checkSchemaCompatibility(db)).resolves.toMatchObject({
         compatible: true,
         schemaVersion: 2,
-        normalizerVersion: 1,
+        normalizerVersion: 2,
       });
     });
 
     it('detects compatible schema and normalizer version', async () => {
       await setMeta(db, 'schemaVersion', 1);
-      await setMeta(db, 'normalizerVersion', 1);
+      await setMeta(db, 'normalizerVersion', 2);
 
       const status = await checkSchemaCompatibility(db);
       expect(status.compatible).toBe(true);
       expect(status.schemaVersion).toBe(1);
-      expect(status.normalizerVersion).toBe(1);
+      expect(status.normalizerVersion).toBe(2);
     });
 
     it('detects incompatible normalizer version', async () => {

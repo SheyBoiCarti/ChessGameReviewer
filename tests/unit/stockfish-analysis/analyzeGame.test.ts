@@ -30,8 +30,8 @@ const parsedGame: ParsedGame = {
       uci: 'e2e4',
       fenBefore: initialFen,
       fenAfter: afterE4,
-      positionBefore: '',
-      positionAfter: '',
+      positionBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -',
+      positionAfter: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq -',
     },
     {
       ply: 2,
@@ -39,8 +39,8 @@ const parsedGame: ParsedGame = {
       uci: 'e7e5',
       fenBefore: afterE4,
       fenAfter: afterE5,
-      positionBefore: '',
-      positionAfter: '',
+      positionBefore: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq -',
+      positionAfter: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq -',
     },
   ],
 };
@@ -49,10 +49,10 @@ const settings = {
   engineBuild: 'stockfish-17.1',
   networkHash: 'nnue-abc',
   limit: { depth: 12 },
-  multiPv: 1,
+  multiPv: 2,
   threads: 1,
   hashMb: 32,
-  analysisVersion: 'analysis-v1',
+  analysisVersion: 'analyzer-accuracy-v1',
   normalizationVersion: 'normalization-v1',
 };
 
@@ -66,31 +66,52 @@ class MemoryRepository implements EvaluationCacheRepository {
   }
 }
 
-function engineFor(
-  scores: Record<string, number>,
+function engineForMultiPv(
+  responses: Record<string, EvaluationResult>,
   onEvaluate?: (fen: string) => void
 ): AnalysisEngine {
   return {
     async evaluate(fen) {
       onEvaluate?.(fen);
+      const res = responses[fen];
+      if (res) return res;
+      // Default: side to move has score 0
       return {
         bestMove: 'e2e4',
-        lines: [
-          { multiPv: 1, depth: 12, score: { kind: 'cp', value: scores[fen] ?? 0 }, pv: ['e2e4'] },
-        ],
+        lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 0 }, pv: ['e2e4'] }],
       };
     },
   };
 }
 
 describe('analyzeGame', () => {
-  it('deduplicates repeated positions, persists each live result, and returns ordered annotations', async () => {
+  it('deduplicates repeated positions, persists each live result, and normalizes MultiPV lines with breakdown', async () => {
     const repository = new MemoryRepository();
     const evaluations: string[] = [];
+
+    const rootResult: EvaluationResult = {
+      bestMove: 'e2e4',
+      lines: [
+        { multiPv: 1, depth: 12, score: { kind: 'cp', value: 200 }, pv: ['e2e4'] },
+        { multiPv: 2, depth: 12, score: { kind: 'cp', value: 0 }, pv: ['d2d4'] },
+      ],
+    };
+    // At afterE4, Black is to move. If evaluation is +200 cp for White, UCI score for Black is -200 cp.
+    const afterE4Result: EvaluationResult = {
+      bestMove: 'e7e5',
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: -200 }, pv: ['e7e5'] }],
+    };
+    // At afterE5, White is to move. UCI score for White is +200 cp.
+    const afterE5Result: EvaluationResult = {
+      bestMove: 'g1f3',
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 200 }, pv: ['g1f3'] }],
+    };
+
     const result = await analyzeGame({
       game: parsedGame,
-      engine: engineFor({ [initialFen]: 20, [afterE4]: -10, [afterE5]: 30 }, (fen) =>
-        evaluations.push(fen)
+      engine: engineForMultiPv(
+        { [initialFen]: rootResult, [afterE4]: afterE4Result, [afterE5]: afterE5Result },
+        (fen) => evaluations.push(fen)
       ),
       cache: new EvaluationCache(repository, () => 1),
       settings,
@@ -100,9 +121,75 @@ describe('analyzeGame', () => {
     expect(evaluations).toEqual([initialFen, afterE4, afterE5]);
     expect(repository.records).toHaveLength(3);
     expect(result.annotations.map((annotation) => annotation.ply)).toEqual([1, 2]);
-    expect(result.annotations[0]?.after.pv).toEqual(['e2e4']);
+    expect(result.annotations[0]?.before.candidates).toHaveLength(2);
+    expect(result.annotations[0]?.accuracy).toMatchObject({ quality: 'great' });
+    expect(result.summary.white.breakdown.great).toBe(1);
+    expect(result.summary.white.breakdown.brilliant).toBe(0);
     expect(result.summary.white.eligibleMoves).toBe(1);
     expect(result.summary.black.eligibleMoves).toBe(1);
+  });
+
+  it('classifies best instead of great when second candidate is absent', async () => {
+    const repository = new MemoryRepository();
+    const rootResult: EvaluationResult = {
+      bestMove: 'e2e4',
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 200 }, pv: ['e2e4'] }],
+    };
+    const afterE4Result: EvaluationResult = {
+      bestMove: 'e7e5',
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: -200 }, pv: ['e7e5'] }],
+    };
+    const afterE5Result: EvaluationResult = {
+      bestMove: 'g1f3',
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 200 }, pv: ['g1f3'] }],
+    };
+
+    const result = await analyzeGame({
+      game: parsedGame,
+      engine: engineForMultiPv({
+        [initialFen]: rootResult,
+        [afterE4]: afterE4Result,
+        [afterE5]: afterE5Result,
+      }),
+      cache: new EvaluationCache(repository, () => 1),
+      settings,
+    });
+
+    expect(result.annotations[0]?.accuracy).toMatchObject({ quality: 'best' });
+    expect(result.summary.white.breakdown.best).toBe(1);
+    expect(result.summary.white.breakdown.great).toBe(0);
+  });
+
+  it('identifies personal book moves from passed bookMoveKeys', async () => {
+    const repository = new MemoryRepository();
+    const rootResult: EvaluationResult = {
+      bestMove: 'd2d4',
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 30 }, pv: ['d2d4'] }],
+    };
+    const afterE4Result: EvaluationResult = {
+      bestMove: 'e7e5',
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: -30 }, pv: ['e7e5'] }],
+    };
+    const afterE5Result: EvaluationResult = {
+      bestMove: 'g1f3',
+      lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 30 }, pv: ['g1f3'] }],
+    };
+    const bookKeys = new Set(['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -\u0000e2e4']);
+
+    const result = await analyzeGame({
+      game: parsedGame,
+      engine: engineForMultiPv({
+        [initialFen]: rootResult,
+        [afterE4]: afterE4Result,
+        [afterE5]: afterE5Result,
+      }),
+      cache: new EvaluationCache(repository, () => 1),
+      settings,
+      bookMoveKeys: bookKeys,
+    });
+
+    expect(result.annotations[0]?.accuracy).toMatchObject({ quality: 'book' });
+    expect(result.summary.white.breakdown.book).toBe(1);
   });
 
   it('resumes from incrementally cached positions after cancellation', async () => {
@@ -115,7 +202,7 @@ describe('analyzeGame', () => {
       cache,
       settings,
       signal: controller.signal,
-      engine: engineFor({ [initialFen]: 20, [afterE4]: -10, [afterE5]: 30 }, () => {
+      engine: engineForMultiPv({}, () => {
         calls += 1;
         if (calls === 2) controller.abort();
       }),
@@ -129,9 +216,7 @@ describe('analyzeGame', () => {
       game: parsedGame,
       cache,
       settings,
-      engine: engineFor({ [initialFen]: 20, [afterE4]: -10, [afterE5]: 30 }, (fen) =>
-        resumedCalls.push(fen)
-      ),
+      engine: engineForMultiPv({}, (fen) => resumedCalls.push(fen)),
     });
     expect(resumed.status).toBe('complete');
     expect(resumedCalls).toEqual([afterE5]);
@@ -154,13 +239,22 @@ describe('analyzeGame', () => {
       game: { ...parsedGame, plies: [parsedGame.plies[0]!] },
       cache,
       settings,
-      engine: engineFor({ [initialFen]: 20, [afterE4]: -10 }),
+      engine: engineForMultiPv({
+        [initialFen]: {
+          bestMove: 'e2e4',
+          lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 20 }, pv: ['e2e4'] }],
+        },
+        [afterE4]: {
+          bestMove: 'e7e5',
+          lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: -20 }, pv: ['e7e5'] }],
+        },
+      }),
     });
     expect(result.status).toBe('complete');
     expect(result.annotations).toHaveLength(1);
   });
 
-  it('records terminal positions directly without requiring an engine PV', async () => {
+  it('records terminal positions directly with empty candidates', async () => {
     const terminal = 'rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3';
     const calls: string[] = [];
     const game: ParsedGame = {
@@ -171,7 +265,7 @@ describe('analyzeGame', () => {
       game,
       cache: new EvaluationCache(new MemoryRepository(), () => 1),
       settings,
-      engine: engineFor({ [initialFen]: 20 }, (fen) => calls.push(fen)),
+      engine: engineForMultiPv({}, (fen) => calls.push(fen)),
     });
     expect(result.status).toBe('complete');
     expect(calls).toEqual([initialFen]);
@@ -179,6 +273,7 @@ describe('analyzeGame', () => {
       score: { kind: 'mate', value: -1 },
       pv: [],
       bestMove: '(terminal)',
+      candidates: [],
     });
   });
 });

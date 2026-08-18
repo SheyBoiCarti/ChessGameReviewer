@@ -147,4 +147,82 @@ describe('ChessboardView', () => {
     expect(stage).toContainElement(meter);
     expect(stage).not.toContainElement(next);
   });
+
+  it('supports full keyboard move selection, roving square navigation, and move execution', async () => {
+    const user = userEvent.setup();
+    const onMove = vi.fn().mockReturnValue(true);
+
+    render(
+      <ChessboardView
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        orientation="white"
+        isInteractive={true}
+        onMove={onMove}
+      />
+    );
+
+    const board = screen.getByRole('grid', { name: /chess board/i });
+    board.focus();
+
+    // Default focused square is e2. Press Enter to select e2
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('status')).toHaveTextContent(/Selected e2/i);
+
+    // Arrow up to e3, then e4
+    await user.keyboard('{ArrowUp}{ArrowUp}');
+
+    // Press Enter on e4 to execute e2e4
+    await user.keyboard('{Enter}');
+    expect(onMove).toHaveBeenCalledTimes(1);
+    expect(onMove.mock.calls[0]![0]).toMatchObject({ uci: 'e2e4', san: 'e4' });
+    expect(screen.getByRole('status')).toHaveTextContent(/Played e4/i);
+  });
+
+  it('allows cancelling piece selection with Escape and announces it', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ChessboardView
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        orientation="white"
+        isInteractive={true}
+      />
+    );
+
+    const board = screen.getByRole('grid', { name: /chess board/i });
+    board.focus();
+
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('status')).toHaveTextContent(/Selected e2/i);
+
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('status')).toHaveTextContent(/Selection cleared/i);
+  });
+
+  it('handles click-to-move and promotion modal interaction', async () => {
+    const user = userEvent.setup();
+    const onMove = vi.fn().mockReturnValue(true);
+
+    render(
+      <ChessboardView
+        fen="7k/P7/8/8/8/8/8/K7 w - - 0 1"
+        orientation="white"
+        isInteractive={true}
+        onMove={onMove}
+      />
+    );
+
+    const a7 = screen.getByRole('gridcell', { name: 'a7' });
+    const a8 = screen.getByRole('gridcell', { name: 'a8' });
+
+    await user.click(a7);
+    await user.click(a8);
+
+    // Promotion dialog should open
+    expect(screen.getByRole('dialog', { name: 'Promote pawn' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Queen' }));
+
+    expect(onMove).toHaveBeenCalledTimes(1);
+    expect(onMove.mock.calls[0]![0]).toMatchObject({ uci: 'a7a8q', san: 'a8=Q+' });
+  });
 });

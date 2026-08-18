@@ -24,6 +24,7 @@ export const CHESSCOM_RESULT_TOKENS: Readonly<Record<string, OutcomeCategory>> =
   stalemate: 'draw',
   insufficient: 'draw',
   '50move': 'draw',
+  timevsinsufficient: 'draw',
 };
 
 export function isKnownResultToken(token: string): boolean {

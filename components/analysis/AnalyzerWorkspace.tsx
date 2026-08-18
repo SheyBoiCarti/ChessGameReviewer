@@ -9,6 +9,7 @@ import type { EngineCapability } from '@/lib/engine/capabilities';
 import { AnalysisSettings } from './AnalysisSettings';
 import { EngineAnnotationPanel } from './EngineAnnotationPanel';
 import { EngineStatus } from './EngineStatus';
+import { GameReviewSummaryCard } from './GameReviewSummaryCard';
 import { MoveAccuracyGraph } from './MoveAccuracyGraph';
 
 export interface AnalyzerWorkspaceProps {
@@ -105,11 +106,7 @@ export function AnalyzerWorkspace({
       ) : null}
       {result && result.annotations.length > 0 ? (
         <>
-          <p>
-            Coverage: {result.analyzedPlies} of {result.totalPlies} eligible plies. White estimate:{' '}
-            {formatEstimate(result.summary.white.accuracyEstimate)}; Black estimate:{' '}
-            {formatEstimate(result.summary.black.accuracyEstimate)}.
-          </p>
+          <GameReviewSummaryCard result={result} />
           <MoveAccuracyGraph annotations={result.annotations} onSelectPly={onSelectPly} />
           {result.annotations.map((annotation) => (
             <EngineAnnotationPanel
@@ -123,10 +120,6 @@ export function AnalyzerWorkspace({
       ) : null}
     </section>
   );
-}
-
-function formatEstimate(value: number | null): string {
-  return value === null ? 'unavailable' : `${value.toFixed(1)}%`;
 }
 
 function analyzerStatusLabel(status: AnalyzerWorkspaceProps['status']): string {
