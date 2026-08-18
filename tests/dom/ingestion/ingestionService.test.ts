@@ -89,6 +89,67 @@ describe('runIngestion', () => {
     expect(deps.fetchMonthlyGames).not.toHaveBeenCalled();
   });
 
+  it('treats a sync marker with an older normalizer version as stale and refetches from network', async () => {
+    const cachedGame = makeGameRecord();
+    const networkGame = makeGameRecord({ id: 'recovered-game', result: 'draw' });
+    const persistMonth = vi.fn().mockResolvedValue(undefined);
+    const deps = fakeDependencies({
+      readArchiveList: vi.fn().mockResolvedValue({
+        username: 'janedoe',
+        months: ['2026-08'],
+        fetchedAt: NOW - 60_000,
+      }),
+      readArchiveSyncs: vi.fn().mockResolvedValue([
+        makeArchiveSync({
+          normalizerVersion: 1,
+        }),
+      ]),
+      readMonthGames: vi.fn().mockResolvedValue([cachedGame]),
+      fetchMonthlyGames: vi.fn().mockResolvedValue([
+        makeRawGame({
+          uuid: 'recovered-game',
+          white: { username: 'janedoe', rating: 1500, result: 'timevsinsufficient' },
+          black: { username: 'opponent', rating: 1500, result: 'insufficient' },
+        }),
+      ]),
+      persistMonth,
+    });
+
+    const result = await runIngestion(makeQuery(), { deps, now: () => NOW });
+
+    expect(result).toMatchObject({ status: 'complete', games: [networkGame] });
+    expect(deps.fetchArchives).not.toHaveBeenCalled();
+    expect(deps.fetchMonthlyGames).toHaveBeenCalledTimes(1);
+    expect(persistMonth).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: 'recovered-game', result: 'draw' })]),
+      expect.objectContaining({ normalizerVersion: 2 }),
+      expect.anything()
+    );
+  });
+
+  it('normalizes timevsinsufficient as draw for both white and black players', async () => {
+    const whiteTimevsInsufficient = makeRawGame({
+      uuid: 'white-tvi',
+      white: { username: 'janedoe', result: 'timevsinsufficient' },
+      black: { username: 'opponent', result: 'insufficient' },
+    });
+    const blackTimevsInsufficient = makeRawGame({
+      uuid: 'black-tvi',
+      white: { username: 'opponent', result: 'insufficient' },
+      black: { username: 'janedoe', result: 'timevsinsufficient' },
+    });
+
+    const result = await runWithFetchedGames(makeQuery(), [
+      whiteTimevsInsufficient,
+      blackTimevsInsufficient,
+    ]);
+
+    expect(result.games).toHaveLength(2);
+    expect(result.games[0]).toMatchObject({ id: 'white-tvi', result: 'draw', userColor: 'white' });
+    expect(result.games[1]).toMatchObject({ id: 'black-tvi', result: 'draw', userColor: 'black' });
+    expect(result.diagnostics).toEqual([]);
+  });
+
   it('manual refresh bypasses application freshness but retains browser cache mode', async () => {
     const deps = fakeDependencies({
       readArchiveList: vi.fn().mockResolvedValue({

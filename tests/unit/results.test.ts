@@ -18,6 +18,7 @@ describe('Chess.com player result token mapping and consistency validation', () 
       expect(CHESSCOM_RESULT_TOKENS['stalemate']).toBe('draw');
       expect(CHESSCOM_RESULT_TOKENS['insufficient']).toBe('draw');
       expect(CHESSCOM_RESULT_TOKENS['50move']).toBe('draw');
+      expect(CHESSCOM_RESULT_TOKENS['timevsinsufficient']).toBe('draw');
     });
   });
 
@@ -37,6 +38,9 @@ describe('Chess.com player result token mapping and consistency validation', () 
         ['stalemate', 'stalemate', 'draw'],
         ['insufficient', 'insufficient', 'draw'],
         ['50move', '50move', 'draw'],
+        ['timevsinsufficient', 'insufficient', 'draw'],
+        ['insufficient', 'timevsinsufficient', 'draw'],
+        ['timevsinsufficient', 'timevsinsufficient', 'draw'],
       ])(
         'for White: whiteResult=%s, blackResult=%s => outcome %s',
         (whiteResult, blackResult, expectedOutcome) => {
@@ -62,6 +66,9 @@ describe('Chess.com player result token mapping and consistency validation', () 
         ['win', 'resigned', 'loss'],
         ['win', 'checkmated', 'loss'],
         ['agreed', 'agreed', 'draw'],
+        ['timevsinsufficient', 'insufficient', 'draw'],
+        ['insufficient', 'timevsinsufficient', 'draw'],
+        ['timevsinsufficient', 'timevsinsufficient', 'draw'],
       ])(
         'for Black: whiteResult=%s, blackResult=%s => outcome %s',
         (whiteResult, blackResult, expectedOutcome) => {
