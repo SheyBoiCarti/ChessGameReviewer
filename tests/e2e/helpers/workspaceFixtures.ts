@@ -23,6 +23,19 @@ const games = [
   }),
 ];
 
+const longGames = [
+  game({
+    id: 'fixture-long-game-41',
+    url: 'https://www.chess.com/game/live/410000041',
+    white: 'fixture-user',
+    black: 'opponent-long',
+    result: '1-0',
+    moves:
+      '1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Be3 e5 7. Nb3 Be6 8. f3 Be7 9. Qd2 O-O 10. O-O-O Nbd7 11. g4 b5 12. g5 b4 13. Ne2 Ne8 14. f4 a5 15. f5 a4 16. Nbd4 exd4 17. Nxd4 b3 18. Kb1 bxc2+ 19. Nxc2 Bb3 20. axb3 axb3 21. Na3 1-0',
+    endTime: 1705500000,
+  }),
+];
+
 const firstMoves = [
   'a3',
   'a4',
@@ -60,6 +73,10 @@ const overflowGames = firstMoves.map((firstMove, index) =>
 
 export async function installWorkspaceFixtures(page: Page) {
   await installRoutes(page, games);
+}
+
+export async function installLongGameWorkspaceFixtures(page: Page) {
+  await installRoutes(page, longGames);
 }
 
 export async function installOverflowWorkspaceFixtures(page: Page) {

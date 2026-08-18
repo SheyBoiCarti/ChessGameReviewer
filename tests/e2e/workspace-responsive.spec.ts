@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import {
+  installLongGameWorkspaceFixtures,
   installOverflowWorkspaceFixtures,
   installWorkspaceFixtures,
   loadFixtureGames,
@@ -296,6 +297,92 @@ test('keeps tab, hover-button, and eyebrow text at AA contrast in every theme', 
         )
     )
   ).toBe(true);
+});
+
+test('desktop analyzer layout stays bounded within usable viewport height for long games without document explosion', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1920, height: 958 });
+  await installLongGameWorkspaceFixtures(page);
+  await page.goto('/');
+  await loadFixtureGames(page, 1);
+  await page.getByRole('button', { name: /select game versus opponent-long/i }).click();
+  await page.getByRole('tab', { name: 'Analysis' }).click();
+  await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
+    timeout: 30_000,
+  });
+  await page.getByLabel('Analysis strength').selectOption('quick');
+  await page.getByRole('button', { name: 'Start analysis' }).click();
+  await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
+
+  const contextLocator = page.locator('.workspace-layout__context');
+  const moveListLocator = page.locator('.analysis-move-list');
+  const contextMetrics = await scrollMetrics(contextLocator);
+  const moveListMetrics = await scrollMetrics(moveListLocator);
+
+  const maxContextHeight = await page.evaluate(
+    () =>
+      window.innerHeight -
+      14 * Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+  );
+  expect(contextMetrics.clientHeight).toBeLessThanOrEqual(maxContextHeight + 5);
+  expect(contextMetrics.scrollHeight).toBeGreaterThan(contextMetrics.clientHeight);
+
+  expect(moveListMetrics.scrollHeight).toBeGreaterThan(moveListMetrics.clientHeight);
+
+  const documentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
+  expect(documentHeight).toBeLessThan(1500);
+
+  await expect(page.locator('.annotation-panel-empty')).toBeVisible();
+  await expect(page.locator('.annotation-panel')).toHaveCount(0);
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+
+  await page.getByRole('button', { name: /select ply 5\b/i }).click();
+  await expect(page.locator('.annotation-panel')).toHaveCount(1);
+  await expect(page.locator('.annotation-panel h4')).toHaveText(/ply 5/i);
+});
+
+test('mobile analyzer layout uses natural document flow with bounded move list', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installLongGameWorkspaceFixtures(page);
+  await page.goto('/');
+
+  const drawer = page.getByRole('dialog', { name: 'Game query and progress' });
+  await expect(drawer).toBeVisible();
+  await loadFixtureGames(page, 1);
+  await page.getByRole('button', { name: 'Close Game query and progress' }).click();
+  await expect(drawer).toBeHidden();
+
+  await page.getByRole('button', { name: /select game versus opponent-long/i }).click();
+  await page.getByRole('tab', { name: 'Analysis' }).click();
+  await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
+    timeout: 30_000,
+  });
+  await page.getByLabel('Analysis strength').selectOption('quick');
+  await page.getByRole('button', { name: 'Start analysis' }).click();
+  await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
+
+  const contextOverflowY = await page
+    .locator('.workspace-layout__context')
+    .evaluate((element) => getComputedStyle(element).overflowY);
+  expect(contextOverflowY).toBe('visible');
+
+  const moveListLocator = page.locator('.analysis-move-list');
+  const moveListMetrics = await scrollMetrics(moveListLocator);
+  expect(moveListMetrics.scrollHeight).toBeGreaterThan(moveListMetrics.clientHeight);
+
+  await expect(page.locator('.annotation-panel-empty')).toBeVisible();
+  await page.getByRole('button', { name: /select ply 1\b/i }).click();
+  await expect(page.locator('.annotation-panel')).toHaveCount(1);
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
 });
 
 async function overflow(page: import('@playwright/test').Page) {

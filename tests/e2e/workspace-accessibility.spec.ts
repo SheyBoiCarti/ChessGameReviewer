@@ -80,6 +80,32 @@ test('has no serious or critical axe findings for an archive-load error fixture'
   await assertAccessible(page);
 });
 
+test('has no serious or critical axe findings with completed analysis and bounded move list', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await installWorkspaceFixtures(page);
+  await page.goto('/');
+  await waitForWorkspaceReady(page);
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+  await page.getByRole('tab', { name: 'Analysis' }).click();
+  await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
+    timeout: 30_000,
+  });
+  await page.getByLabel('Analysis strength').selectOption('quick');
+  await page.getByRole('button', { name: 'Start analysis' }).click();
+  await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.locator('.analysis-move-list')).toBeVisible();
+  await expect(page.locator('.annotation-panel-empty')).toBeVisible();
+  await page.getByRole('button', { name: /select ply 1\b/i }).click();
+  await expect(page.locator('.annotation-panel')).toHaveCount(1);
+  await assertAccessible(page);
+});
+
 async function assertAccessible(page: import('@playwright/test').Page) {
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag22aa'])
