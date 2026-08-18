@@ -6,6 +6,7 @@ import type { AnalysisStrength } from '@/features/workspace/types';
 import { ACCURACY_HEURISTIC_VERSION } from '@/lib/engine/accuracy';
 import type { EngineCapability } from '@/lib/engine/capabilities';
 
+import { AnalysisMoveList } from './AnalysisMoveList';
 import { AnalysisSettings } from './AnalysisSettings';
 import { EngineAnnotationPanel } from './EngineAnnotationPanel';
 import { EngineStatus } from './EngineStatus';
@@ -31,6 +32,7 @@ export interface AnalyzerWorkspaceProps {
   onCancel(): void;
   onResume(): void;
   onSelectPly(ply: number): void;
+  selectedPly: number;
   fenByPly: Readonly<Record<number, string>>;
 }
 
@@ -45,6 +47,7 @@ export function AnalyzerWorkspace({
   onCancel,
   onResume,
   onSelectPly,
+  selectedPly,
   fenByPly,
 }: AnalyzerWorkspaceProps) {
   const preset = analysisPreset(strength);
@@ -53,6 +56,8 @@ export function AnalyzerWorkspace({
     : `${preset.limit.movetimeMs ?? 0} ms per position`;
   const engineBuild = result?.annotations[0]?.settings.engineBuild ?? 'Stockfish 18';
   const unavailable = !capability || capability.mode === 'unavailable';
+  const selectedAnnotation =
+    result?.annotations.find((annotation) => annotation.ply === selectedPly) ?? null;
 
   return (
     <section className="analyzer-workspace" aria-labelledby="analyzer-heading">
@@ -107,15 +112,27 @@ export function AnalyzerWorkspace({
       {result && result.annotations.length > 0 ? (
         <>
           <GameReviewSummaryCard result={result} />
-          <MoveAccuracyGraph annotations={result.annotations} onSelectPly={onSelectPly} />
-          {result.annotations.map((annotation) => (
+          <MoveAccuracyGraph
+            annotations={result.annotations}
+            onSelectPly={onSelectPly}
+          />
+          <AnalysisMoveList
+            id="analysis-move-list"
+            annotations={result.annotations}
+            selectedPly={selectedPly}
+            onSelectPly={onSelectPly}
+          />
+          {selectedAnnotation ? (
             <EngineAnnotationPanel
-              key={annotation.ply}
-              annotation={annotation}
-              startFen={fenByPly[annotation.ply]}
+              annotation={selectedAnnotation}
+              startFen={fenByPly[selectedAnnotation.ply]}
               onSelectPly={onSelectPly}
             />
-          ))}
+          ) : (
+            <div className="annotation-panel-empty" role="note">
+              <p>Select a move from the graph or move list to view detailed engine analysis.</p>
+            </div>
+          )}
         </>
       ) : null}
     </section>

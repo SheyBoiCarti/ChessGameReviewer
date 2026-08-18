@@ -443,6 +443,7 @@ export function ChessWorkspace() {
                     onCancel={controller.cancelAnalysis}
                     onResume={() => void controller.startAnalysis()}
                     onSelectPly={handlePlyChange}
+                    selectedPly={state.selection.ply}
                     fenByPly={Object.fromEntries(
                       parsedGame.plies.map((move) => [move.ply, move.fenBefore])
                     )}
