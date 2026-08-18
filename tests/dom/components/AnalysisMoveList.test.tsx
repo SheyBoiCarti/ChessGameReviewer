@@ -10,11 +10,7 @@ describe('AnalysisMoveList', () => {
 
   it('renders all compact move rows with move numbers, SAN, and evaluation labels', () => {
     render(
-      <AnalysisMoveList
-        annotations={fixture.annotations}
-        selectedPly={1}
-        onSelectPly={vi.fn()}
-      />
+      <AnalysisMoveList annotations={fixture.annotations} selectedPly={1} onSelectPly={vi.fn()} />
     );
 
     const rows = screen.getAllByRole('button');
@@ -30,11 +26,7 @@ describe('AnalysisMoveList', () => {
 
   it('marks the active move row with aria-current="true"', () => {
     render(
-      <AnalysisMoveList
-        annotations={fixture.annotations}
-        selectedPly={3}
-        onSelectPly={vi.fn()}
-      />
+      <AnalysisMoveList annotations={fixture.annotations} selectedPly={3} onSelectPly={vi.fn()} />
     );
 
     const rows = screen.getAllByRole('button');
@@ -63,11 +55,7 @@ describe('AnalysisMoveList', () => {
 
   it('handles selectedPly 0 without marking any row as active', () => {
     render(
-      <AnalysisMoveList
-        annotations={fixture.annotations}
-        selectedPly={0}
-        onSelectPly={vi.fn()}
-      />
+      <AnalysisMoveList annotations={fixture.annotations} selectedPly={0} onSelectPly={vi.fn()} />
     );
 
     const activeRows = screen.queryAllByRole('button', { current: true });

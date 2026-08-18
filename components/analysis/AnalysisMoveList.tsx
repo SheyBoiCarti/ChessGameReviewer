@@ -4,10 +4,7 @@ import { useEffect, useMemo, useRef } from 'react';
 
 import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
 import type { GameAnnotation } from '@/features/stockfish-analysis/analyzeGame';
-import {
-  qualityLabel,
-  toGraphPoints,
-} from '@/features/stockfish-analysis/presentation';
+import { qualityLabel, toGraphPoints } from '@/features/stockfish-analysis/presentation';
 
 export interface AnalysisMoveListProps {
   annotations: readonly GameAnnotation[];
@@ -56,9 +53,7 @@ export function AnalysisMoveList({
           const movePrefix = annotation.mover === 'white' ? `${moveNumber}.` : `${moveNumber}...`;
           const evalLabel = points[index]?.label ?? 'Evaluation unavailable';
           const quality =
-            annotation.accuracy.status === 'classified'
-              ? annotation.accuracy.quality
-              : undefined;
+            annotation.accuracy.status === 'classified' ? annotation.accuracy.quality : undefined;
           const qualityText = qualityLabel(annotation.accuracy);
 
           return (

@@ -112,10 +112,7 @@ export function AnalyzerWorkspace({
       {result && result.annotations.length > 0 ? (
         <>
           <GameReviewSummaryCard result={result} />
-          <MoveAccuracyGraph
-            annotations={result.annotations}
-            onSelectPly={onSelectPly}
-          />
+          <MoveAccuracyGraph annotations={result.annotations} onSelectPly={onSelectPly} />
           <AnalysisMoveList
             id="analysis-move-list"
             annotations={result.annotations}

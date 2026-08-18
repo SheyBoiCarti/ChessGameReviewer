@@ -4,6 +4,7 @@ coverage
 playwright-report
 test-results
 .superpowers
+docs/superpowers
 app/icon.svg
 public/stockfish/
 next-env.d.ts

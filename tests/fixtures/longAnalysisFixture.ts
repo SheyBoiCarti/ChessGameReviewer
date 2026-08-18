@@ -2,10 +2,47 @@ import type { GameAnalysisResult, GameAnnotation } from '@/features/stockfish-an
 import type { MoveQuality } from '@/lib/engine/accuracy';
 
 const SAMPLE_MOVES = [
-  'e4', 'c5', 'Nf3', 'd6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'a6',
-  'Be3', 'e5', 'Nb3', 'Be6', 'f3', 'Be7', 'Qd2', 'O-O', 'O-O-O', 'Nbd7',
-  'g4', 'b5', 'g5', 'b4', 'Ne2', 'Ne8', 'f4', 'a5', 'f5', 'a4',
-  'Nbd4', 'exd4', 'Nxd4', 'b3', 'Kb1', 'bxc2+', 'Nxc2', 'Bb3', 'axb3', 'axb3', 'Na3',
+  'e4',
+  'c5',
+  'Nf3',
+  'd6',
+  'd4',
+  'cxd4',
+  'Nxd4',
+  'Nf6',
+  'Nc3',
+  'a6',
+  'Be3',
+  'e5',
+  'Nb3',
+  'Be6',
+  'f3',
+  'Be7',
+  'Qd2',
+  'O-O',
+  'O-O-O',
+  'Nbd7',
+  'g4',
+  'b5',
+  'g5',
+  'b4',
+  'Ne2',
+  'Ne8',
+  'f4',
+  'a5',
+  'f5',
+  'a4',
+  'Nbd4',
+  'exd4',
+  'Nxd4',
+  'b3',
+  'Kb1',
+  'bxc2+',
+  'Nxc2',
+  'Bb3',
+  'axb3',
+  'axb3',
+  'Na3',
 ];
 
 export function createLongGameAnalysisResult(plyCount = 41): GameAnalysisResult {
@@ -18,7 +55,10 @@ export function createLongGameAnalysisResult(plyCount = 41): GameAnalysisResult 
     annotations.push({
       ply,
       san,
-      uci: `${san.toLowerCase().replace(/[^a-h1-8]/g, '').padEnd(4, '1')}`,
+      uci: `${san
+        .toLowerCase()
+        .replace(/[^a-h1-8]/g, '')
+        .padEnd(4, '1')}`,
       mover: isWhite ? 'white' : 'black',
       before: {
         score: { kind: 'cp', value: 20 },

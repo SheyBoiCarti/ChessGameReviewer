@@ -1339,7 +1339,9 @@ li[data-selected='true'] {
   cursor: pointer;
   font-size: 0.875rem;
   font-family: inherit;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .analysis-move-row:hover:not(:disabled) {
