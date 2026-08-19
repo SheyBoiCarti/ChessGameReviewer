@@ -232,4 +232,56 @@ describe('parseGamePgn', () => {
       }
     }
   });
+
+  it('populates whitePlayer and blackPlayer from NormalizedGameSummary', () => {
+    const result = parseGamePgn({
+      game: {
+        id: 'player-test-1',
+        url: 'https://www.chess.com/game/live/p1',
+        usernameKey: 'alice',
+        userColor: 'white',
+        result: 'win',
+        endedAt: 1,
+        timeClass: 'blitz',
+        rated: true,
+        userRating: 1500,
+        opponentRating: 1600,
+        whitePlayer: { username: 'Alice', rating: 1500 },
+        blackPlayer: { username: 'Bob', rating: 1600 },
+        rules: 'chess',
+        pgn: '1. e4 e5 1-0',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.game.whitePlayer).toEqual({ username: 'Alice', rating: 1500 });
+    expect(result.game.blackPlayer).toEqual({ username: 'Bob', rating: 1600 });
+  });
+
+  it('extracts whitePlayer and blackPlayer from PGN headers as fallback when not provided on summary', () => {
+    const result = parseGamePgn({
+      game: {
+        id: 'player-test-fallback',
+        url: 'https://www.chess.com/game/live/pf',
+        usernameKey: 'alice',
+        userColor: 'white',
+        result: 'win',
+        endedAt: 1,
+        timeClass: 'blitz',
+        rated: true,
+        userRating: null,
+        opponentRating: null,
+        whitePlayer: undefined as any,
+        blackPlayer: undefined as any,
+        rules: 'chess',
+        pgn: '[White "MagnusCarlsen"]\n[Black "HikaruNakamura"]\n[WhiteElo "2850"]\n[BlackElo "2800"]\n\n1. e4 e5 1-0',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.game.whitePlayer).toEqual({ username: 'MagnusCarlsen', rating: 2850 });
+    expect(result.game.blackPlayer).toEqual({ username: 'HikaruNakamura', rating: 2800 });
+  });
 });
