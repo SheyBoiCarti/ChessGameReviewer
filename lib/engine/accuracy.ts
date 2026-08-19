@@ -222,15 +222,16 @@ export function classifyMoveAccuracy(
     }
   }
 
+  if (uci && bestMoveUci && uci === bestMoveUci) {
+    return classified('best', loss, mateTransition);
+  }
+
   if (loss <= 0.02 + Number.EPSILON) {
-    if (bestMoveUci !== undefined) {
-      return classified(
-        uci === bestMoveUci && loss <= Number.EPSILON ? 'best' : 'excellent',
-        loss,
-        mateTransition
-      );
-    }
-    return classified(loss <= Number.EPSILON ? 'best' : 'excellent', loss, mateTransition);
+    return classified(
+      bestMoveUci === undefined && loss <= Number.EPSILON ? 'best' : 'excellent',
+      loss,
+      mateTransition
+    );
   }
 
   if (loss <= 0.05 + Number.EPSILON) {
@@ -262,10 +263,10 @@ function classifyMateTransition(
   const beforeOpponentMate = isForcedMateForOpponent(before, mover);
   const afterOpponentMate = isForcedMateForOpponent(after, mover);
 
+  if (!beforeOpponentMate && afterOpponentMate) return 'conceded';
   if (beforeOwnMate && !afterOwnMate) return 'missed';
   if (beforeOwnMate && afterOwnMate) return 'retained';
   if (!beforeOwnMate && afterOwnMate) return 'gained';
-  if (!beforeOpponentMate && afterOpponentMate) return 'conceded';
   return undefined;
 }
 

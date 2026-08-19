@@ -210,6 +210,32 @@ describe('Analyzer accuracy estimate v2', () => {
     ).toMatchObject({ quality: 'excellent' });
   });
 
+  it('stabilizes exact best move classification even with search noise loss', () => {
+    expect(
+      classifyMoveAccuracy({
+        beforeScore: { kind: 'cp', value: 50 },
+        afterScore: { kind: 'cp', value: 40 }, // small loss ~0.014
+        mover: 'white',
+        fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        uci: 'e2e4',
+        bestMoveUci: 'e2e4',
+        isBook: false,
+      })
+    ).toMatchObject({ quality: 'best' });
+
+    expect(
+      classifyMoveAccuracy({
+        beforeScore: { kind: 'cp', value: 50 },
+        afterScore: { kind: 'cp', value: 40 }, // small loss ~0.014
+        mover: 'white',
+        fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        uci: 'g1f3',
+        bestMoveUci: 'e2e4',
+        isBook: false,
+      })
+    ).toMatchObject({ quality: 'excellent' });
+  });
+
   it('classifies miss when mover had >= 0.85 win probability and lost > 0.15', () => {
     expect(
       classifyMoveAccuracy({
@@ -297,7 +323,20 @@ describe('Analyzer accuracy estimate v2', () => {
         bestMoveUci: 'c1b2',
         isBook: false,
       })
-    ).toMatchObject({ quality: 'miss', mateTransition: 'missed' });
+    ).toMatchObject({ quality: 'blunder', mateTransition: 'conceded' });
+
+    // Black perspective mate-to-mate reversal (Black had mate in 2, conceded White mate in 1)
+    expect(
+      classifyMoveAccuracy({
+        beforeScore: { kind: 'mate', value: -2 },
+        afterScore: { kind: 'mate', value: 1 },
+        mover: 'black',
+        fenBefore: '8/8/8/8/8/K7/8/k1q5 b - - 0 1',
+        uci: 'c1a3',
+        bestMoveUci: 'c1b2',
+        isBook: false,
+      })
+    ).toMatchObject({ quality: 'blunder', mateTransition: 'conceded' });
   });
 
   it('correctly handles black perspective', () => {
