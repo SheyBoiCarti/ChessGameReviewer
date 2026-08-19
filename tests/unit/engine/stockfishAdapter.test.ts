@@ -31,7 +31,7 @@ class FakeEngine {
 }
 
 describe('StockfishAdapter', () => {
-  it('initializes UCI, applies options, and returns deepest line for each multipv', async () => {
+  it('initializes UCI, applies options, and returns coherent same-depth snapshot for MultiPV', async () => {
     const engine = new FakeEngine();
     const adapter = new StockfishAdapter(async () => engine, { timeoutMs: 100 });
     const initialized = adapter.initialize({ hashMb: 32, threads: 1 });
@@ -47,6 +47,36 @@ describe('StockfishAdapter', () => {
       'isready',
     ]);
 
+    // Depth 11 has both MultiPV 1 and MultiPV 2. Depth 12 has only MultiPV 1.
+    const evaluated = adapter.evaluate(
+      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      { depth: 12 },
+      2
+    );
+    engine.emit('info depth 10 multipv 1 score cp 15 pv e2e4');
+    engine.emit('info depth 11 multipv 1 score cp 18 pv e2e4 e7e5');
+    engine.emit('info depth 11 multipv 2 score mate -3 pv d2d4');
+    engine.emit('info depth 12 multipv 1 score cp 21 pv e2e4 e7e5 g1f3');
+    engine.emit('bestmove e2e4');
+    await expect(evaluated).resolves.toMatchObject({
+      bestMove: 'e2e4',
+      lines: [
+        { multiPv: 1, depth: 11 },
+        { multiPv: 2, depth: 11 },
+      ],
+    });
+  });
+
+  it('returns deepest primary line alone when no complete MultiPV depth exists', async () => {
+    const engine = new FakeEngine();
+    const adapter = new StockfishAdapter(async () => engine, { timeoutMs: 100 });
+    const initialized = adapter.initialize({ hashMb: 16, threads: 1 });
+    await Promise.resolve();
+    engine.emit('uciok');
+    await Promise.resolve();
+    engine.emit('readyok');
+    await initialized;
+
     const evaluated = adapter.evaluate(
       'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
       { depth: 12 },
@@ -54,15 +84,10 @@ describe('StockfishAdapter', () => {
     );
     engine.emit('info depth 10 multipv 1 score cp 15 pv e2e4');
     engine.emit('info depth 12 multipv 1 score cp 21 pv e2e4 e7e5');
-    engine.emit('info depth 11 multipv 2 score mate -3 pv d2d4');
     engine.emit('bestmove e2e4');
-    await expect(evaluated).resolves.toMatchObject({
-      bestMove: 'e2e4',
-      lines: [
-        { multiPv: 1, depth: 12 },
-        { multiPv: 2, depth: 11 },
-      ],
-    });
+    const result = await evaluated;
+    expect(result.lines).toHaveLength(1);
+    expect(result.lines[0]).toMatchObject({ multiPv: 1, depth: 12 });
   });
 
   it('stops and drains bestmove before a cancelled search settles', async () => {

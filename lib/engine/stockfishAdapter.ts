@@ -45,7 +45,9 @@ export class StockfishAdapter {
   >();
   private search:
     | {
-        lines: Map<number, EvaluationLine>;
+        requestedMultiPv: number;
+        snapshotsByDepth: Map<number, Map<number, EvaluationLine>>;
+        deepestPrimary: EvaluationLine | undefined;
         resolve: (result: EvaluationResult) => void;
         reject: (error: Error) => void;
         abort?: AbortSignal;
@@ -95,7 +97,14 @@ export class StockfishAdapter {
     this.engine!.post(`go ${goCommand(limit)}`);
     return new Promise<EvaluationResult>((resolve, reject) => {
       const onAbort = () => this.stop();
-      const search = { lines: new Map<number, EvaluationLine>(), resolve, reject, onAbort };
+      const search = {
+        requestedMultiPv: multiPv,
+        snapshotsByDepth: new Map<number, Map<number, EvaluationLine>>(),
+        deepestPrimary: undefined as EvaluationLine | undefined,
+        resolve,
+        reject,
+        onAbort,
+      };
       this.search = signal ? { ...search, abort: signal } : search;
       signal?.addEventListener('abort', onAbort, { once: true });
     });
@@ -148,26 +157,78 @@ export class StockfishAdapter {
       this.search = undefined;
       search.abort?.removeEventListener('abort', search.onAbort!);
       this.state = 'ready';
-      if (search.abort?.aborted) search.reject(abortError());
-      else
+      if (search.abort?.aborted) {
+        search.reject(abortError());
+      } else {
+        const resolvedLines = this.selectCoherentLines(search);
         search.resolve({
           bestMove: line.move,
-          lines: [...search.lines.values()].sort((a, b) => a.multiPv - b.multiPv),
+          lines: resolvedLines,
         });
+      }
     }
   }
+
   private collect(info: UciInfo): void {
     if (!this.search || !info.score || info.score.bound || !info.depth || !info.pv?.length) return;
     const multiPv = info.multiPv ?? 1;
-    const old = this.search.lines.get(multiPv);
-    if (!old || info.depth >= old.depth)
-      this.search.lines.set(multiPv, {
-        multiPv,
-        depth: info.depth,
-        score: info.score,
-        pv: info.pv,
-      });
+    const line: EvaluationLine = {
+      multiPv,
+      depth: info.depth,
+      score: info.score,
+      pv: info.pv,
+    };
+
+    if (multiPv === 1) {
+      if (!this.search.deepestPrimary || info.depth >= this.search.deepestPrimary.depth) {
+        this.search.deepestPrimary = line;
+      }
+    }
+
+    let depthMap = this.search.snapshotsByDepth.get(info.depth);
+    if (!depthMap) {
+      depthMap = new Map<number, EvaluationLine>();
+      this.search.snapshotsByDepth.set(info.depth, depthMap);
+    }
+    depthMap.set(multiPv, line);
   }
+
+  private selectCoherentLines(search: {
+    requestedMultiPv: number;
+    snapshotsByDepth: Map<number, Map<number, EvaluationLine>>;
+    deepestPrimary: EvaluationLine | undefined;
+  }): EvaluationLine[] {
+    const depths = [...search.snapshotsByDepth.keys()].sort((a, b) => b - a);
+
+    if (search.requestedMultiPv > 1) {
+      for (const depth of depths) {
+        const depthMap = search.snapshotsByDepth.get(depth)!;
+        let isComplete = true;
+        for (let pv = 1; pv <= search.requestedMultiPv; pv++) {
+          if (!depthMap.has(pv)) {
+            isComplete = false;
+            break;
+          }
+        }
+        if (isComplete) {
+          return [...depthMap.values()].sort((a, b) => a.multiPv - b.multiPv);
+        }
+      }
+    }
+
+    if (search.deepestPrimary) {
+      return [search.deepestPrimary];
+    }
+
+    for (const depth of depths) {
+      const depthMap = search.snapshotsByDepth.get(depth)!;
+      const primary = depthMap.get(1);
+      if (primary) return [primary];
+    }
+
+    return [];
+  }
+
   private waitFor(kind: 'uciok' | 'readyok', signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
