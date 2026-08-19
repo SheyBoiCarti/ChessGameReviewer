@@ -1,7 +1,14 @@
 import { Chess, type Square } from 'chess.js';
 
 import { isExactScore, type EvaluationScore, type PlayerColor } from '@/lib/engine/evaluation';
-import { scoreToMoverWinProbability } from '@/lib/engine/winProbability';
+import {
+  lossToAccuracyEstimate,
+  scoreToMoverExpectedPoints,
+  scoreToMoverWinProbability,
+  type RatingContext,
+} from '@/lib/engine/winProbability';
+
+export { lossToAccuracyEstimate };
 
 export const ACCURACY_HEURISTIC_VERSION = 'analyzer-accuracy-v2';
 export const ACCURACY_ESTIMATE_NAME = 'Analyzer accuracy estimate';
@@ -33,6 +40,9 @@ export interface MoveContext {
   bestMoveUci?: string;
   secondBestScore?: EvaluationScore;
   isBook: boolean;
+  ratingContext?: RatingContext;
+  moverRating?: number | null;
+  opponentRating?: number | null;
 }
 
 export interface ClassifiedMoveAccuracy {
@@ -135,6 +145,15 @@ export function classifyMoveAccuracy(
   const bestMoveUci = 'bestMoveUci' in input ? input.bestMoveUci : undefined;
   const secondBestScore = 'secondBestScore' in input ? input.secondBestScore : undefined;
   const isBook = 'isBook' in input ? input.isBook : false;
+  const ratingContext: RatingContext | undefined =
+    'ratingContext' in input && input.ratingContext
+      ? input.ratingContext
+      : 'moverRating' in input
+        ? {
+            moverRating: input.moverRating,
+            opponentRating: input.opponentRating,
+          }
+        : undefined;
 
   if (beforeScore.bound || afterScore.bound) {
     return { status: 'indeterminate', reason: 'bound-score' };
@@ -145,8 +164,8 @@ export function classifyMoveAccuracy(
 
   const mateTransition = classifyMateTransition(beforeScore, afterScore, mover);
 
-  const beforeProb = scoreToMoverWinProbability(beforeScore, mover);
-  const afterProb = scoreToMoverWinProbability(afterScore, mover);
+  const beforeProb = scoreToMoverExpectedPoints(beforeScore, mover, ratingContext);
+  const afterProb = scoreToMoverExpectedPoints(afterScore, mover, ratingContext);
   if (
     beforeProb === null ||
     afterProb === null ||
@@ -280,7 +299,7 @@ function classified(
     quality,
     ...(mateTransition ? { mateTransition } : {}),
     probabilityLoss,
-    accuracyEstimate: Math.max(0, 100 * (1 - probabilityLoss)),
+    accuracyEstimate: lossToAccuracyEstimate(probabilityLoss),
     heuristicVersion: ACCURACY_HEURISTIC_VERSION,
   };
 }
