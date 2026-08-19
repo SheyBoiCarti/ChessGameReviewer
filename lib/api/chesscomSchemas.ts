@@ -18,6 +18,10 @@ export interface RawChesscomGame {
   rules: string;
   white: RawChesscomPlayer;
   black: RawChesscomPlayer;
+  accuracies?: {
+    white?: number;
+    black?: number;
+  };
   uuid?: string;
   '@id'?: string;
 }
@@ -272,6 +276,27 @@ export function validateRawGame(
   }
   if (typeof obj['@id'] === 'string') {
     cleanGame['@id'] = obj['@id'];
+  }
+  if (
+    typeof obj['accuracies'] === 'object' &&
+    obj['accuracies'] !== null &&
+    !Array.isArray(obj['accuracies'])
+  ) {
+    const rawAcc = obj['accuracies'] as Record<string, unknown>;
+    const whiteAcc =
+      typeof rawAcc['white'] === 'number' && Number.isFinite(rawAcc['white'])
+        ? rawAcc['white']
+        : undefined;
+    const blackAcc =
+      typeof rawAcc['black'] === 'number' && Number.isFinite(rawAcc['black'])
+        ? rawAcc['black']
+        : undefined;
+    if (whiteAcc !== undefined || blackAcc !== undefined) {
+      cleanGame.accuracies = {
+        ...(whiteAcc !== undefined ? { white: whiteAcc } : {}),
+        ...(blackAcc !== undefined ? { black: blackAcc } : {}),
+      };
+    }
   }
 
   return { success: true, game: cleanGame };

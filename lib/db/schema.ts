@@ -1,4 +1,4 @@
-import type { PlayerColor, TimeClass, GameResult } from '../api/contracts';
+import type { PlayerColor, TimeClass, GameResult, SideAccuracy } from '../api/contracts';
 
 export const DB_NAME = 'ChessGameAnalyzerDB';
 export const SCHEMA_VERSION = 2;
@@ -38,6 +38,7 @@ export interface GameRecord {
   rated: boolean;
   userRating: number | null;
   opponentRating: number | null;
+  accuracies?: SideAccuracy | undefined;
   pgn: string;
   rules: 'chess';
 }

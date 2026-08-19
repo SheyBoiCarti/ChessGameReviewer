@@ -71,6 +71,11 @@ export type ValidationResult<T> =
 
 export type GameResult = 'win' | 'draw' | 'loss';
 
+export interface SideAccuracy {
+  white?: number | null | undefined;
+  black?: number | null | undefined;
+}
+
 export interface NormalizedGameSummary {
   id: string; // stable identifier: game URL or UUID
   url: string;
@@ -84,6 +89,7 @@ export interface NormalizedGameSummary {
   rated: boolean;
   userRating: number | null;
   opponentRating: number | null;
+  accuracies?: SideAccuracy | undefined;
   pgn?: string | undefined;
   rules: 'chess';
 }

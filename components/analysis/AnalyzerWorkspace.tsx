@@ -2,7 +2,7 @@
 
 import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGame';
 import { analysisPreset } from '@/features/stockfish-analysis/presentation';
-import type { AnalysisStrength } from '@/features/workspace/types';
+import type { SideAccuracy } from '@/lib/api/contracts';
 import { ACCURACY_HEURISTIC_VERSION } from '@/lib/engine/accuracy';
 import type { EngineCapability } from '@/lib/engine/capabilities';
 
@@ -34,6 +34,7 @@ export interface AnalyzerWorkspaceProps {
   onSelectPly(ply: number): void;
   selectedPly: number;
   fenByPly: Readonly<Record<number, string>>;
+  upstreamAccuracies?: SideAccuracy | undefined;
 }
 
 export function AnalyzerWorkspace({
@@ -49,6 +50,7 @@ export function AnalyzerWorkspace({
   onSelectPly,
   selectedPly,
   fenByPly,
+  upstreamAccuracies,
 }: AnalyzerWorkspaceProps) {
   const preset = analysisPreset(strength);
   const limitLabel = preset.limit.depth
@@ -111,7 +113,7 @@ export function AnalyzerWorkspace({
       ) : null}
       {result && result.annotations.length > 0 ? (
         <>
-          <GameReviewSummaryCard result={result} />
+          <GameReviewSummaryCard result={result} upstreamAccuracies={upstreamAccuracies} />
           <MoveAccuracyGraph annotations={result.annotations} onSelectPly={onSelectPly} />
           <AnalysisMoveList
             id="analysis-move-list"

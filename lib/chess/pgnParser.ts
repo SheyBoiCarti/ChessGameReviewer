@@ -24,6 +24,7 @@ export interface ParsedGame {
   rated: boolean;
   userRating: number | null;
   opponentRating: number | null;
+  accuracies?: NormalizedGameSummary['accuracies'];
   plies: readonly MovePly[];
   warnings: readonly Diagnostic[];
 }
@@ -73,6 +74,7 @@ export function parseGamePgn({ game }: { game: NormalizedGameSummary }): ParseRe
         rated: game.rated,
         userRating: game.userRating,
         opponentRating: game.opponentRating,
+        ...(game.accuracies ? { accuracies: game.accuracies } : {}),
         plies,
         warnings: [],
       },
