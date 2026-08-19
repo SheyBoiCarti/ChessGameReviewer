@@ -1,4 +1,5 @@
 import { DB_NAME, SCHEMA_VERSION, STORES } from './schema';
+import { extractPgnPlayers } from '../chess/pgnHeaders';
 
 export class StorageUnavailableError extends Error {
   constructor(message = 'IndexedDB storage is unavailable or blocked.') {
@@ -144,6 +145,62 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
       // meta store
       if (!upgradeError && !Array.from(db.objectStoreNames).includes(STORES.META)) {
         db.createObjectStore(STORES.META, { keyPath: 'name' });
+      }
+
+      // v2 -> v3 migration: backfill whitePlayer and blackPlayer on existing games
+      if (!upgradeError && event.oldVersion > 0 && event.oldVersion < 3 && gamesStore) {
+        try {
+          const cursorReq = gamesStore.openCursor();
+          cursorReq.onsuccess = () => {
+            const cursor = cursorReq.result;
+            if (!cursor) return;
+            const record = cursor.value;
+            if (!record.whitePlayer || !record.blackPlayer) {
+              const pgnData =
+                typeof record.pgn === 'string'
+                  ? extractPgnPlayers(record.pgn)
+                  : {
+                      white: { username: null, rating: null },
+                      black: { username: null, rating: null },
+                    };
+
+              const userColor = record.userColor === 'black' ? 'black' : 'white';
+              const userRating =
+                typeof record.userRating === 'number' && Number.isFinite(record.userRating)
+                  ? record.userRating
+                  : null;
+              const opponentRating =
+                typeof record.opponentRating === 'number' && Number.isFinite(record.opponentRating)
+                  ? record.opponentRating
+                  : null;
+
+              const whiteUsername =
+                pgnData.white.username ?? (userColor === 'white' ? record.username : null);
+              const blackUsername =
+                pgnData.black.username ?? (userColor === 'black' ? record.username : null);
+              const whiteRating =
+                pgnData.white.rating ?? (userColor === 'white' ? userRating : opponentRating);
+              const blackRating =
+                pgnData.black.rating ?? (userColor === 'black' ? userRating : opponentRating);
+
+              const updatedRecord = {
+                ...record,
+                whitePlayer: {
+                  username: whiteUsername,
+                  rating: whiteRating,
+                },
+                blackPlayer: {
+                  username: blackUsername,
+                  rating: blackRating,
+                },
+              };
+              cursor.update(updatedRecord);
+            }
+            cursor.continue();
+          };
+        } catch {
+          // Non-blocking guard for cursor initialization errors during upgrade
+        }
       }
     };
 
