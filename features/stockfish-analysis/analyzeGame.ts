@@ -15,7 +15,7 @@ import {
 } from '@/lib/engine/evaluation';
 import type { EvaluationResult } from '@/lib/engine/stockfishAdapter';
 
-import { bookMoveKey } from './bookMoves';
+import { bookMoveKey, repertoireMoveKey } from './bookMoves';
 import { EvaluationCache, serializeEvaluationKey, type EvaluationKey } from './evaluationCache';
 
 export interface AnalysisEngine {
@@ -61,6 +61,7 @@ export interface ColorAnalysisSummary {
   accuracyEstimate: number | null;
   eligibleMoves: number;
   excludedMoves: number;
+  repertoireMoves?: number;
   breakdown: MoveBreakdown;
 }
 
@@ -87,6 +88,7 @@ export interface AnalyzeGameInput {
   cache: EvaluationCache;
   /** A subset of one-based ply numbers; omitted means all legal plies. */
   plies?: readonly number[];
+  repertoireMoveKeys?: ReadonlySet<string>;
   bookMoveKeys?: ReadonlySet<string>;
   signal?: AbortSignal;
   onProgress?: (progress: { analyzedPlies: number; totalPlies: number }) => void;
@@ -101,6 +103,7 @@ export async function analyzeGame(input: AnalyzeGameInput): Promise<GameAnalysis
   const annotations: GameAnnotation[] = [];
   const evaluations = new Map<string, Promise<PositionEvaluation>>();
   let failure: unknown;
+  const repertoireKeys = input.repertoireMoveKeys ?? input.bookMoveKeys;
 
   for (const ply of plies) {
     if (input.signal?.aborted) return result('cancelled', annotations, plies.length);
@@ -113,7 +116,8 @@ export async function analyzeGame(input: AnalyzeGameInput): Promise<GameAnalysis
       const secondBestScore = before.candidates.find(
         ({ multiPv, depth }) => multiPv === 2 && depth === before.depth
       )?.score;
-      const isBook = input.bookMoveKeys?.has(bookMoveKey(ply.positionBefore, ply.uci)) ?? false;
+      const isRepertoire =
+        repertoireKeys?.has(repertoireMoveKey(ply.positionBefore, ply.uci)) ?? false;
 
       const accuracy = classifyMoveAccuracy({
         beforeScore: before.score,
@@ -123,7 +127,9 @@ export async function analyzeGame(input: AnalyzeGameInput): Promise<GameAnalysis
         uci: ply.uci,
         bestMoveUci: before.bestMove,
         ...(secondBestScore ? { secondBestScore } : {}),
-        isBook,
+        isRepertoire,
+        isBook: isRepertoire,
+        pv: before.pv,
       });
 
       annotations.push({
@@ -315,11 +321,15 @@ function summarizeColor(
   const moves = annotations.filter((annotation) => annotation.mover === color);
   const breakdown = emptyBreakdown();
   const estimates: number[] = [];
+  let repertoireMoves = 0;
 
   for (const annotation of moves) {
     if (annotation.accuracy.status === 'classified') {
       estimates.push(annotation.accuracy.accuracyEstimate);
       breakdown[annotation.accuracy.quality] += 1;
+      if (annotation.accuracy.tags?.includes('repertoire')) {
+        repertoireMoves += 1;
+      }
     }
   }
 
@@ -330,6 +340,7 @@ function summarizeColor(
         : estimates.reduce((sum, estimate) => sum + estimate, 0) / estimates.length,
     eligibleMoves: estimates.length,
     excludedMoves: moves.length - estimates.length,
+    repertoireMoves,
     breakdown,
   };
 }

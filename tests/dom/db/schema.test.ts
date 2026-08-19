@@ -20,7 +20,7 @@ describe('Schema & Runtime Validation', () => {
   it('exports schema version and store name constants', () => {
     expect(DB_NAME).toBe('ChessGameAnalyzerDB');
     expect(SCHEMA_VERSION).toBe(2);
-    expect(NORMALIZER_VERSION).toBe(2);
+    expect(NORMALIZER_VERSION).toBe(3);
     expect(STORES.ARCHIVE_SYNC).toBe('archiveSync');
     expect(STORES.GAMES).toBe('games');
     expect(STORES.EVALUATIONS).toBe('evaluations');

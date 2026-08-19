@@ -160,7 +160,7 @@ describe('analyzeGame', () => {
     expect(result.summary.white.breakdown.great).toBe(0);
   });
 
-  it('identifies personal book moves from passed bookMoveKeys', async () => {
+  it('identifies personal repertoire moves from passed repertoireMoveKeys', async () => {
     const repository = new MemoryRepository();
     const rootResult: EvaluationResult = {
       bestMove: 'd2d4',
@@ -174,7 +174,9 @@ describe('analyzeGame', () => {
       bestMove: 'g1f3',
       lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 30 }, pv: ['g1f3'] }],
     };
-    const bookKeys = new Set(['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -\u0000e2e4']);
+    const repertoireKeys = new Set([
+      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -\u0000e2e4',
+    ]);
 
     const result = await analyzeGame({
       game: parsedGame,
@@ -185,11 +187,14 @@ describe('analyzeGame', () => {
       }),
       cache: new EvaluationCache(repository, () => 1),
       settings,
-      bookMoveKeys: bookKeys,
+      repertoireMoveKeys: repertoireKeys,
     });
 
-    expect(result.annotations[0]?.accuracy).toMatchObject({ quality: 'book' });
-    expect(result.summary.white.breakdown.book).toBe(1);
+    expect(result.annotations[0]?.accuracy).toMatchObject({
+      quality: 'excellent',
+      tags: ['repertoire'],
+    });
+    expect(result.summary.white.repertoireMoves).toBe(1);
   });
 
   it('resumes from incrementally cached positions after cancellation', async () => {

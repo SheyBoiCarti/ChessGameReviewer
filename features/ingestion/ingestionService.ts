@@ -204,6 +204,7 @@ function normalizeRawGame(raw: RawChesscomGame, username: string): Normalization
       rated: raw.rated ?? false,
       userRating: user.rating ?? null,
       opponentRating: opponent.rating ?? null,
+      ...(raw.accuracies ? { accuracies: raw.accuracies } : {}),
       pgn: raw.pgn ?? '',
       rules: 'chess',
     },

@@ -88,7 +88,7 @@ describe('AnalyzerWorkspace', () => {
     expect(onStart).toHaveBeenCalledWith('quick');
   });
 
-  it('renders GameReviewSummaryCard with all eleven quality rows and player accuracies', () => {
+  it('renders GameReviewSummaryCard with all ten quality rows and player local estimates', () => {
     const completeResult: GameAnalysisResult = {
       status: 'complete',
       annotations: [annotation()],
@@ -128,6 +128,8 @@ describe('AnalyzerWorkspace', () => {
     );
 
     expect(screen.getByText('Game Review Summary')).toBeInTheDocument();
+    expect(screen.getByText('White Local estimate')).toBeInTheDocument();
+    expect(screen.getByText('Black Local estimate')).toBeInTheDocument();
     expect(screen.getByText('94.5%')).toBeInTheDocument();
     expect(screen.getByText('88.2%')).toBeInTheDocument();
 
@@ -139,6 +141,53 @@ describe('AnalyzerWorkspace', () => {
     expect(screen.getAllByRole('table').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('columnheader', { name: 'White' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Black' })).toBeInTheDocument();
+  });
+
+  it('renders separate Chess.com accuracy cards when upstreamAccuracies are provided', () => {
+    const completeResult: GameAnalysisResult = {
+      status: 'complete',
+      annotations: [annotation()],
+      analyzedPlies: 2,
+      totalPlies: 2,
+      summary: {
+        white: {
+          accuracyEstimate: 94.5,
+          eligibleMoves: 1,
+          excludedMoves: 0,
+          breakdown: { ...emptyBreakdown(), excellent: 1 },
+        },
+        black: {
+          accuracyEstimate: 88.2,
+          eligibleMoves: 1,
+          excludedMoves: 0,
+          breakdown: { ...emptyBreakdown(), good: 1 },
+        },
+      },
+    };
+
+    render(
+      <AnalyzerWorkspace
+        capability={capability('threaded')}
+        status="complete"
+        result={completeResult}
+        progress={null}
+        strength="balanced"
+        onStrengthChange={vi.fn()}
+        onStart={vi.fn()}
+        onCancel={vi.fn()}
+        onResume={vi.fn()}
+        onSelectPly={vi.fn()}
+        selectedPly={1}
+        fenByPly={{ 1: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }}
+        upstreamAccuracies={{ white: 93.1, black: 72.2 }}
+      />
+    );
+
+    expect(screen.getByText('White Local estimate')).toBeInTheDocument();
+    expect(screen.getByText('White Chess.com accuracy')).toBeInTheDocument();
+    expect(screen.getByText('Black Chess.com accuracy')).toBeInTheDocument();
+    expect(screen.getByText('93.1%')).toBeInTheDocument();
+    expect(screen.getByText('72.2%')).toBeInTheDocument();
   });
 
   it('supports cancel and partial resume while navigating real annotations and displaying coverage', async () => {
@@ -277,7 +326,6 @@ function emptyBreakdown(): MoveBreakdown {
     best: 0,
     excellent: 0,
     good: 0,
-    book: 0,
     inaccuracy: 0,
     mistake: 0,
     blunder: 0,
@@ -358,7 +406,7 @@ function annotation(): GameAnnotation {
       quality: 'excellent',
       probabilityLoss: 0.01,
       accuracyEstimate: 99,
-      heuristicVersion: 'analyzer-accuracy-v2',
+      heuristicVersion: 'analyzer-accuracy-v3',
     },
     settings,
   };

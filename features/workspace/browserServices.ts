@@ -22,8 +22,7 @@ import {
   putArchiveListMeta,
   saveSyncBatch,
 } from '@/lib/db/repositories';
-// Legacy serialized value retained only as the raw evaluation cache identity.
-const ENGINE_EVALUATION_CACHE_VERSION = 'analyzer-accuracy-v1';
+const ENGINE_EVALUATION_CACHE_VERSION = 'engine-evaluation-v2';
 const ENGINE_BUILD = 'Stockfish 18';
 const NETWORK_HASH = '9067e33176e';
 const NORMALIZATION_VERSION = 'white-perspective-v1';

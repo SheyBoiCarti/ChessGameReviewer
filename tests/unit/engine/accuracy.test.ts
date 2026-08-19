@@ -7,22 +7,21 @@ import {
   classifyMoveAccuracy,
 } from '@/lib/engine/accuracy';
 
-describe('Analyzer accuracy estimate v2', () => {
+describe('Analyzer accuracy estimate v3', () => {
   const white = (value: number) => ({ kind: 'cp' as const, value });
 
   it('is explicitly versioned and named as a project estimate', () => {
-    expect(ACCURACY_HEURISTIC_VERSION).toBe('analyzer-accuracy-v2');
+    expect(ACCURACY_HEURISTIC_VERSION).toBe('analyzer-accuracy-v3');
     expect(ACCURACY_ESTIMATE_NAME).toBe('Analyzer accuracy estimate');
   });
 
-  it('exports the complete list of 11 review move qualities', () => {
+  it('exports the complete list of 10 review move qualities', () => {
     expect(REVIEW_MOVE_QUALITIES).toEqual([
       'brilliant',
       'great',
       'best',
       'excellent',
       'good',
-      'book',
       'inaccuracy',
       'mistake',
       'blunder',
@@ -53,29 +52,77 @@ describe('Analyzer accuracy estimate v2', () => {
     }
   );
 
-  it('detects the offered bishop in Bxh7+ instead of comparing immediate material totals', () => {
+  it('detects the sound bishop sacrifice in Bxh7+ when proven by PV reply', () => {
     expect(
       classifyMoveAccuracy({
-        beforeScore: { kind: 'cp', value: 350 },
+        beforeScore: { kind: 'cp', value: 200 },
         afterScore: { kind: 'cp', value: 380 },
         mover: 'white',
         fenBefore: 'r1bq1rk1/ppp2ppp/2n1pn2/3p4/2PP4/2NBPN2/PP3PPP/R1BQK2R w KQ - 0 1',
         uci: 'd3h7',
         bestMoveUci: 'd3h7',
+        pv: ['d3h7', 'g8h7', 'f3g5'],
         isBook: false,
       })
     ).toMatchObject({ quality: 'brilliant' });
   });
 
+  it('does not classify brilliant when PV is absent or too short', () => {
+    expect(
+      classifyMoveAccuracy({
+        beforeScore: { kind: 'cp', value: 200 },
+        afterScore: { kind: 'cp', value: 380 },
+        mover: 'white',
+        fenBefore: 'r1bq1rk1/ppp2ppp/2n1pn2/3p4/2PP4/2NBPN2/PP3PPP/R1BQK2R w KQ - 0 1',
+        uci: 'd3h7',
+        bestMoveUci: 'd3h7',
+        pv: ['d3h7'],
+        isBook: false,
+      })
+    ).not.toMatchObject({ quality: 'brilliant' });
+  });
+
+  it('does not classify 8.Nbxd2 from the investigated game as brilliant', () => {
+    // 7...Bxd2+ 8.Nbxd2 in game 173037119764
+    expect(
+      classifyMoveAccuracy({
+        beforeScore: { kind: 'cp', value: 45 },
+        afterScore: { kind: 'cp', value: 45 },
+        mover: 'white',
+        fenBefore: 'r1bqk2r/pppp1ppp/2n2n2/8/2BPP3/5N2/PP1b1PPP/RN1QK2R w KQkq - 0 8',
+        uci: 'b1d2',
+        bestMoveUci: 'b1d2',
+        pv: ['b1d2', 'd7d5', 'e4d5'],
+        isBook: false,
+      })
+    ).not.toMatchObject({ quality: 'brilliant' });
+  });
+
+  it('does not call an offered piece brilliant when the position was already trivially won', () => {
+    expect(
+      classifyMoveAccuracy({
+        beforeScore: { kind: 'cp', value: 900 }, // beforeProb > 0.99
+        afterScore: { kind: 'cp', value: 950 },
+        mover: 'white',
+        fenBefore: 'r1bq1rk1/ppp2ppp/2n1pn2/3p4/2PP4/2NBPN2/PP3PPP/R1BQK2R w KQ - 0 1',
+        uci: 'd3h7',
+        bestMoveUci: 'd3h7',
+        pv: ['d3h7', 'g8h7'],
+        isBook: false,
+      })
+    ).not.toMatchObject({ quality: 'brilliant' });
+  });
+
   it('does not call an offered piece brilliant when it was not the engine best move', () => {
     expect(
       classifyMoveAccuracy({
-        beforeScore: { kind: 'cp', value: 350 },
+        beforeScore: { kind: 'cp', value: 200 },
         afterScore: { kind: 'cp', value: 380 },
         mover: 'white',
         fenBefore: 'r1bq1rk1/ppp2ppp/2n1pn2/3p4/2PP4/2NBPN2/PP3PPP/R1BQK2R w KQ - 0 1',
         uci: 'd3h7',
         bestMoveUci: 'c4d5',
+        pv: ['c4d5', 'e6d5'],
         isBook: false,
       })
     ).not.toMatchObject({ quality: 'brilliant' });
@@ -90,6 +137,7 @@ describe('Analyzer accuracy estimate v2', () => {
         fenBefore: 'r1bq1rk1/ppp2ppp/2n1pn2/3p4/2PP4/2NBPN2/PP3PPP/R1BQK2R w KQ - 0 1',
         uci: 'd3h7',
         bestMoveUci: 'd3h7',
+        pv: ['d3h7', 'g8h7'],
         isBook: false,
       })
     ).not.toMatchObject({ quality: 'brilliant' });
@@ -104,6 +152,7 @@ describe('Analyzer accuracy estimate v2', () => {
         fenBefore: '4r1k1/5ppp/8/8/8/8/8/3QK3 w - - 0 1',
         uci: 'd1e8',
         bestMoveUci: 'd1e8',
+        pv: ['d1e8', 'g8f8'],
         isBook: false,
       })
     ).not.toMatchObject({ quality: 'brilliant' });
@@ -169,7 +218,7 @@ describe('Analyzer accuracy estimate v2', () => {
     ).toMatchObject({ quality: 'forced' });
   });
 
-  it('classifies book when isBook is true and loss is at most 0.02 without harmful mate', () => {
+  it('attaches repertoire tag when isRepertoire or isBook is true while preserving engine quality', () => {
     expect(
       classifyMoveAccuracy({
         beforeScore: { kind: 'cp', value: 20 },
@@ -178,12 +227,10 @@ describe('Analyzer accuracy estimate v2', () => {
         fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
         uci: 'e2e4',
         bestMoveUci: 'd2d4',
-        isBook: true,
+        isRepertoire: true,
       })
-    ).toMatchObject({ quality: 'book' });
-  });
+    ).toMatchObject({ quality: 'excellent', tags: ['repertoire'] });
 
-  it('does not classify book if probability loss exceeds 0.02', () => {
     expect(
       classifyMoveAccuracy({
         beforeScore: { kind: 'cp', value: 20 },
@@ -191,9 +238,10 @@ describe('Analyzer accuracy estimate v2', () => {
         mover: 'white',
         fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
         uci: 'g2g4',
+        bestMoveUci: 'e2e4',
         isBook: true,
       })
-    ).not.toMatchObject({ quality: 'book' });
+    ).toMatchObject({ quality: 'mistake', tags: ['repertoire'] });
   });
 
   it('classifies a zero-loss non-best move as excellent when bestMoveUci is provided', () => {
@@ -201,6 +249,32 @@ describe('Analyzer accuracy estimate v2', () => {
       classifyMoveAccuracy({
         beforeScore: { kind: 'cp', value: 50 },
         afterScore: { kind: 'cp', value: 50 },
+        mover: 'white',
+        fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        uci: 'g1f3',
+        bestMoveUci: 'e2e4',
+        isBook: false,
+      })
+    ).toMatchObject({ quality: 'excellent' });
+  });
+
+  it('stabilizes exact best move classification even with search noise loss', () => {
+    expect(
+      classifyMoveAccuracy({
+        beforeScore: { kind: 'cp', value: 50 },
+        afterScore: { kind: 'cp', value: 40 }, // small loss ~0.014
+        mover: 'white',
+        fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        uci: 'e2e4',
+        bestMoveUci: 'e2e4',
+        isBook: false,
+      })
+    ).toMatchObject({ quality: 'best' });
+
+    expect(
+      classifyMoveAccuracy({
+        beforeScore: { kind: 'cp', value: 50 },
+        afterScore: { kind: 'cp', value: 40 }, // small loss ~0.014
         mover: 'white',
         fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
         uci: 'g1f3',
@@ -297,7 +371,20 @@ describe('Analyzer accuracy estimate v2', () => {
         bestMoveUci: 'c1b2',
         isBook: false,
       })
-    ).toMatchObject({ quality: 'miss', mateTransition: 'missed' });
+    ).toMatchObject({ quality: 'blunder', mateTransition: 'conceded' });
+
+    // Black perspective mate-to-mate reversal (Black had mate in 2, conceded White mate in 1)
+    expect(
+      classifyMoveAccuracy({
+        beforeScore: { kind: 'mate', value: -2 },
+        afterScore: { kind: 'mate', value: 1 },
+        mover: 'black',
+        fenBefore: '8/8/8/8/8/K7/8/k1q5 b - - 0 1',
+        uci: 'c1a3',
+        bestMoveUci: 'c1b2',
+        isBook: false,
+      })
+    ).toMatchObject({ quality: 'blunder', mateTransition: 'conceded' });
   });
 
   it('correctly handles black perspective', () => {
