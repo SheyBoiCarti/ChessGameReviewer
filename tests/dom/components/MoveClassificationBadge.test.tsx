@@ -9,15 +9,19 @@ describe('MoveClassificationBadge', () => {
     'renders accessible badge for quality %s',
     (quality: MoveQuality) => {
       render(<MoveClassificationBadge quality={quality} size="inline" />);
-      const expectedLabel =
-        quality === 'book'
-          ? 'Book move'
-          : `${quality.charAt(0).toUpperCase()}${quality.slice(1)} move`;
+      const expectedLabel = `${quality.charAt(0).toUpperCase()}${quality.slice(1)} move`;
       const badge = screen.getByRole('img', { name: expectedLabel });
       expect(badge).toBeInTheDocument();
       expect(badge).toHaveClass('move-classification-badge');
     }
   );
+
+  it('renders accessible badge for repertoire tag', () => {
+    render(<MoveClassificationBadge tag="repertoire" size="inline" />);
+    const badge = screen.getByRole('img', { name: 'Repertoire move' });
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveClass('badge-repertoire');
+  });
 
   it('renders different size classes', () => {
     const { rerender } = render(<MoveClassificationBadge quality="brilliant" size="inline" />);

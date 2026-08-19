@@ -57,7 +57,7 @@ describe('Stockfish analysis presentation', () => {
         quality: 'blunder',
         probabilityLoss: 1,
         accuracyEstimate: 0,
-        heuristicVersion: 'analyzer-accuracy-v2',
+        heuristicVersion: 'analyzer-accuracy-v3',
       })
     ).toBe('Blunder');
   });

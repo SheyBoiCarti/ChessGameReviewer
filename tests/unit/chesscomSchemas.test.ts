@@ -182,6 +182,28 @@ describe('chesscomSchemas runtime validation', () => {
       }
     });
 
+    it('extracts optional upstream accuracies when present on raw game', () => {
+      const data = {
+        games: [
+          {
+            ...validMonthlyGames.games[0],
+            accuracies: {
+              white: 93.11,
+              black: 72.15,
+            },
+          },
+        ],
+      };
+      const result = validateMonthlyGamesResponse(data);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.games[0]?.accuracies).toEqual({
+          white: 93.11,
+          black: 72.15,
+        });
+      }
+    });
+
     it('handles missing required fields with structured diagnostics tied to stable game ID', () => {
       const result = validateMonthlyGamesResponse(missingFieldsGame);
       expect(result.success).toBe(true);

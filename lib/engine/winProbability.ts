@@ -8,6 +8,11 @@ import {
   type PlayerColor,
 } from '@/lib/engine/evaluation';
 
+export interface RatingContext {
+  moverRating?: number | null;
+  opponentRating?: number | null;
+}
+
 /** A transparent project estimate: 400cp maps to a 10:1 win-probability odds ratio. */
 export function scoreToWhiteWinProbability(score: EvaluationScore): number | null {
   if (!isExactScore(score)) return null;
@@ -25,6 +30,32 @@ export function scoreToMoverWinProbability(
 ): number | null {
   const moverScore = toMoverPerspective(score, mover);
   return moverScore ? scoreToWhiteWinProbability(moverScore) : null;
+}
+
+/**
+ * Maps an engine score to mover expected points in [0, 1].
+ * Accepts rating context; falls back to the transparent neutral model when no calibrated model is configured.
+ */
+export function scoreToMoverExpectedPoints(
+  score: EvaluationScore,
+  mover: PlayerColor,
+  _ratingContext?: RatingContext
+): number | null {
+  return scoreToMoverWinProbability(score, mover);
+}
+
+/**
+ * Nonlinear loss-to-accuracy transformation:
+ * accuracy = 100 * (exp(-5 * loss) - exp(-5)) / (1 - exp(-5))
+ * Clamped to [0, 100].
+ */
+export function lossToAccuracyEstimate(loss: number): number {
+  if (Number.isNaN(loss) || loss <= 0) return 100;
+  if (loss >= 1) return 0;
+  const k = 5;
+  const expMinusK = Math.exp(-k);
+  const raw = (100 * (Math.exp(-k * loss) - expMinusK)) / (1 - expMinusK);
+  return Math.max(0, Math.min(100, raw));
 }
 
 /**

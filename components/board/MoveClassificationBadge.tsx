@@ -1,21 +1,25 @@
 import type React from 'react';
 
-import { moveQualityDetails } from '@/features/stockfish-analysis/presentation';
-import type { MoveQuality } from '@/lib/engine/accuracy';
+import { moveQualityDetails, moveTagDetails } from '@/features/stockfish-analysis/presentation';
+import type { MoveQuality, MoveTag } from '@/lib/engine/accuracy';
 
 export interface MoveClassificationBadgeProps {
-  quality: MoveQuality;
+  quality?: MoveQuality | undefined;
+  tag?: MoveTag | undefined;
   size?: 'inline' | 'square' | 'summary' | undefined;
   ariaHidden?: boolean | undefined;
 }
 
 export function MoveClassificationBadge({
   quality,
+  tag,
   size = 'inline',
   ariaHidden = false,
 }: MoveClassificationBadgeProps): React.JSX.Element {
-  const details = moveQualityDetails(quality);
-  const ariaLabel = quality === 'book' ? 'Book move' : `${details.label} move`;
+  const details = quality ? moveQualityDetails(quality) : tag ? moveTagDetails(tag) : null;
+  if (!details) return <></>;
+
+  const ariaLabel = `${details.label} move`;
 
   return (
     <span

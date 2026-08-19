@@ -122,7 +122,7 @@ describe('runIngestion', () => {
     expect(deps.fetchMonthlyGames).toHaveBeenCalledTimes(1);
     expect(persistMonth).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ id: 'recovered-game', result: 'draw' })]),
-      expect.objectContaining({ normalizerVersion: 2 }),
+      expect.objectContaining({ normalizerVersion: 3 }),
       expect.anything()
     );
   });

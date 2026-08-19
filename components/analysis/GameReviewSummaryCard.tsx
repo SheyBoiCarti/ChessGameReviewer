@@ -3,15 +3,24 @@ import type React from 'react';
 import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
 import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGame';
 import { moveQualityDetails } from '@/features/stockfish-analysis/presentation';
+import type { SideAccuracy } from '@/lib/api/contracts';
 import { REVIEW_MOVE_QUALITIES } from '@/lib/engine/accuracy';
 
 export interface GameReviewSummaryCardProps {
   result: GameAnalysisResult;
+  upstreamAccuracies?: SideAccuracy | undefined;
 }
 
-export function GameReviewSummaryCard({ result }: GameReviewSummaryCardProps): React.JSX.Element {
+export function GameReviewSummaryCard({
+  result,
+  upstreamAccuracies,
+}: GameReviewSummaryCardProps): React.JSX.Element {
   const whiteSummary = result.summary.white;
   const blackSummary = result.summary.black;
+
+  const hasUpstream =
+    upstreamAccuracies !== undefined &&
+    (typeof upstreamAccuracies.white === 'number' || typeof upstreamAccuracies.black === 'number');
 
   return (
     <section className="game-review-summary surface-panel" aria-labelledby="game-review-heading">
@@ -23,18 +32,34 @@ export function GameReviewSummaryCard({ result }: GameReviewSummaryCardProps): R
       ) : null}
       <div className="game-review-summary__accuracies">
         <div className="game-review-summary__accuracy-card">
-          <span className="game-review-summary__player-label">White accuracy</span>
+          <span className="game-review-summary__player-label">White Local estimate</span>
           <span className="game-review-summary__player-value">
             {formatEstimate(whiteSummary.accuracyEstimate)}
           </span>
         </div>
         <div className="game-review-summary__accuracy-card">
-          <span className="game-review-summary__player-label">Black accuracy</span>
+          <span className="game-review-summary__player-label">Black Local estimate</span>
           <span className="game-review-summary__player-value">
             {formatEstimate(blackSummary.accuracyEstimate)}
           </span>
         </div>
       </div>
+      {hasUpstream ? (
+        <div className="game-review-summary__accuracies game-review-summary__accuracies--upstream">
+          <div className="game-review-summary__accuracy-card">
+            <span className="game-review-summary__player-label">White Chess.com accuracy</span>
+            <span className="game-review-summary__player-value">
+              {formatEstimate(upstreamAccuracies.white ?? null)}
+            </span>
+          </div>
+          <div className="game-review-summary__accuracy-card">
+            <span className="game-review-summary__player-label">Black Chess.com accuracy</span>
+            <span className="game-review-summary__player-value">
+              {formatEstimate(upstreamAccuracies.black ?? null)}
+            </span>
+          </div>
+        </div>
+      ) : null}
       <div className="game-review-summary__table-container">
         <table className="game-review-summary__table">
           <thead>
