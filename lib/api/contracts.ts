@@ -76,6 +76,11 @@ export interface SideAccuracy {
   black?: number | null | undefined;
 }
 
+export interface PlayerMetadata {
+  username: string | null;
+  rating: number | null;
+}
+
 export interface NormalizedGameSummary {
   id: string; // stable identifier: game URL or UUID
   url: string;
@@ -89,6 +94,8 @@ export interface NormalizedGameSummary {
   rated: boolean;
   userRating: number | null;
   opponentRating: number | null;
+  whitePlayer: PlayerMetadata;
+  blackPlayer: PlayerMetadata;
   accuracies?: SideAccuracy | undefined;
   pgn?: string | undefined;
   rules: 'chess';

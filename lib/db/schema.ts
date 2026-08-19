@@ -1,8 +1,8 @@
-import type { PlayerColor, TimeClass, GameResult, SideAccuracy } from '../api/contracts';
+import type { PlayerColor, TimeClass, GameResult, SideAccuracy, PlayerMetadata } from '../api/contracts';
 
 export const DB_NAME = 'ChessGameAnalyzerDB';
-export const SCHEMA_VERSION = 2;
-export const NORMALIZER_VERSION = 3;
+export const SCHEMA_VERSION = 3;
+export const NORMALIZER_VERSION = 4;
 
 export const STORES = {
   ARCHIVE_SYNC: 'archiveSync',
@@ -38,6 +38,8 @@ export interface GameRecord {
   rated: boolean;
   userRating: number | null;
   opponentRating: number | null;
+  whitePlayer: PlayerMetadata;
+  blackPlayer: PlayerMetadata;
   accuracies?: SideAccuracy | undefined;
   pgn: string;
   rules: 'chess';
@@ -92,6 +94,13 @@ export function isValidArchiveSyncRecord(data: unknown): data is ArchiveSyncReco
   );
 }
 
+function isValidPlayerMetadata(val: unknown): val is PlayerMetadata {
+  if (!isObject(val)) return false;
+  const usernameValid = typeof val['username'] === 'string' || val['username'] === null;
+  const ratingValid = isFiniteNumber(val['rating']) || val['rating'] === null;
+  return usernameValid && ratingValid;
+}
+
 export function isValidGameRecord(data: unknown): data is GameRecord {
   if (!isObject(data)) return false;
   return (
@@ -108,6 +117,8 @@ export function isValidGameRecord(data: unknown): data is GameRecord {
     typeof data['rated'] === 'boolean' &&
     (isFiniteNumber(data['userRating']) || data['userRating'] === null) &&
     (isFiniteNumber(data['opponentRating']) || data['opponentRating'] === null) &&
+    isValidPlayerMetadata(data['whitePlayer']) &&
+    isValidPlayerMetadata(data['blackPlayer']) &&
     typeof data['pgn'] === 'string' &&
     data['rules'] === 'chess'
   );

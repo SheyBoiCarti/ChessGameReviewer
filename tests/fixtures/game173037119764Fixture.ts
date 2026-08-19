@@ -40,6 +40,8 @@ export const GAME_173037119764_RECORD: GameRecord = {
   rated: true,
   userRating: 1150,
   opponentRating: 1200,
+  whitePlayer: { username: 'cmzulu', rating: 1200 },
+  blackPlayer: { username: 'iamSheyBoiCarti', rating: 1150 },
   pgn: GAME_173037119764_PGN,
   rules: 'chess',
   accuracies: GAME_173037119764_UPSTREAM_ACCURACIES,

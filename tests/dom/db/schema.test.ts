@@ -19,8 +19,8 @@ import {
 describe('Schema & Runtime Validation', () => {
   it('exports schema version and store name constants', () => {
     expect(DB_NAME).toBe('ChessGameAnalyzerDB');
-    expect(SCHEMA_VERSION).toBe(2);
-    expect(NORMALIZER_VERSION).toBe(3);
+    expect(SCHEMA_VERSION).toBe(3);
+    expect(NORMALIZER_VERSION).toBe(4);
     expect(STORES.ARCHIVE_SYNC).toBe('archiveSync');
     expect(STORES.GAMES).toBe('games');
     expect(STORES.EVALUATIONS).toBe('evaluations');
@@ -89,6 +89,28 @@ describe('Schema & Runtime Validation', () => {
         rated: true,
         userRating: 1500,
         opponentRating: 1480,
+        whitePlayer: { username: 'JaneDoe', rating: 1500 },
+        blackPlayer: { username: 'OpponentUser', rating: 1480 },
+        pgn: '1. e4 e5 2. Nf3 Nc6',
+        rules: 'chess',
+      };
+      expect(isValidGameRecord(record)).toBe(true);
+    });
+
+    it('validates game records with null usernames or null ratings', () => {
+      const record: GameRecord = {
+        id: 'https://www.chess.com/game/live/12345',
+        username: 'janedoe',
+        url: 'https://www.chess.com/game/live/12345',
+        userColor: 'white',
+        result: 'win',
+        endedAt: 1700000000,
+        timeClass: 'blitz',
+        rated: true,
+        userRating: null,
+        opponentRating: null,
+        whitePlayer: { username: null, rating: null },
+        blackPlayer: { username: null, rating: null },
         pgn: '1. e4 e5 2. Nf3 Nc6',
         rules: 'chess',
       };
@@ -100,7 +122,7 @@ describe('Schema & Runtime Validation', () => {
         isValidGameRecord({
           id: '123',
           username: 'janedoe',
-          // missing pgn
+          // missing pgn, whitePlayer, blackPlayer
         })
       ).toBe(false);
     });
@@ -166,6 +188,8 @@ describe('Schema & Runtime Validation', () => {
       rated: true,
       userRating: 1500,
       opponentRating: 1480,
+      whitePlayer: { username: 'JaneDoe', rating: 1500 },
+      blackPlayer: { username: 'OpponentUser', rating: 1480 },
       pgn: '1. e4 e5 2. Nf3 Nc6',
       rules: 'chess',
     });
@@ -202,6 +226,9 @@ describe('Schema & Runtime Validation', () => {
       expect(isValidGameRecord({ ...makeGameRecord(), timeClass: 'classical' })).toBe(false);
       expect(isValidGameRecord({ ...makeGameRecord(), userRating: Number.NaN })).toBe(false);
       expect(isValidGameRecord({ ...makeGameRecord(), opponentRating: '1500' })).toBe(false);
+      expect(isValidGameRecord({ ...makeGameRecord(), whitePlayer: null })).toBe(false);
+      expect(isValidGameRecord({ ...makeGameRecord(), blackPlayer: { username: 123, rating: 1500 } })).toBe(false);
+      expect(isValidGameRecord({ ...makeGameRecord(), whitePlayer: { username: 'test', rating: '1500' } })).toBe(false);
 
       expect(isValidEvaluationRecord(null)).toBe(false);
       expect(
