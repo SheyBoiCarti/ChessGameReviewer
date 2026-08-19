@@ -277,7 +277,6 @@ function emptyBreakdown(): MoveBreakdown {
     best: 0,
     excellent: 0,
     good: 0,
-    book: 0,
     inaccuracy: 0,
     mistake: 0,
     blunder: 0,

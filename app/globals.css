@@ -1485,7 +1485,8 @@ li[data-selected='true'] {
   color: #ffffff;
 }
 
-.badge-book {
+.badge-book,
+.badge-repertoire {
   background-color: #a88865;
   color: #ffffff;
 }

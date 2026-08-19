@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { bookMoveKey, collectPersonalBookMoveKeys } from '@/features/stockfish-analysis/bookMoves';
+import {
+  bookMoveKey,
+  collectPersonalBookMoveKeys,
+  collectPersonalRepertoireMoveKeys,
+  repertoireMoveKey,
+} from '@/features/stockfish-analysis/bookMoves';
 import type { SerializedOpeningGraph } from '@/lib/chess/graph/serialization';
 
-describe('bookMoves', () => {
+describe('bookMoves and repertoire', () => {
   const emptyAggregate = {
     games: 0,
     userWins: 0,
@@ -63,24 +68,26 @@ describe('bookMoves', () => {
     paths: [],
   };
 
-  it('generates consistent book move keys', () => {
+  it('generates consistent repertoire move keys', () => {
+    expect(repertoireMoveKey('pos1', 'e2e4')).toBe('pos1\u0000e2e4');
     expect(bookMoveKey('pos1', 'e2e4')).toBe('pos1\u0000e2e4');
   });
 
   it('collects qualifying edges with minimumGames threshold and sorts them deterministically', () => {
-    const keys = collectPersonalBookMoveKeys(snapshot);
+    const keys = collectPersonalRepertoireMoveKeys(snapshot);
     expect(keys).toEqual([
       'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq -\u0000c7c5',
       `${snapshot.rootKey}\u0000e2e4`,
     ]);
+    expect(collectPersonalBookMoveKeys(snapshot)).toEqual(keys);
   });
 
   it('returns empty array for null snapshot', () => {
-    expect(collectPersonalBookMoveKeys(null)).toEqual([]);
+    expect(collectPersonalRepertoireMoveKeys(null)).toEqual([]);
   });
 
   it('respects a custom minimumGames parameter', () => {
-    expect(collectPersonalBookMoveKeys(snapshot, 3)).toEqual([`${snapshot.rootKey}\u0000e2e4`]);
-    expect(collectPersonalBookMoveKeys(snapshot, 4)).toEqual([]);
+    expect(collectPersonalRepertoireMoveKeys(snapshot, 3)).toEqual([`${snapshot.rootKey}\u0000e2e4`]);
+    expect(collectPersonalRepertoireMoveKeys(snapshot, 4)).toEqual([]);
   });
 });

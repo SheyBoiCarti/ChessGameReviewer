@@ -15,14 +15,13 @@ describe('Analyzer accuracy estimate v2', () => {
     expect(ACCURACY_ESTIMATE_NAME).toBe('Analyzer accuracy estimate');
   });
 
-  it('exports the complete list of 11 review move qualities', () => {
+  it('exports the complete list of 10 review move qualities', () => {
     expect(REVIEW_MOVE_QUALITIES).toEqual([
       'brilliant',
       'great',
       'best',
       'excellent',
       'good',
-      'book',
       'inaccuracy',
       'mistake',
       'blunder',
@@ -219,7 +218,7 @@ describe('Analyzer accuracy estimate v2', () => {
     ).toMatchObject({ quality: 'forced' });
   });
 
-  it('classifies book when isBook is true and loss is at most 0.02 without harmful mate', () => {
+  it('attaches repertoire tag when isRepertoire or isBook is true while preserving engine quality', () => {
     expect(
       classifyMoveAccuracy({
         beforeScore: { kind: 'cp', value: 20 },
@@ -228,12 +227,10 @@ describe('Analyzer accuracy estimate v2', () => {
         fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
         uci: 'e2e4',
         bestMoveUci: 'd2d4',
-        isBook: true,
+        isRepertoire: true,
       })
-    ).toMatchObject({ quality: 'book' });
-  });
+    ).toMatchObject({ quality: 'excellent', tags: ['repertoire'] });
 
-  it('does not classify book if probability loss exceeds 0.02', () => {
     expect(
       classifyMoveAccuracy({
         beforeScore: { kind: 'cp', value: 20 },
@@ -241,9 +238,10 @@ describe('Analyzer accuracy estimate v2', () => {
         mover: 'white',
         fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
         uci: 'g2g4',
+        bestMoveUci: 'e2e4',
         isBook: true,
       })
-    ).not.toMatchObject({ quality: 'book' });
+    ).toMatchObject({ quality: 'mistake', tags: ['repertoire'] });
   });
 
   it('classifies a zero-loss non-best move as excellent when bestMoveUci is provided', () => {

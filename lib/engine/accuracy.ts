@@ -19,7 +19,6 @@ export const REVIEW_MOVE_QUALITIES = [
   'best',
   'excellent',
   'good',
-  'book',
   'inaccuracy',
   'mistake',
   'blunder',
@@ -28,6 +27,7 @@ export const REVIEW_MOVE_QUALITIES = [
 ] as const;
 
 export type MoveQuality = (typeof REVIEW_MOVE_QUALITIES)[number];
+export type MoveTag = 'repertoire';
 export type MoveBreakdown = Record<MoveQuality, number>;
 export type MateTransition = 'gained' | 'retained' | 'conceded' | 'missed';
 
@@ -39,7 +39,8 @@ export interface MoveContext {
   uci: string;
   bestMoveUci?: string;
   secondBestScore?: EvaluationScore;
-  isBook: boolean;
+  isRepertoire?: boolean;
+  isBook?: boolean;
   pv?: readonly string[];
   ratingContext?: RatingContext;
   moverRating?: number | null;
@@ -49,6 +50,7 @@ export interface MoveContext {
 export interface ClassifiedMoveAccuracy {
   status: 'classified';
   quality: MoveQuality;
+  tags?: readonly MoveTag[];
   mateTransition?: MateTransition;
   probabilityLoss: number;
   accuracyEstimate: number;
@@ -195,7 +197,11 @@ export function classifyMoveAccuracy(
   const uci = 'uci' in input ? input.uci : undefined;
   const bestMoveUci = 'bestMoveUci' in input ? input.bestMoveUci : undefined;
   const secondBestScore = 'secondBestScore' in input ? input.secondBestScore : undefined;
-  const isBook = 'isBook' in input ? input.isBook : false;
+  const isRepertoire =
+    ('isRepertoire' in input && input.isRepertoire) ||
+    ('isBook' in input && input.isBook) ||
+    false;
+  const tags: readonly MoveTag[] | undefined = isRepertoire ? ['repertoire'] : undefined;
   const pv = 'pv' in input ? input.pv : undefined;
   const ratingContext: RatingContext | undefined =
     'ratingContext' in input && input.ratingContext
@@ -230,19 +236,15 @@ export function classifyMoveAccuracy(
   const loss = Math.max(0, beforeProb - afterProb);
 
   if (fenBefore && uci && isOnlyLegalMove(fenBefore, uci)) {
-    return classified('forced', loss, mateTransition);
+    return classified('forced', loss, mateTransition, tags);
   }
 
   if (mateTransition === 'missed') {
-    return classified('miss', loss, mateTransition);
+    return classified('miss', loss, mateTransition, tags);
   }
 
   if (mateTransition === 'conceded') {
-    return classified('blunder', loss, mateTransition);
-  }
-
-  if (isBook && loss <= 0.02 + Number.EPSILON) {
-    return classified('book', loss, mateTransition);
+    return classified('blunder', loss, mateTransition, tags);
   }
 
   if (
@@ -255,7 +257,7 @@ export function classifyMoveAccuracy(
     fenBefore &&
     detectSoundPieceSacrifice(fenBefore, uci, pv)
   ) {
-    return classified('brilliant', loss, mateTransition);
+    return classified('brilliant', loss, mateTransition, tags);
   }
 
   if (
@@ -270,40 +272,41 @@ export function classifyMoveAccuracy(
     const secondProb = scoreToMoverWinProbability(secondBestScore, mover);
     if (secondProb !== null && isProbability(secondProb)) {
       if (beforeProb - secondProb >= 0.15 - Number.EPSILON) {
-        return classified('great', loss, mateTransition);
+        return classified('great', loss, mateTransition, tags);
       }
     }
   }
 
   if (uci && bestMoveUci && uci === bestMoveUci) {
-    return classified('best', loss, mateTransition);
+    return classified('best', loss, mateTransition, tags);
   }
 
   if (loss <= 0.02 + Number.EPSILON) {
     return classified(
       bestMoveUci === undefined && loss <= Number.EPSILON ? 'best' : 'excellent',
       loss,
-      mateTransition
+      mateTransition,
+      tags
     );
   }
 
   if (loss <= 0.05 + Number.EPSILON) {
-    return classified('good', loss, mateTransition);
+    return classified('good', loss, mateTransition, tags);
   }
 
   if (loss <= 0.1 + Number.EPSILON) {
-    return classified('inaccuracy', loss, mateTransition);
+    return classified('inaccuracy', loss, mateTransition, tags);
   }
 
   if (beforeProb >= 0.85 - Number.EPSILON && loss > 0.15 + Number.EPSILON) {
-    return classified('miss', loss, mateTransition);
+    return classified('miss', loss, mateTransition, tags);
   }
 
   if (loss <= 0.2 + Number.EPSILON) {
-    return classified('mistake', loss, mateTransition);
+    return classified('mistake', loss, mateTransition, tags);
   }
 
-  return classified('blunder', loss, mateTransition);
+  return classified('blunder', loss, mateTransition, tags);
 }
 
 function classifyMateTransition(
@@ -346,11 +349,13 @@ function classifyProbabilities(before: number, after: number): MoveAccuracy {
 function classified(
   quality: MoveQuality,
   probabilityLoss: number,
-  mateTransition?: MateTransition
+  mateTransition?: MateTransition,
+  tags?: readonly MoveTag[]
 ): ClassifiedMoveAccuracy {
   return {
     status: 'classified',
     quality,
+    ...(tags && tags.length > 0 ? { tags } : {}),
     ...(mateTransition ? { mateTransition } : {}),
     probabilityLoss,
     accuracyEstimate: lossToAccuracyEstimate(probabilityLoss),

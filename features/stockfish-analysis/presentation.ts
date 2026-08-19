@@ -43,12 +43,6 @@ const QUALITY_METADATA: Record<MoveQuality, MoveQualityDetails> = {
     colorClass: 'badge-good',
     description: 'A solid, playable move',
   },
-  book: {
-    label: 'Book',
-    symbol: '♟',
-    colorClass: 'badge-book',
-    description: 'A recognized opening move from your games',
-  },
   inaccuracy: {
     label: 'Inaccuracy',
     symbol: '?!',
@@ -83,6 +77,24 @@ const QUALITY_METADATA: Record<MoveQuality, MoveQualityDetails> = {
 
 export function moveQualityDetails(quality: MoveQuality): MoveQualityDetails {
   return QUALITY_METADATA[quality];
+}
+
+export interface MoveTagDetails {
+  label: string;
+  symbol: string;
+  colorClass: string;
+  description: string;
+}
+
+export const REPERTOIRE_TAG_DETAILS: MoveTagDetails = {
+  label: 'Repertoire',
+  symbol: '♟',
+  colorClass: 'badge-repertoire',
+  description: 'A recognized opening move from your games',
+};
+
+export function moveTagDetails(tag: 'repertoire'): MoveTagDetails {
+  return REPERTOIRE_TAG_DETAILS;
 }
 
 export interface AnalysisPreset {
