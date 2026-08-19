@@ -10,7 +10,7 @@ import {
 
 export { lossToAccuracyEstimate };
 
-export const ACCURACY_HEURISTIC_VERSION = 'analyzer-accuracy-v2';
+export const ACCURACY_HEURISTIC_VERSION = 'analyzer-accuracy-v3';
 export const ACCURACY_ESTIMATE_NAME = 'Analyzer accuracy estimate';
 
 export const REVIEW_MOVE_QUALITIES = [
@@ -208,8 +208,8 @@ export function classifyMoveAccuracy(
       ? input.ratingContext
       : 'moverRating' in input
         ? {
-            moverRating: input.moverRating,
-            opponentRating: input.opponentRating,
+            moverRating: input.moverRating ?? null,
+            opponentRating: input.opponentRating ?? null,
           }
         : undefined;
 

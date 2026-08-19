@@ -406,7 +406,7 @@ function annotation(): GameAnnotation {
       quality: 'excellent',
       probabilityLoss: 0.01,
       accuracyEstimate: 99,
-      heuristicVersion: 'analyzer-accuracy-v2',
+      heuristicVersion: 'analyzer-accuracy-v3',
     },
     settings,
   };

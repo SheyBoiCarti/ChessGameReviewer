@@ -7,11 +7,11 @@ import {
   classifyMoveAccuracy,
 } from '@/lib/engine/accuracy';
 
-describe('Analyzer accuracy estimate v2', () => {
+describe('Analyzer accuracy estimate v3', () => {
   const white = (value: number) => ({ kind: 'cp' as const, value });
 
   it('is explicitly versioned and named as a project estimate', () => {
-    expect(ACCURACY_HEURISTIC_VERSION).toBe('analyzer-accuracy-v2');
+    expect(ACCURACY_HEURISTIC_VERSION).toBe('analyzer-accuracy-v3');
     expect(ACCURACY_ESTIMATE_NAME).toBe('Analyzer accuracy estimate');
   });
 

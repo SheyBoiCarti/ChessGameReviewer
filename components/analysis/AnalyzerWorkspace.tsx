@@ -2,6 +2,7 @@
 
 import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGame';
 import { analysisPreset } from '@/features/stockfish-analysis/presentation';
+import type { AnalysisStrength } from '@/features/workspace/types';
 import type { SideAccuracy } from '@/lib/api/contracts';
 import { ACCURACY_HEURISTIC_VERSION } from '@/lib/engine/accuracy';
 import type { EngineCapability } from '@/lib/engine/capabilities';

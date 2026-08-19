@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import { analyzeGame } from '@/features/stockfish-analysis/analyzeGame';
+import { EvaluationCache, type EvaluationCacheRepository } from '@/features/stockfish-analysis/evaluationCache';
+import { parseGamePgn } from '@/lib/chess/pgnParser';
+import type { EvaluationRecord } from '@/lib/db/schema';
 import {
   isExactScore,
   normalizeUciScoreToWhite,
@@ -10,6 +14,25 @@ import {
   scoreToMoverWinProbability,
   scoreToWhiteWinProbability,
 } from '@/lib/engine/winProbability';
+import {
+  GAME_173037119764_EVALUATIONS,
+  GAME_173037119764_SUMMARY,
+  GAME_173037119764_UPSTREAM_ACCURACIES,
+} from '../../fixtures/game173037119764Fixture';
+
+class MemoryRepository implements EvaluationCacheRepository {
+  private entries = new Map<string, EvaluationRecord>();
+  async get(key: string): Promise<EvaluationRecord | null> {
+    return this.entries.get(key) ?? null;
+  }
+  async put(record: EvaluationRecord): Promise<void> {
+    this.entries.set(record.key, record);
+  }
+  async touch(): Promise<void> {}
+  async prune(): Promise<number> {
+    return 0;
+  }
+}
 
 describe('Evaluation Invariants', () => {
   it('preserves White-relative scoring at the engine/adapter boundary', () => {
@@ -84,5 +107,65 @@ describe('Evaluation Invariants', () => {
     // Accuracy calculation uses primaryLine, regardless of secondary candidate presence
     const probPrimaryOnly = scoreToMoverWinProbability(primaryLine, 'white');
     expect(probPrimaryOnly).toBeCloseTo(scoreToWhiteWinProbability(primaryLine)!, 5);
+  });
+
+  it('runs end-to-end game review for game 173037119764 matching accuracy invariants', async () => {
+    const parseRes = parseGamePgn({ game: GAME_173037119764_SUMMARY });
+    expect(parseRes.ok).toBe(true);
+    if (!parseRes.ok) return;
+
+    const parsedGame = parseRes.game;
+    const fakeEngine = {
+      evaluate: async (fen: string) => {
+        const evalResult = GAME_173037119764_EVALUATIONS[fen];
+        if (!evalResult) {
+          throw new Error(`Missing fixture evaluation for FEN: ${fen}`);
+        }
+        return evalResult;
+      },
+    };
+
+    const settings = {
+      engineBuild: 'Stockfish 18',
+      networkHash: '9067e33176e',
+      limit: { depth: 14 },
+      multiPv: 2,
+      threads: 1,
+      hashMb: 16,
+      analysisVersion: 'engine-evaluation-v2',
+      normalizationVersion: 'white-perspective-v1',
+    };
+
+    const cache = new EvaluationCache(new MemoryRepository(), () => 1);
+    const result = await analyzeGame({
+      game: parsedGame,
+      engine: fakeEngine,
+      cache,
+      settings,
+    });
+
+    expect(result.status).toBe('complete');
+    expect(result.summary.white.accuracyEstimate).not.toBeNull();
+    expect(result.summary.black.accuracyEstimate).not.toBeNull();
+
+    // White local estimate is close to upstream (93.11%)
+    expect(result.summary.white.accuracyEstimate!).toBeGreaterThan(88);
+    expect(result.summary.white.accuracyEstimate!).toBeLessThan(99);
+
+    // Black local estimate is calculated and valid
+    expect(result.summary.black.accuracyEstimate!).toBeGreaterThan(60);
+    expect(result.summary.black.accuracyEstimate!).toBeLessThan(98);
+
+    // Move 8 (ply 15: 8.Nbxd2) is classified as best (NOT brilliant)
+    const ply8 = result.annotations.find((a) => a.ply === 15);
+    expect(ply8).toBeDefined();
+    expect(ply8?.accuracy.status).toBe('classified');
+    if (ply8?.accuracy.status === 'classified') {
+      expect(ply8.accuracy.quality).toBe('best');
+      expect(ply8.accuracy.quality).not.toBe('brilliant');
+    }
+
+    // Upstream accuracies preserved on the game
+    expect(parsedGame.accuracies).toEqual(GAME_173037119764_UPSTREAM_ACCURACIES);
   });
 });

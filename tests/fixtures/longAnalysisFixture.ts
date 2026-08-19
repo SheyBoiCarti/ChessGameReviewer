@@ -79,7 +79,7 @@ export function createLongGameAnalysisResult(plyCount = 41): GameAnalysisResult 
         quality,
         probabilityLoss: 0.02,
         accuracyEstimate: 95,
-        heuristicVersion: 'analyzer-accuracy-v2',
+        heuristicVersion: 'analyzer-accuracy-v3',
       },
       settings: {
         engineBuild: 'Stockfish 18',

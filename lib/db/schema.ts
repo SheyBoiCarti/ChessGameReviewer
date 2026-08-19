@@ -2,7 +2,7 @@ import type { PlayerColor, TimeClass, GameResult, SideAccuracy } from '../api/co
 
 export const DB_NAME = 'ChessGameAnalyzerDB';
 export const SCHEMA_VERSION = 2;
-export const NORMALIZER_VERSION = 2;
+export const NORMALIZER_VERSION = 3;
 
 export const STORES = {
   ARCHIVE_SYNC: 'archiveSync',
