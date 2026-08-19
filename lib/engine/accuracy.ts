@@ -40,6 +40,7 @@ export interface MoveContext {
   bestMoveUci?: string;
   secondBestScore?: EvaluationScore;
   isBook: boolean;
+  pv?: readonly string[];
   ratingContext?: RatingContext;
   moverRating?: number | null;
   opponentRating?: number | null;
@@ -68,10 +69,42 @@ export type ScoreComparison = {
 };
 export type ProbabilityComparison = { beforeProbability: number; afterProbability: number };
 
+const PIECE_VALUES: Record<string, number> = {
+  p: 1,
+  n: 3,
+  b: 3,
+  r: 5,
+  q: 9,
+  k: 0,
+};
+
+function countMaterial(
+  chess: Chess,
+  color: 'w' | 'b',
+  pieceValues: Record<string, number>
+): number {
+  let total = 0;
+  const board = chess.board();
+  for (const row of board) {
+    for (const sq of row) {
+      if (sq && sq.color === color) {
+        total += pieceValues[sq.type] ?? 0;
+      }
+    }
+  }
+  return total;
+}
+
 /**
- * Detects whether a move offers a piece sacrifice.
+ * Detects whether a move executes a sound non-pawn material sacrifice visible in the engine PV.
  */
-export function detectOfferedPieceSacrifice(fenBefore: string, uci: string): boolean {
+export function detectSoundPieceSacrifice(
+  fenBefore: string,
+  uci: string,
+  pv?: readonly string[]
+): boolean {
+  if (!pv || pv.length === 0) return false;
+
   const match = /^([a-h][1-8])([a-h][1-8])([qrbn])?$/.exec(uci);
   if (!match) return false;
   const [, from, to, promotion] = match;
@@ -79,9 +112,15 @@ export function detectOfferedPieceSacrifice(fenBefore: string, uci: string): boo
 
   try {
     const chess = new Chess(fenBefore);
+    const moverColor = chess.turn();
     const piece = chess.get(from as Square);
     if (!piece) return false;
+    // Only non-pawn, non-king piece sacrifices
     if (piece.type === 'p' || piece.type === 'k') return false;
+
+    const opponentColor = moverColor === 'w' ? 'b' : 'w';
+    const moverMaterialBefore = countMaterial(chess, moverColor, PIECE_VALUES);
+    const opponentMaterialBefore = countMaterial(chess, opponentColor, PIECE_VALUES);
 
     const moveResult = chess.move({
       from: from as Square,
@@ -90,27 +129,39 @@ export function detectOfferedPieceSacrifice(fenBefore: string, uci: string): boo
     if (!moveResult) return false;
     if (moveResult.flags.includes('k') || moveResult.flags.includes('q')) return false;
 
-    const pieceValues: Record<string, number> = {
-      p: 1,
-      n: 3,
-      b: 3,
-      r: 5,
-      q: 9,
-      k: 0,
-    };
+    // Identify opponent's PV reply
+    const replyUci = pv[0] === uci ? pv[1] : pv[0];
+    if (!replyUci) return false;
 
-    const movedValue = pieceValues[piece.type] ?? 0;
-    const capturedValue = moveResult.captured ? (pieceValues[moveResult.captured] ?? 0) : 0;
+    const replyMatch = /^([a-h][1-8])([a-h][1-8])([qrbn])?$/.exec(replyUci);
+    if (!replyMatch) return false;
+    const [, replyFrom, replyTo, replyPromotion] = replyMatch;
 
-    const opponentMoves = chess.moves({ verbose: true });
-    const opponentCapturesToSquare = opponentMoves.filter((m) => m.to === to && m.captured);
+    const replyResult = chess.move({
+      from: replyFrom as Square,
+      to: replyTo as Square,
+      ...(replyPromotion ? { promotion: replyPromotion } : {}),
+    });
+    if (!replyResult) return false;
 
-    if (opponentCapturesToSquare.length === 0) return false;
+    const moverMaterialAfter = countMaterial(chess, moverColor, PIECE_VALUES);
+    const opponentMaterialAfter = countMaterial(chess, opponentColor, PIECE_VALUES);
 
-    return movedValue > capturedValue;
+    const moverNetChange =
+      moverMaterialAfter -
+      moverMaterialBefore -
+      (opponentMaterialAfter - opponentMaterialBefore);
+
+    // Mover must have given up net non-pawn material (net loss of at least 1 point in exchange)
+    return moverNetChange <= -1;
   } catch {
     return false;
   }
+}
+
+/** Legacy helper retained for backwards compatibility. */
+export function detectOfferedPieceSacrifice(fenBefore: string, uci: string): boolean {
+  return detectSoundPieceSacrifice(fenBefore, uci, [uci]);
 }
 
 function isOnlyLegalMove(fen: string, uci: string): boolean {
@@ -145,6 +196,7 @@ export function classifyMoveAccuracy(
   const bestMoveUci = 'bestMoveUci' in input ? input.bestMoveUci : undefined;
   const secondBestScore = 'secondBestScore' in input ? input.secondBestScore : undefined;
   const isBook = 'isBook' in input ? input.isBook : false;
+  const pv = 'pv' in input ? input.pv : undefined;
   const ratingContext: RatingContext | undefined =
     'ratingContext' in input && input.ratingContext
       ? input.ratingContext
@@ -198,9 +250,10 @@ export function classifyMoveAccuracy(
     bestMoveUci &&
     uci === bestMoveUci &&
     loss <= 0.02 + Number.EPSILON &&
+    beforeProb < 0.95 - Number.EPSILON &&
     afterProb >= 0.5 - Number.EPSILON &&
     fenBefore &&
-    detectOfferedPieceSacrifice(fenBefore, uci)
+    detectSoundPieceSacrifice(fenBefore, uci, pv)
   ) {
     return classified('brilliant', loss, mateTransition);
   }

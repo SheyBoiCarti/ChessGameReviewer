@@ -124,6 +124,7 @@ export async function analyzeGame(input: AnalyzeGameInput): Promise<GameAnalysis
         bestMoveUci: before.bestMove,
         ...(secondBestScore ? { secondBestScore } : {}),
         isBook,
+        pv: before.pv,
       });
 
       annotations.push({
