@@ -15,6 +15,7 @@ import {
   IngestionManager,
   runIngestion,
 } from '../../../features/ingestion/ingestionService';
+import { NORMALIZER_VERSION } from '../../../lib/db/schema';
 import {
   makeArchiveSync,
   makeGameRecord,
@@ -122,7 +123,7 @@ describe('runIngestion', () => {
     expect(deps.fetchMonthlyGames).toHaveBeenCalledTimes(1);
     expect(persistMonth).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ id: 'recovered-game', result: 'draw' })]),
-      expect.objectContaining({ normalizerVersion: 3 }),
+      expect.objectContaining({ normalizerVersion: NORMALIZER_VERSION }),
       expect.anything()
     );
   });
@@ -585,6 +586,58 @@ describe('runIngestion', () => {
         retry: { attempt: 2, delayMs: 500 },
       })
     );
+  });
+
+  it('normalizes explicit White and Black player metadata with display casing and derived ratings', async () => {
+    const rawGame = makeRawGame({
+      white: { username: 'HikaruNakamura', rating: 2875, result: 'win' },
+      black: { username: 'janedoe', rating: 1520, result: 'checkmated' },
+    });
+    const persistMonth = vi.fn().mockResolvedValue(undefined);
+    const deps = fakeDependencies({
+      readArchiveList: vi.fn().mockResolvedValue(null),
+      fetchArchives: vi.fn().mockResolvedValue(['https://api.chess.com/pub/player/janedoe/games/2026/08']),
+      fetchMonthlyGames: vi.fn().mockResolvedValue([rawGame]),
+      persistMonth,
+    });
+
+    const result = await runIngestion(makeQuery({ username: 'janedoe' }), {
+      deps,
+      now: () => NOW,
+    });
+
+    expect(result.status).toBe('complete');
+    expect(result.games).toHaveLength(1);
+    const game = result.games[0]!;
+    expect(game.username).toBe('janedoe');
+    expect(game.userColor).toBe('black');
+    expect(game.whitePlayer).toEqual({ username: 'HikaruNakamura', rating: 2875 });
+    expect(game.blackPlayer).toEqual({ username: 'janedoe', rating: 1520 });
+    expect(game.userRating).toBe(1520);
+    expect(game.opponentRating).toBe(2875);
+  });
+
+  it('handles missing or non-numeric player metadata by normalizing to null', async () => {
+    const rawGame = makeRawGame({
+      white: { username: '   ', rating: undefined, result: 'agreed' },
+      black: { username: 'janedoe', rating: 1500, result: 'agreed' },
+    });
+    const deps = fakeDependencies({
+      readArchiveList: vi.fn().mockResolvedValue(null),
+      fetchArchives: vi.fn().mockResolvedValue(['https://api.chess.com/pub/player/janedoe/games/2026/08']),
+      fetchMonthlyGames: vi.fn().mockResolvedValue([rawGame]),
+      persistMonth: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const result = await runIngestion(makeQuery({ username: 'janedoe' }), {
+      deps,
+      now: () => NOW,
+    });
+
+    expect(result.status).toBe('complete');
+    const game = result.games[0]!;
+    expect(game.whitePlayer).toEqual({ username: null, rating: null });
+    expect(game.blackPlayer).toEqual({ username: 'janedoe', rating: 1500 });
   });
 });
 

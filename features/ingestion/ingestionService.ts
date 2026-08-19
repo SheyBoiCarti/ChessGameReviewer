@@ -2,6 +2,7 @@ import type {
   Diagnostic,
   GameQuery,
   PlayerColor,
+  PlayerMetadata,
   TimeClass,
   UpstreamError,
   UpstreamErrorCode,
@@ -187,8 +188,36 @@ function normalizeRawGame(raw: RawChesscomGame, username: string): Normalization
   });
   if (!outcome.success) return outcome;
 
-  const user = userColor === 'white' ? raw.white : raw.black;
-  const opponent = userColor === 'white' ? raw.black : raw.white;
+  const whitePlayerUsername =
+    raw.white.username !== undefined && raw.white.username.trim().length > 0
+      ? raw.white.username.trim()
+      : null;
+  const whitePlayerRating =
+    raw.white.rating !== undefined && Number.isFinite(raw.white.rating) && raw.white.rating > 0
+      ? raw.white.rating
+      : null;
+
+  const blackPlayerUsername =
+    raw.black.username !== undefined && raw.black.username.trim().length > 0
+      ? raw.black.username.trim()
+      : null;
+  const blackPlayerRating =
+    raw.black.rating !== undefined && Number.isFinite(raw.black.rating) && raw.black.rating > 0
+      ? raw.black.rating
+      : null;
+
+  const whitePlayer: PlayerMetadata = {
+    username: whitePlayerUsername,
+    rating: whitePlayerRating,
+  };
+  const blackPlayer: PlayerMetadata = {
+    username: blackPlayerUsername,
+    rating: blackPlayerRating,
+  };
+
+  const userRating = userColor === 'white' ? whitePlayer.rating : blackPlayer.rating;
+  const opponentRating = userColor === 'white' ? blackPlayer.rating : whitePlayer.rating;
+
   return {
     success: true,
     game: {
@@ -202,8 +231,10 @@ function normalizeRawGame(raw: RawChesscomGame, username: string): Normalization
       timeClass: raw.time_class as TimeClass,
       ...(raw.time_control ? { timeControl: raw.time_control } : {}),
       rated: raw.rated ?? false,
-      userRating: user.rating ?? null,
-      opponentRating: opponent.rating ?? null,
+      userRating,
+      opponentRating,
+      whitePlayer,
+      blackPlayer,
       ...(raw.accuracies ? { accuracies: raw.accuracies } : {}),
       pgn: raw.pgn ?? '',
       rules: 'chess',
