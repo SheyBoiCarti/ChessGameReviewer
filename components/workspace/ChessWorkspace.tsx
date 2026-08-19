@@ -30,7 +30,9 @@ import {
   type GraphNavigationState,
 } from '@/features/opening-tree/navigation';
 import { createBrowserWorkspaceServices } from '@/features/workspace/browserServices';
+import type { WorkspaceServices } from '@/features/workspace/createWorkspaceController';
 import { useWorkspace } from '@/features/workspace/useWorkspace';
+import type { PlayerMetadata } from '@/lib/api/contracts';
 import { parseGamePgn, type ParsedGame } from '@/lib/chess/pgnParser';
 import { deserializeOpeningGraph } from '@/lib/chess/graph/serialization';
 import type { GameRecord } from '@/lib/db/schema';
@@ -48,8 +50,12 @@ const LazyAnalyzerWorkspace = dynamic(
   { loading: () => <p role="status">Loading the local analyzer…</p>, ssr: false }
 );
 
-export function ChessWorkspace() {
-  const { controller, state } = useWorkspace(createBrowserWorkspaceServices);
+export function ChessWorkspace({
+  createServices = createBrowserWorkspaceServices,
+}: {
+  createServices?: (() => WorkspaceServices) | undefined;
+} = {}) {
+  const { controller, state } = useWorkspace(createServices);
   const [tab, setTab] = useState<WorkspaceTab>('games');
   const [navigation, setNavigation] = useState<GraphNavigationState | null>(null);
   const [moveOrdersOpen, setMoveOrdersOpen] = useState(false);
@@ -303,6 +309,23 @@ export function ChessWorkspace() {
         orientation={state.preferences.boardOrientation}
         isInteractive={isInteractive}
         onMove={handleBoardMove}
+        onFlipOrientation={() =>
+          controller.dispatch({
+            type: 'preferences/changed',
+            preferences: {
+              boardOrientation:
+                state.preferences.boardOrientation === 'white' ? 'black' : 'white',
+            },
+          })
+        }
+        {...(tab !== 'opening' && parsedGame
+          ? {
+              players: {
+                white: parsedGame.whitePlayer,
+                black: parsedGame.blackPlayer,
+              },
+            }
+          : {})}
         {...(lastMoveValue !== undefined ? { lastMove: lastMoveValue } : {})}
         {...(selectedBadge !== undefined ? { lastMoveBadge: selectedBadge } : {})}
         {...(historyValue !== undefined ? { history: historyValue } : {})}
@@ -535,6 +558,8 @@ function BoardPanel({
   history,
   pvArrow,
   evaluationScore,
+  players,
+  onFlipOrientation,
 }: {
   fen: string | null;
   orientation: 'white' | 'black';
@@ -545,6 +570,8 @@ function BoardPanel({
   history?: MoveHistoryModel | undefined;
   pvArrow?: { from: Square; to: Square } | undefined;
   evaluationScore?: EvaluationScore | undefined;
+  players?: { white: PlayerMetadata; black: PlayerMetadata } | undefined;
+  onFlipOrientation?: (() => void) | undefined;
 }) {
   if (!fen)
     return <EmptyWorkspace message="Select a game or opening position to show the board." />;
@@ -559,6 +586,8 @@ function BoardPanel({
       {...(lastMoveBadge !== undefined ? { lastMoveBadge } : {})}
       {...(evaluationScore !== undefined ? { evaluationScore } : {})}
       {...(pvArrow !== undefined ? { pvArrow } : {})}
+      {...(players !== undefined ? { players } : {})}
+      {...(onFlipOrientation !== undefined ? { onFlipOrientation } : {})}
     />
   );
 }
@@ -589,6 +618,9 @@ function parseSelectedGame(record: GameRecord | null): ParsedGame | null {
       rated: record.rated,
       userRating: record.userRating,
       opponentRating: record.opponentRating,
+      whitePlayer: record.whitePlayer,
+      blackPlayer: record.blackPlayer,
+      ...(record.accuracies ? { accuracies: record.accuracies } : {}),
       pgn: record.pgn,
       rules: record.rules,
     },

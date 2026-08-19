@@ -28,6 +28,8 @@ const game: GameRecord = {
   rated: true,
   userRating: 1800,
   opponentRating: 1775,
+  whitePlayer: { username: 'second-player', rating: 1800 },
+  blackPlayer: { username: 'opponent', rating: 1775 },
   pgn: '[Result "1-0"]\n\n1. e4 e5 1-0',
   rules: 'chess',
 };
