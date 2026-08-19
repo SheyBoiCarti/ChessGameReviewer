@@ -87,7 +87,9 @@ describe('bookMoves and repertoire', () => {
   });
 
   it('respects a custom minimumGames parameter', () => {
-    expect(collectPersonalRepertoireMoveKeys(snapshot, 3)).toEqual([`${snapshot.rootKey}\u0000e2e4`]);
+    expect(collectPersonalRepertoireMoveKeys(snapshot, 3)).toEqual([
+      `${snapshot.rootKey}\u0000e2e4`,
+    ]);
     expect(collectPersonalRepertoireMoveKeys(snapshot, 4)).toEqual([]);
   });
 });

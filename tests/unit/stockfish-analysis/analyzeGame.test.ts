@@ -174,7 +174,9 @@ describe('analyzeGame', () => {
       bestMove: 'g1f3',
       lines: [{ multiPv: 1, depth: 12, score: { kind: 'cp', value: 30 }, pv: ['g1f3'] }],
     };
-    const repertoireKeys = new Set(['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -\u0000e2e4']);
+    const repertoireKeys = new Set([
+      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -\u0000e2e4',
+    ]);
 
     const result = await analyzeGame({
       game: parsedGame,

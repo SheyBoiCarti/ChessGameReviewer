@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { analyzeGame } from '@/features/stockfish-analysis/analyzeGame';
-import { EvaluationCache, type EvaluationCacheRepository } from '@/features/stockfish-analysis/evaluationCache';
+import {
+  EvaluationCache,
+  type EvaluationCacheRepository,
+} from '@/features/stockfish-analysis/evaluationCache';
 import { parseGamePgn } from '@/lib/chess/pgnParser';
 import type { EvaluationRecord } from '@/lib/db/schema';
 import {

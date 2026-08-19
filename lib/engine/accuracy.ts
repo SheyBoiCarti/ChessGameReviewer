@@ -150,9 +150,7 @@ export function detectSoundPieceSacrifice(
     const opponentMaterialAfter = countMaterial(chess, opponentColor, PIECE_VALUES);
 
     const moverNetChange =
-      moverMaterialAfter -
-      moverMaterialBefore -
-      (opponentMaterialAfter - opponentMaterialBefore);
+      moverMaterialAfter - moverMaterialBefore - (opponentMaterialAfter - opponentMaterialBefore);
 
     // Mover must have given up net non-pawn material (net loss of at least 1 point in exchange)
     return moverNetChange <= -1;
@@ -198,9 +196,7 @@ export function classifyMoveAccuracy(
   const bestMoveUci = 'bestMoveUci' in input ? input.bestMoveUci : undefined;
   const secondBestScore = 'secondBestScore' in input ? input.secondBestScore : undefined;
   const isRepertoire =
-    ('isRepertoire' in input && input.isRepertoire) ||
-    ('isBook' in input && input.isBook) ||
-    false;
+    ('isRepertoire' in input && input.isRepertoire) || ('isBook' in input && input.isBook) || false;
   const tags: readonly MoveTag[] | undefined = isRepertoire ? ['repertoire'] : undefined;
   const pv = 'pv' in input ? input.pv : undefined;
   const ratingContext: RatingContext | undefined =

@@ -1,9 +1,6 @@
 import type React from 'react';
 
-import {
-  moveQualityDetails,
-  moveTagDetails,
-} from '@/features/stockfish-analysis/presentation';
+import { moveQualityDetails, moveTagDetails } from '@/features/stockfish-analysis/presentation';
 import type { MoveQuality, MoveTag } from '@/lib/engine/accuracy';
 
 export interface MoveClassificationBadgeProps {
