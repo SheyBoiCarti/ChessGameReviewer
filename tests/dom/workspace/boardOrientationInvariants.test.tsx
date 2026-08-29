@@ -149,7 +149,9 @@ describe('Board orientation and player metadata invariants', () => {
     await user.keyboard('{ArrowRight}{ArrowRight}');
 
     // Record position attributes before flip
-    const squaresBefore = screen.getAllByRole('gridcell').map((cell) => cell.getAttribute('data-square'));
+    const squaresBefore = screen
+      .getAllByRole('gridcell')
+      .map((cell) => cell.getAttribute('data-square'));
     const pawnE5Before = screen.getByLabelText(/black pawn on e5/i);
     expect(pawnE5Before).toBeInTheDocument();
 
@@ -158,7 +160,9 @@ describe('Board orientation and player metadata invariants', () => {
     await user.click(flipButton);
 
     // After flip: square order inverted for Black perspective
-    const squaresAfter = screen.getAllByRole('gridcell').map((cell) => cell.getAttribute('data-square'));
+    const squaresAfter = screen
+      .getAllByRole('gridcell')
+      .map((cell) => cell.getAttribute('data-square'));
     expect(squaresAfter[0]).toBe('h1');
     expect(squaresBefore[0]).toBe('a8');
 

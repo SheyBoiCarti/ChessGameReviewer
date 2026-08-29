@@ -109,6 +109,8 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
             rated: game.rated,
             userRating: game.userRating,
             opponentRating: game.opponentRating,
+            whitePlayer: game.whitePlayer,
+            blackPlayer: game.blackPlayer,
             pgn: game.pgn,
             rules: game.rules,
           },

@@ -313,8 +313,7 @@ export function ChessWorkspace({
           controller.dispatch({
             type: 'preferences/changed',
             preferences: {
-              boardOrientation:
-                state.preferences.boardOrientation === 'white' ? 'black' : 'white',
+              boardOrientation: state.preferences.boardOrientation === 'white' ? 'black' : 'white',
             },
           })
         }

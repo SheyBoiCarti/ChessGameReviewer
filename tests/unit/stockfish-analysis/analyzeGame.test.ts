@@ -22,6 +22,8 @@ const parsedGame: ParsedGame = {
   rated: true,
   userRating: 1500,
   opponentRating: 1500,
+  whitePlayer: { username: 'player', rating: 1500 },
+  blackPlayer: { username: 'opponent', rating: 1500 },
   warnings: [],
   plies: [
     {

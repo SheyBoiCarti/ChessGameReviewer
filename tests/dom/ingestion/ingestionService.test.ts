@@ -596,7 +596,9 @@ describe('runIngestion', () => {
     const persistMonth = vi.fn().mockResolvedValue(undefined);
     const deps = fakeDependencies({
       readArchiveList: vi.fn().mockResolvedValue(null),
-      fetchArchives: vi.fn().mockResolvedValue(['https://api.chess.com/pub/player/janedoe/games/2026/08']),
+      fetchArchives: vi
+        .fn()
+        .mockResolvedValue(['https://api.chess.com/pub/player/janedoe/games/2026/08']),
       fetchMonthlyGames: vi.fn().mockResolvedValue([rawGame]),
       persistMonth,
     });
@@ -619,12 +621,14 @@ describe('runIngestion', () => {
 
   it('handles missing or non-numeric player metadata by normalizing to null', async () => {
     const rawGame = makeRawGame({
-      white: { username: '   ', rating: undefined, result: 'agreed' },
+      white: { username: '   ', result: 'agreed' },
       black: { username: 'janedoe', rating: 1500, result: 'agreed' },
     });
     const deps = fakeDependencies({
       readArchiveList: vi.fn().mockResolvedValue(null),
-      fetchArchives: vi.fn().mockResolvedValue(['https://api.chess.com/pub/player/janedoe/games/2026/08']),
+      fetchArchives: vi
+        .fn()
+        .mockResolvedValue(['https://api.chess.com/pub/player/janedoe/games/2026/08']),
       fetchMonthlyGames: vi.fn().mockResolvedValue([rawGame]),
       persistMonth: vi.fn().mockResolvedValue(undefined),
     });

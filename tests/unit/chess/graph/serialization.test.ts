@@ -52,6 +52,8 @@ describe('opening graph serialization', () => {
         rated: true,
         userRating: 1500,
         opponentRating: 1600,
+        whitePlayer: { username: 'alice', rating: 1500 },
+        blackPlayer: { username: 'bob', rating: 1600 },
         rules: 'chess',
         pgn: '1. e4 e5 2. Nf3 Nc6 1-0',
       },

@@ -146,7 +146,8 @@ function opponentName(game: GameRecord): string {
   }
   if (game.pgn) {
     const pgnPlayers = extractPgnPlayers(game.pgn);
-    const pgnOpponent = game.userColor === 'white' ? pgnPlayers.black.username : pgnPlayers.white.username;
+    const pgnOpponent =
+      game.userColor === 'white' ? pgnPlayers.black.username : pgnPlayers.white.username;
     if (pgnOpponent && pgnOpponent.trim().length > 0) {
       return pgnOpponent.trim();
     }

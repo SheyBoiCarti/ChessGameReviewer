@@ -1,4 +1,10 @@
-import type { PlayerColor, TimeClass, GameResult, SideAccuracy, PlayerMetadata } from '../api/contracts';
+import type {
+  PlayerColor,
+  TimeClass,
+  GameResult,
+  SideAccuracy,
+  PlayerMetadata,
+} from '../api/contracts';
 
 export const DB_NAME = 'ChessGameAnalyzerDB';
 export const SCHEMA_VERSION = 3;

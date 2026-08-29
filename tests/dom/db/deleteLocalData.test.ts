@@ -44,6 +44,8 @@ describe('deleteLocalData API', () => {
         rated: true,
         userRating: 1500,
         opponentRating: 1400,
+        whitePlayer: { username: 'janedoe', rating: 1500 },
+        blackPlayer: { username: 'opponent', rating: 1400 },
         pgn: '1. e4 e5',
         rules: 'chess',
       };
@@ -59,6 +61,8 @@ describe('deleteLocalData API', () => {
         rated: true,
         userRating: 1200,
         opponentRating: 1300,
+        whitePlayer: { username: 'opponent', rating: 1300 },
+        blackPlayer: { username: 'johndoe', rating: 1200 },
         pgn: '1. d4 d5',
         rules: 'chess',
       };

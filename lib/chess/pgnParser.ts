@@ -65,10 +65,13 @@ export function parseGamePgn({ game }: { game: NormalizedGameSummary }): ParseRe
       }
     }
 
-    const pgnFallback = typeof game.pgn === 'string' ? extractPgnPlayers(game.pgn) : {
-      white: { username: null, rating: null },
-      black: { username: null, rating: null },
-    };
+    const pgnFallback =
+      typeof game.pgn === 'string'
+        ? extractPgnPlayers(game.pgn)
+        : {
+            white: { username: null, rating: null },
+            black: { username: null, rating: null },
+          };
     const whitePlayer: PlayerMetadata = game.whitePlayer ?? pgnFallback.white;
     const blackPlayer: PlayerMetadata = game.blackPlayer ?? pgnFallback.black;
 

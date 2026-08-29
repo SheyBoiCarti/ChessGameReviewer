@@ -17,6 +17,8 @@ function parse(id: string, pgn: string) {
       rated: true,
       userRating: 1500,
       opponentRating: 1600,
+      whitePlayer: { username: 'alice', rating: 1500 },
+      blackPlayer: { username: 'bob', rating: 1600 },
       rules: 'chess',
       pgn,
     },

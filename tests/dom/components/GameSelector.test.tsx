@@ -84,7 +84,9 @@ describe('GameSelector', () => {
     };
 
     render(<GameSelector games={[customGame]} selectedGameId={null} onSelect={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /select game versus displaycasedopponent/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /select game versus displaycasedopponent/i })
+    ).toBeInTheDocument();
   });
 });
 

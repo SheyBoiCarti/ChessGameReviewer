@@ -227,8 +227,15 @@ describe('Schema & Runtime Validation', () => {
       expect(isValidGameRecord({ ...makeGameRecord(), userRating: Number.NaN })).toBe(false);
       expect(isValidGameRecord({ ...makeGameRecord(), opponentRating: '1500' })).toBe(false);
       expect(isValidGameRecord({ ...makeGameRecord(), whitePlayer: null })).toBe(false);
-      expect(isValidGameRecord({ ...makeGameRecord(), blackPlayer: { username: 123, rating: 1500 } })).toBe(false);
-      expect(isValidGameRecord({ ...makeGameRecord(), whitePlayer: { username: 'test', rating: '1500' } })).toBe(false);
+      expect(
+        isValidGameRecord({ ...makeGameRecord(), blackPlayer: { username: 123, rating: 1500 } })
+      ).toBe(false);
+      expect(
+        isValidGameRecord({
+          ...makeGameRecord(),
+          whitePlayer: { username: 'test', rating: '1500' },
+        })
+      ).toBe(false);
 
       expect(isValidEvaluationRecord(null)).toBe(false);
       expect(

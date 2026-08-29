@@ -18,6 +18,8 @@ const WORKER_FIXTURE_GAMES: readonly NormalizedGameSummary[] = Array.from(
     rated: true,
     userRating: 1500,
     opponentRating: 1600,
+    whitePlayer: { username: 'fixture', rating: 1500 },
+    blackPlayer: { username: 'opponent', rating: 1600 },
     rules: 'chess',
     pgn: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 1-0',
   })

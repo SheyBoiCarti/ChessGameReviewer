@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openDatabase, closeDatabase } from '../../../lib/db/openDatabase';
-import { DB_NAME, STORES, EvaluationRecord, GraphSnapshotRecord } from '../../../lib/db/schema';
+import {
+  DB_NAME,
+  STORES,
+  EvaluationRecord,
+  GraphSnapshotRecord,
+  SCHEMA_VERSION,
+  NORMALIZER_VERSION,
+} from '../../../lib/db/schema';
 import {
   putEvaluation,
   putGraphSnapshot,
@@ -169,19 +176,19 @@ describe('Retention & LRU Eviction', () => {
     it('uses current versions when compatibility metadata is absent', async () => {
       await expect(checkSchemaCompatibility(db)).resolves.toMatchObject({
         compatible: true,
-        schemaVersion: 2,
-        normalizerVersion: 3,
+        schemaVersion: SCHEMA_VERSION,
+        normalizerVersion: NORMALIZER_VERSION,
       });
     });
 
     it('detects compatible schema and normalizer version', async () => {
       await setMeta(db, 'schemaVersion', 1);
-      await setMeta(db, 'normalizerVersion', 3);
+      await setMeta(db, 'normalizerVersion', NORMALIZER_VERSION);
 
       const status = await checkSchemaCompatibility(db);
       expect(status.compatible).toBe(true);
       expect(status.schemaVersion).toBe(1);
-      expect(status.normalizerVersion).toBe(3);
+      expect(status.normalizerVersion).toBe(NORMALIZER_VERSION);
     });
 
     it('detects incompatible normalizer version', async () => {

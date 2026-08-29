@@ -45,10 +45,12 @@ export interface ChessboardViewProps {
   totalPlies?: number | undefined;
   onPlyChange?: ((ply: number) => void) | undefined;
   selectedSquare?: string | undefined;
-  players?: {
-    white: PlayerMetadata;
-    black: PlayerMetadata;
-  } | undefined;
+  players?:
+    | {
+        white: PlayerMetadata;
+        black: PlayerMetadata;
+      }
+    | undefined;
   onFlipOrientation?: (() => void) | undefined;
 }
 
@@ -402,8 +404,8 @@ export function ChessboardView({
         {historyModel ? (
           <>
             <p id="board-keyboard-help" className="sr-only">
-              Use Left and Right Arrow to move through history. Home returns to the first position and
-              End moves to the last.
+              Use Left and Right Arrow to move through history. Home returns to the first position
+              and End moves to the last.
             </p>
             <MoveHistoryControls
               currentPly={historyModel.currentPly}

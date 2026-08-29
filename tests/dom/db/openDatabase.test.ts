@@ -6,7 +6,7 @@ import {
   StorageUnavailableError,
   wrapIDBError,
 } from '../../../lib/db/openDatabase';
-import { DB_NAME, STORES } from '../../../lib/db/schema';
+import { DB_NAME, STORES, SCHEMA_VERSION } from '../../../lib/db/schema';
 
 describe('openDatabase', () => {
   beforeEach(() => {
@@ -17,7 +17,7 @@ describe('openDatabase', () => {
   it('opens IndexedDB database and initializes all current object stores and indexes', async () => {
     const db = await openDatabase();
     expect(db.name).toBe(DB_NAME);
-    expect(db.version).toBe(2);
+    expect(db.version).toBe(SCHEMA_VERSION);
 
     const storeNames = Array.from(db.objectStoreNames);
     expect(storeNames).toContain(STORES.ARCHIVE_SYNC);
