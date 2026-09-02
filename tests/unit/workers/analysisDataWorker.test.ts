@@ -231,7 +231,7 @@ describe('analysis data worker', () => {
     ).toBe(true);
   });
 
-  it('parses normalized records inside the worker and bounds parse diagnostics', async () => {
+  it('reports defensive parse exclusions as a partial graph result', async () => {
     const responses: Array<Record<string, unknown>> = [];
     await handleRequest(
       {
@@ -246,8 +246,10 @@ describe('analysis data worker', () => {
     );
 
     expect(responses.at(-1)).toMatchObject({
-      type: 'COMPLETE',
-      snapshot: { sourceGameCount: 2, includedGameCount: 1 },
+      type: 'PARTIAL',
+      snapshot: { sourceGameCount: 2, includedGameCount: 1, excludedGameCount: 1 },
+      excludedGameCount: 1,
+      diagnosticCodes: ['ILLEGAL_PGN'],
     });
     expect(responses.find((response) => response.type === 'PROGRESS')).toMatchObject({
       diagnosticsCount: 1,

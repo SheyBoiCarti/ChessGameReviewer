@@ -415,6 +415,8 @@ export function ChessWorkspace({
                       graph={graph}
                       navigation={navigation}
                       perspective={state.preferences.resultPerspective}
+                      excludedGameCount={state.graph.snapshot?.excludedGameCount ?? 0}
+                      diagnosticCodes={state.graph.diagnosticCodes}
                       onNavigate={(next) => {
                         setUnobservedMove(null);
                         setNavigation(next);

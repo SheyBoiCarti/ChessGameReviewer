@@ -14,11 +14,20 @@ export type GraphBuildWorkerResult =
       persistenceNotice?: SnapshotPersistenceNotice;
     }
   | {
+      status: 'partial';
+      snapshot: SerializedOpeningGraph;
+      excludedGameCount: number;
+      diagnosticCodes: readonly string[];
+      persistenceNotice?: SnapshotPersistenceNotice;
+    }
+  | {
       status: 'limited';
       snapshot: SerializedOpeningGraph;
       reachedLimit: string;
       includedGameCount: number;
       remainingGameCount: number;
+      excludedGameCount: number;
+      diagnosticCodes: readonly string[];
       persistenceNotice?: SnapshotPersistenceNotice;
     };
 
@@ -103,6 +112,14 @@ export class GraphWorkerClient {
         snapshot: response.snapshot,
         ...(response.persistenceNotice ? { persistenceNotice: response.persistenceNotice } : {}),
       });
+    if (response.type === 'PARTIAL')
+      this.finish({
+        status: 'partial',
+        snapshot: response.snapshot,
+        excludedGameCount: response.excludedGameCount,
+        diagnosticCodes: response.diagnosticCodes,
+        ...(response.persistenceNotice ? { persistenceNotice: response.persistenceNotice } : {}),
+      });
     if (response.type === 'LIMITED')
       this.finish({
         status: 'limited',
@@ -110,6 +127,8 @@ export class GraphWorkerClient {
         reachedLimit: response.reachedLimit,
         includedGameCount: response.includedGameCount,
         remainingGameCount: response.remainingGameCount,
+        excludedGameCount: response.excludedGameCount,
+        diagnosticCodes: response.diagnosticCodes,
         ...(response.persistenceNotice ? { persistenceNotice: response.persistenceNotice } : {}),
       });
     if (response.type === 'CANCELLED') this.fail(new Error('GRAPH_BUILD_CANCELLED'));

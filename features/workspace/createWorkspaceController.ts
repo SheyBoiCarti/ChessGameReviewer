@@ -120,6 +120,7 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
           token,
           status: graph.status,
           snapshot: graph.snapshot,
+          diagnosticCodes: graph.status === 'complete' ? [] : graph.diagnosticCodes,
         });
       } catch (error) {
         console.error('[workspace operation failed]', error);

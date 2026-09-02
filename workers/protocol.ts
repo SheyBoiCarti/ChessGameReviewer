@@ -53,11 +53,22 @@ export type WorkerResponse =
   | {
       protocolVersion: typeof PROTOCOL_VERSION;
       jobId: string;
+      type: 'PARTIAL';
+      snapshot: SerializedOpeningGraph;
+      excludedGameCount: number;
+      diagnosticCodes: readonly string[];
+      persistenceNotice?: SnapshotPersistenceNotice;
+    }
+  | {
+      protocolVersion: typeof PROTOCOL_VERSION;
+      jobId: string;
       type: 'LIMITED';
       snapshot: SerializedOpeningGraph;
       reachedLimit: string;
       includedGameCount: number;
       remainingGameCount: number;
+      excludedGameCount: number;
+      diagnosticCodes: readonly string[];
       persistenceNotice?: SnapshotPersistenceNotice;
     }
   | { protocolVersion: typeof PROTOCOL_VERSION; jobId: string; type: 'CANCELLED' }

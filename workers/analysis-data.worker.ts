@@ -109,6 +109,7 @@ export async function handleRequest(
       excludedGameCount: request.games.length - parsedGames.length,
       buildTimestamp: Date.now(),
     });
+    const excludedGameCount = request.games.length - parsedGames.length;
     const persistenceNotice = snapshotPersistenceNotice(snapshot);
     if (graph.status === 'limited')
       post({
@@ -119,6 +120,18 @@ export async function handleRequest(
         reachedLimit: graph.reachedLimit ?? 'unknown',
         includedGameCount: graph.includedGameCount,
         remainingGameCount: graph.remainingGameCount,
+        excludedGameCount,
+        diagnosticCodes,
+        ...(persistenceNotice ? { persistenceNotice } : {}),
+      });
+    else if (excludedGameCount > 0)
+      post({
+        protocolVersion: PROTOCOL_VERSION,
+        jobId: request.jobId,
+        type: 'PARTIAL',
+        snapshot,
+        excludedGameCount,
+        diagnosticCodes,
         ...(persistenceNotice ? { persistenceNotice } : {}),
       });
     else

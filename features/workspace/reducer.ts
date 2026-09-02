@@ -16,7 +16,7 @@ const emptySelection = {
   ply: 0,
 } as const;
 
-const idleGraph = { status: 'idle', snapshot: null, error: null } as const;
+const idleGraph = { status: 'idle', snapshot: null, diagnosticCodes: [], error: null } as const;
 const idleAnalysis = {
   status: 'idle',
   capability: null,
@@ -80,11 +80,19 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         ingestion: { ...state.ingestion, status: 'failed', error: action.error },
       };
     case 'graph/started':
-      return { ...state, graph: { status: 'building', snapshot: null, error: null } };
+      return {
+        ...state,
+        graph: { status: 'building', snapshot: null, diagnosticCodes: [], error: null },
+      };
     case 'graph/terminal':
       return {
         ...state,
-        graph: { status: action.status, snapshot: action.snapshot, error: null },
+        graph: {
+          status: action.status,
+          snapshot: action.snapshot,
+          diagnosticCodes: action.diagnosticCodes,
+          error: null,
+        },
         selection: {
           ...state.selection,
           positionKey: action.snapshot.rootKey,
@@ -92,7 +100,10 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         },
       };
     case 'graph/failed':
-      return { ...state, graph: { status: 'failed', snapshot: null, error: action.error } };
+      return {
+        ...state,
+        graph: { status: 'failed', snapshot: null, diagnosticCodes: [], error: action.error },
+      };
     case 'selection/game':
       return {
         ...state,

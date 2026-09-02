@@ -58,6 +58,7 @@ describe('workspace reducer', () => {
       graph: {
         status: 'complete' as const,
         snapshot: { formatVersion: 1 } as never,
+        diagnosticCodes: [],
         error: null,
       },
       analysis: {
@@ -117,6 +118,7 @@ describe('workspace reducer', () => {
       token: 4,
       status: 'limited',
       snapshot,
+      diagnosticCodes: ['ILLEGAL_PGN'],
     });
     state = reduceWorkspace(state, { type: 'selection/position', positionKey: 'next', pathId: 9 });
     state = reduceWorkspace(state, { type: 'selection/ply', ply: -3 });
@@ -126,6 +128,7 @@ describe('workspace reducer', () => {
     });
 
     expect(state.graph.status).toBe('limited');
+    expect(state.graph.diagnosticCodes).toEqual(['ILLEGAL_PGN']);
     expect(state.selection).toMatchObject({ positionKey: 'next', pathId: 9, ply: 0 });
     expect(state.preferences.theme).toBe('dark');
     expect(reduceWorkspace(state, { type: 'data/userDeleted', username: 'someone-else' })).toBe(
@@ -139,6 +142,23 @@ describe('workspace reducer', () => {
       reduceWorkspace(state, { type: 'ingestion/failed', token: 4, error: 'load failed' }).ingestion
         .status
     ).toBe('failed');
+  });
+
+  it('retains defensive graph exclusions as a distinct partial state', () => {
+    const snapshot = { rootKey: 'root', excludedGameCount: 1 } as never;
+    const state = reduceWorkspace(initialWorkspaceState, {
+      type: 'graph/terminal',
+      token: 0,
+      status: 'partial',
+      snapshot,
+      diagnosticCodes: ['ILLEGAL_PGN'],
+    });
+
+    expect(state.graph).toMatchObject({
+      status: 'partial',
+      snapshot,
+      diagnosticCodes: ['ILLEGAL_PGN'],
+    });
   });
 
   it('covers available and unavailable analysis transitions', () => {
