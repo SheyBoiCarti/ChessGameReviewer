@@ -29,11 +29,11 @@ export function serializedGraphByteSize(snapshot: SerializedOpeningGraph): numbe
   return new TextEncoder().encode(JSON.stringify(snapshot)).byteLength;
 }
 
-export function snapshotPersistenceNotice(
+export function serializedGraphFits(
   snapshot: SerializedOpeningGraph,
   maxBytes = MAX_SERIALIZED_GRAPH_BYTES
-): 'SNAPSHOT_TOO_LARGE_TO_PERSIST' | undefined {
-  return serializedGraphByteSize(snapshot) > maxBytes ? 'SNAPSHOT_TOO_LARGE_TO_PERSIST' : undefined;
+): boolean {
+  return serializedGraphByteSize(snapshot) <= maxBytes;
 }
 
 export function serializeOpeningGraph(

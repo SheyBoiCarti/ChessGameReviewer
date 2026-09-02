@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { OpeningGraphBuilder } from '@/lib/chess/graph/openingGraph';
+import type { GraphStructuralLimits } from '@/lib/chess/graph/types';
 import { serializeOpeningGraph } from '@/lib/chess/graph/serialization';
 import { parseGamePgn } from '@/lib/chess/pgnParser';
 
@@ -28,6 +29,14 @@ function parse(id: string, pgn: string) {
 }
 
 describe('OpeningGraphBuilder', () => {
+  it('accepts structural limits without a serialized-byte setting', () => {
+    const limits: GraphStructuralLimits = {
+      maxPositions: 10,
+      maxEdges: 10,
+      maxPathNodes: 10,
+    };
+    expect(new OpeningGraphBuilder({}, limits)).toBeDefined();
+  });
   it('enforces the public opening horizon range', () => {
     expect(() => new OpeningGraphBuilder({ maxOpeningPlies: 1 })).toThrow(
       'INVALID_OPENING_HORIZON'

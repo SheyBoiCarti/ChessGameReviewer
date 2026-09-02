@@ -4,13 +4,13 @@ import {
   deserializeOpeningGraph,
   serializeOpeningGraph,
   serializedGraphByteSize,
-  snapshotPersistenceNotice,
+  serializedGraphFits,
 } from '@/lib/chess/graph/serialization';
 import { OpeningGraphBuilder } from '@/lib/chess/graph/openingGraph';
 import { parseGamePgn } from '@/lib/chess/pgnParser';
 
 describe('opening graph serialization', () => {
-  it('reports snapshots that are too large to persist without discarding them', () => {
+  it('uses an inclusive exact UTF-8 byte boundary', () => {
     const snapshot = {
       formatVersion: 1,
       queryFingerprint: 'query',
@@ -25,8 +25,9 @@ describe('opening graph serialization', () => {
       positions: [],
       paths: [{ id: 0, parentId: null, uci: null, san: null, ply: 0 }],
     };
-    expect(serializedGraphByteSize(snapshot)).toBeGreaterThan(1);
-    expect(snapshotPersistenceNotice(snapshot, 1)).toBe('SNAPSHOT_TOO_LARGE_TO_PERSIST');
+    const bytes = serializedGraphByteSize(snapshot);
+    expect(serializedGraphFits(snapshot, bytes)).toBe(true);
+    expect(serializedGraphFits(snapshot, bytes - 1)).toBe(false);
   });
 
   it('round-trips an empty graph with a valid root reference', () => {
