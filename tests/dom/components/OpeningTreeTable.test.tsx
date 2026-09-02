@@ -50,6 +50,22 @@ describe('OpeningTreeTable', () => {
     expect(screen.getByText(/maximum is 40 plies/i)).toBeInTheDocument();
   });
 
+  it('names the serialized snapshot-size resource limit', () => {
+    const graph = { ...openingGraphFixture('limited'), reachedLimit: 'maxSnapshotBytes' as const };
+    render(
+      <OpeningTreeTable
+        graph={graph}
+        navigation={createGraphNavigation(graph)}
+        perspective="board"
+        onNavigate={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'This graph reached the snapshot size resource limit'
+    );
+  });
+
   it('shows defensive graph exclusions without exposing PGN content', () => {
     const graph = openingGraphFixture();
     render(

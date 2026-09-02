@@ -157,6 +157,32 @@ describe('analysis data worker', () => {
     expect(result).toMatchObject({ status: 'limited', reachedLimit: 'maxPositions' });
   });
 
+  it('remains cancellable before an overflow rebuild is transferred', async () => {
+    let cancelled = false;
+    let attempts = 0;
+    const build = buildGraphWithinByteBudget(
+      [parsed('cancel-overflow', '1. e4 e5 2. Nf3 Nc6 1-0')],
+      { maxOpeningPlies: 30, includeRepeatedPositions: false },
+      {
+        queryFingerprint: 'cancel-overflow',
+        sourceGameCount: 1,
+        excludedGameCount: 0,
+        buildTimestamp: 1,
+      },
+      {
+        maxBytes: 1,
+        shouldCancel: () => cancelled,
+        onBuildAttempt: () => {
+          attempts += 1;
+          if (attempts === 2) cancelled = true;
+        },
+      }
+    );
+
+    await expect(build).rejects.toMatchObject({ code: 'ABORTED' });
+    expect(attempts).toBe(2);
+  });
+
   it('validates PGNs and returns valid ids with bounded diagnostics metadata', async () => {
     const responses: Array<Record<string, unknown>> = [];
     await handleRequest(
