@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { handleRequest } from '@/workers/analysis-data.worker';
+import { buildGraphWithinByteBudget, handleRequest } from '@/workers/analysis-data.worker';
 import type { NormalizedGameSummary } from '@/lib/api/contracts';
+import { parseGamePgn, type ParsedGame } from '@/lib/chess/pgnParser';
+import { OpeningGraphBuilder, canonicalGameOrder } from '@/lib/chess/graph/openingGraph';
+import { serializeOpeningGraph, serializedGraphByteSize } from '@/lib/chess/graph/serialization';
 
 function game(overrides: Partial<NormalizedGameSummary> = {}): NormalizedGameSummary {
   return {
@@ -23,7 +26,137 @@ function game(overrides: Partial<NormalizedGameSummary> = {}): NormalizedGameSum
   };
 }
 
+function parsed(id: string, pgn: string): ParsedGame {
+  const result = parseGamePgn({ game: game({ id, pgn }) });
+  if (!result.ok) throw new Error('Expected valid PGN fixture');
+  return result.game;
+}
+
 describe('analysis data worker', () => {
+  it('accepts a serialized graph at its exact byte limit', async () => {
+    const games = [parsed('one', '1. e4 e5 1-0')];
+    const metadata = {
+      queryFingerprint: 'exact-fit',
+      sourceGameCount: 1,
+      excludedGameCount: 0,
+      buildTimestamp: 1,
+    };
+    const full = await buildGraphWithinByteBudget(
+      games,
+      { maxOpeningPlies: 30, includeRepeatedPositions: false },
+      metadata,
+      { maxBytes: Number.MAX_SAFE_INTEGER }
+    );
+
+    const exact = await buildGraphWithinByteBudget(
+      games,
+      { maxOpeningPlies: 30, includeRepeatedPositions: false },
+      metadata,
+      { maxBytes: serializedGraphByteSize(full.snapshot) }
+    );
+
+    expect(exact.status).toBe('complete');
+  });
+
+  it('returns a valid zero-game graph when one game exceeds the byte budget', async () => {
+    const games = [parsed('one-overflow', '1. e4 e5 2. Nf3 Nc6 1-0')];
+    const metadata = {
+      queryFingerprint: 'one-overflow',
+      sourceGameCount: 1,
+      excludedGameCount: 0,
+      buildTimestamp: 1,
+    };
+    const emptyGraph = new OpeningGraphBuilder({ maxOpeningPlies: 30 }).build([]);
+    const emptySnapshot = {
+      ...serializeOpeningGraph(emptyGraph, metadata),
+      status: 'limited' as const,
+      reachedLimit: 'maxSnapshotBytes',
+      includedGameCount: 0,
+      remainingGameCount: 1,
+    };
+    const maxBytes = serializedGraphByteSize(emptySnapshot);
+
+    const result = await buildGraphWithinByteBudget(
+      games,
+      { maxOpeningPlies: 30, includeRepeatedPositions: false },
+      metadata,
+      { maxBytes }
+    );
+
+    expect(result).toMatchObject({
+      status: 'limited',
+      reachedLimit: 'maxSnapshotBytes',
+      includedGameCount: 0,
+      remainingGameCount: 1,
+    });
+    expect(result.snapshot.positions.some(({ key }) => key === result.snapshot.rootKey)).toBe(true);
+    expect(serializedGraphByteSize(result.snapshot)).toBeLessThanOrEqual(maxBytes);
+  });
+
+  it('selects the largest fitting canonical complete-game prefix', async () => {
+    const games = [
+      parsed('three', '1. c4 e5 1-0'),
+      parsed('one', '1. e4 e5 1-0'),
+      parsed('two', '1. d4 d5 1-0'),
+    ];
+    const options = { maxOpeningPlies: 30, includeRepeatedPositions: false };
+    const metadata = {
+      queryFingerprint: 'middle-prefix',
+      sourceGameCount: 3,
+      excludedGameCount: 0,
+      buildTimestamp: 1,
+    };
+    const ordered = canonicalGameOrder(games);
+    const twoGraph = new OpeningGraphBuilder(options).build(ordered.slice(0, 2));
+    const twoSnapshot = {
+      ...serializeOpeningGraph(twoGraph, metadata),
+      status: 'limited' as const,
+      reachedLimit: 'maxSnapshotBytes',
+      includedGameCount: 2,
+      remainingGameCount: 1,
+    };
+    const maxBytes = serializedGraphByteSize(twoSnapshot);
+
+    const result = await buildGraphWithinByteBudget(games, options, metadata, { maxBytes });
+    const threeGraph = new OpeningGraphBuilder(options).build(ordered);
+    const threeSnapshot = {
+      ...serializeOpeningGraph(threeGraph, metadata),
+      status: 'limited' as const,
+      reachedLimit: 'maxSnapshotBytes',
+      includedGameCount: 3,
+      remainingGameCount: 0,
+    };
+
+    expect(result).toMatchObject({
+      status: 'limited',
+      reachedLimit: 'maxSnapshotBytes',
+      includedGameCount: 2,
+      remainingGameCount: 1,
+    });
+    expect(serializedGraphByteSize(result.snapshot)).toBeLessThanOrEqual(maxBytes);
+    expect(serializedGraphByteSize(threeSnapshot)).toBeGreaterThan(maxBytes);
+  });
+
+  it('keeps a fitting structural limit as the terminal reason', async () => {
+    const games = [parsed('first', '1. e4 e5 1-0'), parsed('second', '1. d4 d5 1-0')];
+    const result = await buildGraphWithinByteBudget(
+      games,
+      { maxOpeningPlies: 30, includeRepeatedPositions: false },
+      {
+        queryFingerprint: 'structural',
+        sourceGameCount: 2,
+        excludedGameCount: 0,
+        buildTimestamp: 1,
+      },
+      {
+        maxBytes: Number.MAX_SAFE_INTEGER,
+        structuralLimits: { maxPositions: 3, maxEdges: 2, maxPathNodes: 3 },
+      }
+    );
+
+    expect(result).toMatchObject({ status: 'limited', reachedLimit: 'maxPositions' });
+  });
+
   it('validates PGNs and returns valid ids with bounded diagnostics metadata', async () => {
     const responses: Array<Record<string, unknown>> = [];
     await handleRequest(
@@ -40,10 +173,7 @@ describe('analysis data worker', () => {
       (response) => responses.push(response)
     );
 
-    expect(responses.map(({ type }) => type)).toEqual([
-      'JOB_ACCEPTED',
-      'PGN_VALIDATION_COMPLETE',
-    ]);
+    expect(responses.map(({ type }) => type)).toEqual(['JOB_ACCEPTED', 'PGN_VALIDATION_COMPLETE']);
     expect(responses.at(-1)).toMatchObject({
       validGameIds: ['valid'],
       totalInvalid: 2,

@@ -3,7 +3,6 @@ import type { GraphBuildOptions } from '../lib/chess/graph/types';
 import type { SerializedOpeningGraph } from '../lib/chess/graph/serialization';
 
 export const PROTOCOL_VERSION = 1;
-export type SnapshotPersistenceNotice = 'SNAPSHOT_TOO_LARGE_TO_PERSIST';
 
 export type WorkerRequest =
   | {
@@ -48,7 +47,6 @@ export type WorkerResponse =
       jobId: string;
       type: 'COMPLETE';
       snapshot: SerializedOpeningGraph;
-      persistenceNotice?: SnapshotPersistenceNotice;
     }
   | {
       protocolVersion: typeof PROTOCOL_VERSION;
@@ -57,7 +55,6 @@ export type WorkerResponse =
       snapshot: SerializedOpeningGraph;
       excludedGameCount: number;
       diagnosticCodes: readonly string[];
-      persistenceNotice?: SnapshotPersistenceNotice;
     }
   | {
       protocolVersion: typeof PROTOCOL_VERSION;
@@ -69,7 +66,6 @@ export type WorkerResponse =
       remainingGameCount: number;
       excludedGameCount: number;
       diagnosticCodes: readonly string[];
-      persistenceNotice?: SnapshotPersistenceNotice;
     }
   | { protocolVersion: typeof PROTOCOL_VERSION; jobId: string; type: 'CANCELLED' }
   | {

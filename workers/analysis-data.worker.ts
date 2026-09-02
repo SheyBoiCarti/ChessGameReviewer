@@ -1,7 +1,14 @@
 /// <reference lib="webworker" />
 
-import { OpeningGraphBuilder } from '../lib/chess/graph/openingGraph';
-import { serializeOpeningGraph, snapshotPersistenceNotice } from '../lib/chess/graph/serialization';
+import { createAbortError, PubApiError } from '../lib/api/errors';
+import { canonicalGameOrder, OpeningGraphBuilder } from '../lib/chess/graph/openingGraph';
+import {
+  MAX_SERIALIZED_GRAPH_BYTES,
+  serializeOpeningGraph,
+  serializedGraphFits,
+  type SerializedOpeningGraph,
+} from '../lib/chess/graph/serialization';
+import type { GraphBuildOptions, GraphStructuralLimits } from '../lib/chess/graph/types';
 import { parseGamePgn, type ParsedGame } from '../lib/chess/pgnParser';
 import type { Diagnostic } from '../lib/api/contracts';
 import type { WorkerRequest, WorkerResponse } from './protocol';
@@ -95,22 +102,26 @@ export async function handleRequest(
       post({ protocolVersion: PROTOCOL_VERSION, jobId: request.jobId, type: 'CANCELLED' });
       return;
     }
-    const graph = await new OpeningGraphBuilder(request.options).buildAsync(parsedGames, {
-      shouldCancel: () => cancelledJobs.has(request.jobId),
-      onProgress: ({ includedGameCount }) => reportProgress(includedGameCount),
-    });
-    if (!graph || cancelledJobs.delete(request.jobId)) {
+    const excludedGameCount = request.games.length - parsedGames.length;
+    const graph = await buildGraphWithinByteBudget(
+      parsedGames,
+      request.options,
+      {
+        queryFingerprint: request.queryFingerprint,
+        sourceGameCount: request.games.length,
+        excludedGameCount,
+        buildTimestamp: Date.now(),
+      },
+      {
+        shouldCancel: () => cancelledJobs.has(request.jobId),
+        onProgress: (includedGameCount) => reportProgress(includedGameCount),
+      }
+    );
+    if (cancelledJobs.delete(request.jobId)) {
       post({ protocolVersion: PROTOCOL_VERSION, jobId: request.jobId, type: 'CANCELLED' });
       return;
     }
-    const snapshot = serializeOpeningGraph(graph, {
-      queryFingerprint: request.queryFingerprint ?? '',
-      sourceGameCount: request.games.length,
-      excludedGameCount: request.games.length - parsedGames.length,
-      buildTimestamp: Date.now(),
-    });
-    const excludedGameCount = request.games.length - parsedGames.length;
-    const persistenceNotice = snapshotPersistenceNotice(snapshot);
+    const snapshot = graph.snapshot;
     if (graph.status === 'limited')
       post({
         protocolVersion: PROTOCOL_VERSION,
@@ -122,7 +133,6 @@ export async function handleRequest(
         remainingGameCount: graph.remainingGameCount,
         excludedGameCount,
         diagnosticCodes,
-        ...(persistenceNotice ? { persistenceNotice } : {}),
       });
     else if (excludedGameCount > 0)
       post({
@@ -132,7 +142,6 @@ export async function handleRequest(
         snapshot,
         excludedGameCount,
         diagnosticCodes,
-        ...(persistenceNotice ? { persistenceNotice } : {}),
       });
     else
       post({
@@ -140,9 +149,13 @@ export async function handleRequest(
         jobId: request.jobId,
         type: 'COMPLETE',
         snapshot,
-        ...(persistenceNotice ? { persistenceNotice } : {}),
       });
-  } catch {
+  } catch (error) {
+    if (error instanceof PubApiError && error.code === 'ABORTED') {
+      cancelledJobs.delete(request.jobId);
+      post({ protocolVersion: PROTOCOL_VERSION, jobId: request.jobId, type: 'CANCELLED' });
+      return;
+    }
     post({
       protocolVersion: PROTOCOL_VERSION,
       jobId: request.jobId,
@@ -151,6 +164,99 @@ export async function handleRequest(
       message: 'Graph build failed.',
     });
   }
+}
+
+interface GraphBudgetMetadata {
+  queryFingerprint: string;
+  sourceGameCount: number;
+  excludedGameCount: number;
+  buildTimestamp: number;
+}
+
+interface GraphBudgetRuntime {
+  maxBytes?: number;
+  structuralLimits?: Partial<GraphStructuralLimits>;
+  shouldCancel?: () => boolean;
+  onProgress?: (includedGameCount: number) => void;
+  onBuildAttempt?: (gameCount: number) => void;
+}
+
+export interface GraphBudgetResult {
+  status: 'complete' | 'limited';
+  snapshot: SerializedOpeningGraph;
+  reachedLimit?: keyof GraphStructuralLimits | 'maxSnapshotBytes';
+  includedGameCount: number;
+  remainingGameCount: number;
+}
+
+export async function buildGraphWithinByteBudget(
+  games: readonly ParsedGame[],
+  options: GraphBuildOptions,
+  metadata: GraphBudgetMetadata,
+  runtime: GraphBudgetRuntime = {}
+): Promise<GraphBudgetResult> {
+  const orderedGames = canonicalGameOrder(games);
+  const maxBytes = runtime.maxBytes ?? MAX_SERIALIZED_GRAPH_BYTES;
+
+  const buildPrefix = async (count: number, byteLimited: boolean): Promise<GraphBudgetResult> => {
+    if (runtime.shouldCancel?.()) throw createAbortError();
+    runtime.onBuildAttempt?.(count);
+    const graph = await new OpeningGraphBuilder(options, runtime.structuralLimits).buildAsync(
+      orderedGames.slice(0, count),
+      {
+        ...(runtime.shouldCancel ? { shouldCancel: runtime.shouldCancel } : {}),
+        ...(byteLimited
+          ? {}
+          : {
+              onProgress: ({ includedGameCount }: { includedGameCount: number }) =>
+                runtime.onProgress?.(includedGameCount),
+            }),
+      }
+    );
+    if (!graph) throw createAbortError();
+    let snapshot = serializeOpeningGraph(graph, metadata);
+    if (byteLimited) {
+      snapshot = {
+        ...snapshot,
+        status: 'limited',
+        reachedLimit: 'maxSnapshotBytes',
+        includedGameCount: graph.includedGameCount,
+        remainingGameCount: orderedGames.length - graph.includedGameCount,
+      };
+    }
+    return {
+      status: snapshot.status,
+      snapshot,
+      ...(snapshot.reachedLimit
+        ? {
+            reachedLimit: snapshot.reachedLimit as keyof GraphStructuralLimits | 'maxSnapshotBytes',
+          }
+        : {}),
+      includedGameCount: snapshot.includedGameCount,
+      remainingGameCount: snapshot.remainingGameCount,
+    };
+  };
+
+  const full = await buildPrefix(orderedGames.length, false);
+  if (serializedGraphFits(full.snapshot, maxBytes)) return full;
+
+  let low = 0;
+  let high = orderedGames.length;
+  let best = await buildPrefix(0, true);
+  if (!serializedGraphFits(best.snapshot, maxBytes)) throw new Error('GRAPH_BYTE_BUDGET_TOO_SMALL');
+
+  while (low <= high) {
+    if (runtime.shouldCancel?.()) throw createAbortError();
+    const middle = Math.floor((low + high) / 2);
+    const candidate = await buildPrefix(middle, true);
+    if (serializedGraphFits(candidate.snapshot, maxBytes)) {
+      best = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return best;
 }
 
 async function validatePgnsInWorker(
