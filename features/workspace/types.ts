@@ -44,6 +44,10 @@ export interface WorkspaceState {
     diagnosticCodes: readonly string[];
     error: string | null;
   };
+  dataMaintenance: {
+    status: 'idle' | 'deleting-user' | 'clearing-all';
+    error: string | null;
+  };
   selection: WorkspaceSelection;
   analysis: {
     status:
@@ -93,6 +97,9 @@ export type WorkspaceAction =
   | { type: 'analysis/cancelled'; token: number }
   | { type: 'analysis/failed'; token: number; error: string }
   | { type: 'preferences/changed'; preferences: Partial<WorkspacePreferences> }
+  | { type: 'operations/invalidated'; token: number }
+  | { type: 'data/deletionStarted'; kind: 'user' | 'all' }
+  | { type: 'data/deletionFailed'; error: string }
   | { type: 'data/userDeleted'; username: string }
   | { type: 'data/allCleared' };
 

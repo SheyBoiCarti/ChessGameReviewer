@@ -11,6 +11,66 @@ const query: GameQuery = {
 };
 
 describe('workspace reducer', () => {
+  it('models deletion maintenance start, failure, and success explicitly', () => {
+    const deleting = reduceWorkspace(initialWorkspaceState, {
+      type: 'data/deletionStarted',
+      kind: 'user',
+    });
+    expect(deleting.dataMaintenance).toEqual({ status: 'deleting-user', error: null });
+
+    const failed = reduceWorkspace(deleting, {
+      type: 'data/deletionFailed',
+      error: 'Local data could not be deleted.',
+    });
+    expect(failed.dataMaintenance).toEqual({
+      status: 'idle',
+      error: 'Local data could not be deleted.',
+    });
+
+    const clearing = reduceWorkspace(failed, { type: 'data/deletionStarted', kind: 'all' });
+    expect(clearing.dataMaintenance.status).toBe('clearing-all');
+    expect(reduceWorkspace(clearing, { type: 'data/allCleared' }).dataMaintenance).toEqual({
+      status: 'idle',
+      error: null,
+    });
+  });
+
+  it('invalidates active operations and ignores terminals carrying the old token', () => {
+    const active = {
+      ...initialWorkspaceState,
+      query: { draft: query, active: query, token: 4 },
+      ingestion: {
+        status: 'loading' as const,
+        progress: null,
+        result: null,
+        error: null,
+      },
+      graph: {
+        status: 'building' as const,
+        snapshot: null,
+        diagnosticCodes: [],
+        error: null,
+      },
+      analysis: {
+        ...initialWorkspaceState.analysis,
+        status: 'running' as const,
+      },
+    };
+    const invalidated = reduceWorkspace(active, { type: 'operations/invalidated', token: 5 });
+
+    expect(invalidated.query.token).toBe(5);
+    expect(invalidated.ingestion.status).toBe('cancelled');
+    expect(invalidated.graph.status).toBe('idle');
+    expect(invalidated.analysis.status).toBe('cancelled');
+    expect(
+      reduceWorkspace(invalidated, {
+        type: 'graph/failed',
+        token: 4,
+        error: 'late failure',
+      })
+    ).toBe(invalidated);
+  });
+
   it.each(['partial', 'cancelled', 'failed', 'complete'] as const)(
     'keeps %s distinct as an ingestion terminal state',
     (status) => {
