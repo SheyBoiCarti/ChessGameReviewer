@@ -16,6 +16,8 @@ import {
   getMeta,
   putArchiveListMeta,
   getArchiveListMeta,
+  getEvaluation,
+  putEvaluation,
 } from '../../../lib/db/repositories';
 import { deleteUserData, clearAllData } from '../../../lib/db/deleteLocalData';
 
@@ -106,6 +108,13 @@ describe('deleteLocalData API', () => {
         months: ['2024-05'],
         fetchedAt: 1700000000,
       });
+      await putEvaluation(db, {
+        key: 'shared-position',
+        positionHash: 'hash',
+        engineBuild: 'engine',
+        lastUsedAt: 1700000000,
+        evaluation: { cp: 12 },
+      });
 
       const result = await deleteUserData(db, 'JaneDoe'); // testing case insensitivity
 
@@ -121,6 +130,7 @@ describe('deleteLocalData API', () => {
       expect(await getArchiveSyncsForUser(db, 'janedoe')).toHaveLength(0);
       expect(await getGraphSnapshot(db, 'snap-jane')).toBeNull();
       expect(await getArchiveListMeta(db, 'janedoe')).toBeNull();
+      expect(await getEvaluation(db, 'shared-position')).not.toBeNull();
 
       // Verify John's data remains untouched
       expect(await getGamesForUser(db, 'johndoe')).toHaveLength(1);
@@ -131,6 +141,13 @@ describe('deleteLocalData API', () => {
   describe('clearAllData', () => {
     it('clears all data across all stores and confirms removed stores', async () => {
       await setMeta(db, 'testKey', 'testVal');
+      await putEvaluation(db, {
+        key: 'position-to-clear',
+        positionHash: 'hash',
+        engineBuild: 'engine',
+        lastUsedAt: 1700000000,
+        evaluation: { cp: 5 },
+      });
 
       const result = await clearAllData(db);
 
@@ -139,6 +156,7 @@ describe('deleteLocalData API', () => {
       );
 
       expect(await getMeta(db, 'testKey')).toBeNull();
+      expect(await getEvaluation(db, 'position-to-clear')).toBeNull();
     });
   });
 });

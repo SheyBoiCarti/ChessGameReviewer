@@ -202,6 +202,7 @@ export function Phase1TestHarness() {
     setStatus(result.status);
     setOfflineCacheOnly(result.offlineCacheOnly);
     setRetainedGames(result.games);
+    setStoredCount((await getGamesForUser(db, USERNAME)).length);
   }
 
   return (
