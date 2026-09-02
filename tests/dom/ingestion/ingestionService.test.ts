@@ -521,7 +521,7 @@ describe('runIngestion', () => {
     });
   });
 
-  it('keeps accepted games when persistence fails with an untyped storage error', async () => {
+  it('does not publish staged games when persistence fails with an untyped storage error', async () => {
     const deps = fakeDependencies({
       fetchMonthlyGames: vi.fn().mockResolvedValue([makeRawGame()]),
       persistMonth: vi.fn().mockRejectedValue(new Error('quota details')),
@@ -530,8 +530,8 @@ describe('runIngestion', () => {
     const result = await runIngestion(makeQuery(), { deps, now: () => NOW });
 
     expect(result).toMatchObject({
-      status: 'partial',
-      games: [expect.objectContaining({ id: 'game-100' })],
+      status: 'failed',
+      games: [],
     });
     expect(result.failedMonths).toHaveLength(1);
     expect(result.failedMonths[0]).toMatchObject({
@@ -563,6 +563,79 @@ describe('runIngestion', () => {
     const progressCountAtTerminal = progress.length;
     await Promise.resolve();
     expect(progress).toHaveLength(progressCountAtTerminal);
+  });
+
+  it('retains a completed cached month when cancellation interrupts the next month', async () => {
+    const controller = new AbortController();
+    const progress: IngestionProgress[] = [];
+    const cachedGame = makeGameRecord({ id: 'completed-month-game' });
+    let validationCall = 0;
+    const deps = fakeDependencies({
+      readArchiveList: vi.fn().mockResolvedValue({
+        username: 'janedoe',
+        months: ['2026-08', '2026-07'],
+        fetchedAt: NOW - 60_000,
+      }),
+      readArchiveSyncs: vi
+        .fn()
+        .mockResolvedValue([makeArchiveSync({ month: '2026-08', key: 'janedoe:2026-08' })]),
+      readMonthGames: vi.fn().mockResolvedValue([cachedGame]),
+      fetchMonthlyGames: vi.fn().mockResolvedValue([makeRawGame({ uuid: 'incomplete-game' })]),
+      validatePgns: vi.fn(
+        (games: readonly { id: string }[], { signal }: { signal: AbortSignal }) => {
+          validationCall += 1;
+          if (validationCall === 2) return rejectWhenAborted(signal);
+          return Promise.resolve({
+            validGameIds: games.map(({ id }) => id),
+            diagnostics: [],
+            totalInvalid: 0,
+            diagnosticCodes: [],
+          });
+        }
+      ),
+    });
+    const pending = runIngestion(makeQuery({ maxGames: 10 }), {
+      deps,
+      signal: controller.signal,
+      now: () => NOW,
+      onProgress: (event) => progress.push(event),
+    });
+    await vi.waitFor(() => expect(validationCall).toBe(2));
+
+    controller.abort();
+    const result = await pending;
+
+    expect(result).toMatchObject({
+      status: 'cancelled',
+      games: [expect.objectContaining({ id: 'completed-month-game' })],
+      failedMonths: [],
+    });
+    expect(result.games.some(({ id }) => id === 'incomplete-game')).toBe(false);
+    expect(progress.at(-1)?.recordsAccepted).toBe(1);
+  });
+
+  it('does not publish a network month before its persistence commit', async () => {
+    const commit = deferred<void>();
+    const progress: IngestionProgress[] = [];
+    const persistMonth = vi.fn(() => commit.promise);
+    const pending = runIngestion(makeQuery(), {
+      deps: fakeDependencies({
+        fetchMonthlyGames: vi.fn().mockResolvedValue([makeRawGame({ uuid: 'staged-game' })]),
+        persistMonth,
+      }),
+      now: () => NOW,
+      onProgress: (event) => progress.push(event),
+    });
+    await vi.waitFor(() => expect(persistMonth).toHaveBeenCalledTimes(1));
+
+    expect(progress.every(({ recordsAccepted }) => recordsAccepted === 0)).toBe(true);
+    commit.resolve(undefined);
+
+    await expect(pending).resolves.toMatchObject({
+      status: 'complete',
+      games: [expect.objectContaining({ id: 'staged-game' })],
+    });
+    expect(progress.at(-1)?.recordsAccepted).toBe(1);
   });
 
   it('cancels during a retry wait without starting another attempt', async () => {
