@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import type { WorkspaceState } from '@/features/workspace/types';
 
 interface StoredUserSummary {
   username: string;
@@ -11,10 +12,12 @@ type Confirmation = { kind: 'user'; username: string } | { kind: 'all' };
 
 export function LocalDataSettings({
   users,
+  maintenance,
   onDeleteUsername,
   onClearAll,
 }: {
   users: readonly StoredUserSummary[];
+  maintenance: WorkspaceState['dataMaintenance'];
   onDeleteUsername(username: string): Promise<{ gamesDeleted: number }>;
   onClearAll(): Promise<unknown>;
 }) {
@@ -26,6 +29,12 @@ export function LocalDataSettings({
   useEffect(() => {
     if (confirmation) dialogRef.current?.focus();
   }, [confirmation]);
+
+  useEffect(() => {
+    if (maintenance.status !== 'idle') setConfirmation(null);
+  }, [maintenance.status]);
+
+  const maintenanceActive = maintenance.status !== 'idle';
 
   const closeConfirmation = () => {
     setConfirmation(null);
@@ -91,6 +100,7 @@ export function LocalDataSettings({
               </span>
               <button
                 type="button"
+                disabled={maintenanceActive}
                 onClick={(event) => {
                   triggerRef.current = event.currentTarget;
                   setConfirmation({ kind: 'user', username: user.username });
@@ -106,6 +116,7 @@ export function LocalDataSettings({
       )}
       <button
         type="button"
+        disabled={maintenanceActive}
         onClick={(event) => {
           triggerRef.current = event.currentTarget;
           setConfirmation({ kind: 'all' });
@@ -113,6 +124,13 @@ export function LocalDataSettings({
       >
         Clear all local data
       </button>
+      {maintenance.status === 'deleting-user' ? (
+        <p role="status">Deleting local data…</p>
+      ) : null}
+      {maintenance.status === 'clearing-all' ? (
+        <p role="status">Clearing all local data…</p>
+      ) : null}
+      {maintenance.error ? <p role="alert">{maintenance.error}</p> : null}
       {message ? <p role={message.kind}>{message.text}</p> : null}
       {confirmation ? (
         <div
@@ -126,7 +144,7 @@ export function LocalDataSettings({
         >
           <h4 id="delete-data-title">Delete local data?</h4>
           <p>This removes games and analysis from this device and cannot be undone.</p>
-          <button type="button" onClick={() => void confirm()}>
+          <button type="button" disabled={maintenanceActive} onClick={() => void confirm()}>
             {confirmation.kind === 'all' ? 'Confirm clear all' : 'Confirm delete'}
           </button>
           <button type="button" onClick={closeConfirmation}>

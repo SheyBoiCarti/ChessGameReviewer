@@ -536,6 +536,7 @@ export function ChessWorkspace({
                   </section>
                   <LocalDataSettings
                     users={state.query.active ? [{ username: state.query.active.username }] : []}
+                    maintenance={state.dataMaintenance}
                     onDeleteUsername={controller.deleteUserData}
                     onClearAll={controller.clearAllData}
                   />
