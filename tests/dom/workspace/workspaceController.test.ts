@@ -122,6 +122,69 @@ describe('workspace controller', () => {
     expect(controller.getState().selection.gameId).toBeNull();
   });
 
+  it('waits for an active query writer to settle before deleting and rejects overlap', async () => {
+    const pending = deferred<IngestionResult>();
+    const order: string[] = [];
+    const start = vi.fn(() => pending.promise);
+    const services = createServices(start);
+    services.ingestion.cancel = () => order.push('ingestion-cancel');
+    services.data.deleteUsername = async (username) => {
+      order.push('delete-user');
+      return {
+        username,
+        gamesDeleted: 1,
+        archiveSyncDeleted: 1,
+        graphSnapshotsDeleted: 1,
+      };
+    };
+    const controller = createWorkspaceController(services);
+    const submission = controller.submitQuery(secondQuery);
+    order.length = 0;
+
+    const deletion = controller.deleteUserData('second-player');
+
+    expect(order).toEqual(['ingestion-cancel']);
+    expect(start).toHaveBeenCalledTimes(1);
+    const duringMaintenance = controller.submitQuery(firstQuery);
+    expect(start).toHaveBeenCalledTimes(1);
+    await expect(controller.clearAllData()).rejects.toMatchObject({
+      name: 'DataMaintenanceActiveError',
+      message: 'Local data maintenance is already running.',
+    });
+
+    order.push('ingestion-settled');
+    pending.resolve(result(secondQuery, [game]));
+    await Promise.all([submission, duringMaintenance, deletion]);
+
+    expect(order).toEqual(['ingestion-cancel', 'ingestion-settled', 'delete-user']);
+    expect(controller.getState().ingestion.result).toBeNull();
+  });
+
+  it('waits for an aborted analysis writer before clearing evaluations', async () => {
+    const pending = deferred<Awaited<ReturnType<WorkspaceServices['analysis']['analyze']>>>();
+    const services = createServices(async () => result(secondQuery, [game]));
+    let analysisSignal: AbortSignal | undefined;
+    const clearAll = vi.fn(async () => ({ clearedStores: ['evaluations'] }));
+    services.data.clearAll = clearAll;
+    services.analysis.analyze = (_game, _strength, _capability, _context, signal) => {
+      analysisSignal = signal;
+      return pending.promise;
+    };
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    controller.selectGame(game.id);
+    await controller.probeEngine();
+    const analysis = controller.startAnalysis();
+
+    const clearing = controller.clearAllData();
+
+    expect(analysisSignal?.aborted).toBe(true);
+    expect(clearAll).not.toHaveBeenCalled();
+    pending.resolve({} as never);
+    await Promise.all([analysis, clearing]);
+    expect(clearAll).toHaveBeenCalledTimes(1);
+  });
+
   it('cancels and ignores selected-game analysis after the game selection changes', async () => {
     const pending = deferred<Awaited<ReturnType<WorkspaceServices['analysis']['analyze']>>>();
     const services = createServices(async () => result(secondQuery, [game]));

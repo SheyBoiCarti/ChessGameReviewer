@@ -70,12 +70,22 @@ export interface WorkspaceController {
   dispose(): void;
 }
 
+class DataMaintenanceActiveError extends Error {
+  constructor() {
+    super('Local data maintenance is already running.');
+    this.name = 'DataMaintenanceActiveError';
+  }
+}
+
 export function createWorkspaceController(services: WorkspaceServices): WorkspaceController {
   let state = initialWorkspaceState;
   let nextToken = 0;
   let disposed = false;
   let analysisSequence = 0;
   let analysisController: AbortController | null = null;
+  let activeQuery: Promise<void> | null = null;
+  let activeAnalysis: Promise<void> | null = null;
+  let maintenance: Promise<unknown> | null = null;
   const listeners = new Set<() => void>();
 
   const dispatch = (action: WorkspaceAction): void => {
@@ -86,6 +96,57 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
     for (const listener of listeners) listener();
   };
 
+  const trackedOperation = (
+    assign: (promise: Promise<void> | null) => void
+  ): { promise: Promise<void>; finish: () => void } => {
+    let finish!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    assign(promise);
+    return { promise, finish };
+  };
+
+  async function cancelAndWait(): Promise<void> {
+    const invalidationToken = ++nextToken;
+    analysisSequence += 1;
+    dispatch({ type: 'operations/invalidated', token: invalidationToken });
+    services.ingestion.cancel();
+    services.graph.cancel();
+    analysisController?.abort();
+    const active = [activeQuery, activeAnalysis].filter(
+      (promise): promise is Promise<void> => promise !== null
+    );
+    await Promise.allSettled(active);
+  }
+
+  function runDeletion<T>(
+    kind: 'user' | 'all',
+    operation: () => Promise<T>,
+    terminal: (result: T) => WorkspaceAction
+  ): Promise<T> {
+    if (maintenance) return Promise.reject(new DataMaintenanceActiveError());
+    const work = (async (): Promise<T> => {
+      dispatch({ type: 'data/deletionStarted', kind });
+      await cancelAndWait();
+      const result = await operation();
+      dispatch(terminal(result));
+      return result;
+    })();
+    maintenance = work;
+    return work
+      .catch((error: unknown) => {
+        const message = 'Local data could not be deleted.';
+        dispatch({ type: 'data/deletionFailed', error: message });
+        const safeError = new Error(message);
+        safeError.cause = error;
+        throw safeError;
+      })
+      .finally(() => {
+        if (maintenance === work) maintenance = null;
+      });
+  }
+
   return {
     getState: () => state,
     subscribe(listener) {
@@ -94,43 +155,54 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
       return () => listeners.delete(listener);
     },
     async submitQuery(query, options = {}) {
-      disposed = false;
-      const token = ++nextToken;
-      services.ingestion.cancel();
-      services.graph.cancel();
-      dispatch({ type: 'query/started', query, token });
+      if (maintenance) return;
+      const tracked = trackedOperation((promise) => {
+        activeQuery = promise;
+      });
       try {
-        const result = await services.ingestion.start(query, {
-          ...(options.manualRefresh !== undefined ? { manualRefresh: options.manualRefresh } : {}),
-          onProgress: (progress) => dispatch({ type: 'ingestion/progress', token, progress }),
-        });
-        dispatch({ type: 'ingestion/terminal', token, result });
-        if (disposed || token !== state.query.token || result.games.length === 0) return;
-        dispatch({ type: 'graph/started', token });
-        const graph = await services.graph.build(
-          result.games.map(toNormalizedSummary),
-          {
-            maxOpeningPlies: state.preferences.openingHorizon,
-            includeRepeatedPositions: false,
-          },
-          result.fingerprint
-        );
-        dispatch({
-          type: 'graph/terminal',
-          token,
-          status: graph.status,
-          snapshot: graph.snapshot,
-          diagnosticCodes: graph.status === 'complete' ? [] : graph.diagnosticCodes,
-        });
-      } catch (error) {
-        console.error('[workspace operation failed]', error);
-        if (disposed || token !== state.query.token) return;
-        const message = error instanceof Error ? error.message : 'Workspace operation failed.';
-        if (state.ingestion.status === 'loading') {
-          dispatch({ type: 'ingestion/failed', token, error: message });
-        } else if (message !== 'GRAPH_BUILD_CANCELLED') {
-          dispatch({ type: 'graph/failed', token, error: message });
+        disposed = false;
+        const token = ++nextToken;
+        services.ingestion.cancel();
+        services.graph.cancel();
+        dispatch({ type: 'query/started', query, token });
+        try {
+          const result = await services.ingestion.start(query, {
+            ...(options.manualRefresh !== undefined
+              ? { manualRefresh: options.manualRefresh }
+              : {}),
+            onProgress: (progress) => dispatch({ type: 'ingestion/progress', token, progress }),
+          });
+          dispatch({ type: 'ingestion/terminal', token, result });
+          if (disposed || token !== state.query.token || result.games.length === 0) return;
+          dispatch({ type: 'graph/started', token });
+          const graph = await services.graph.build(
+            result.games.map(toNormalizedSummary),
+            {
+              maxOpeningPlies: state.preferences.openingHorizon,
+              includeRepeatedPositions: false,
+            },
+            result.fingerprint
+          );
+          dispatch({
+            type: 'graph/terminal',
+            token,
+            status: graph.status,
+            snapshot: graph.snapshot,
+            diagnosticCodes: graph.status === 'complete' ? [] : graph.diagnosticCodes,
+          });
+        } catch (error) {
+          console.error('[workspace operation failed]', error);
+          if (disposed || token !== state.query.token) return;
+          const message = error instanceof Error ? error.message : 'Workspace operation failed.';
+          if (state.ingestion.status === 'loading') {
+            dispatch({ type: 'ingestion/failed', token, error: message });
+          } else if (message !== 'GRAPH_BUILD_CANCELLED') {
+            dispatch({ type: 'graph/failed', token, error: message });
+          }
         }
+      } finally {
+        tracked.finish();
+        if (activeQuery === tracked.promise) activeQuery = null;
       }
     },
     cancelIngestion() {
@@ -161,41 +233,50 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
       dispatch({ type: 'selection/ply', ply });
     },
     async startAnalysis(strength = state.preferences.analysisStrength) {
+      if (maintenance) return;
       const game = state.ingestion.result?.games.find(({ id }) => id === state.selection.gameId);
       const capability = state.analysis.capability;
       if (!game || !capability || capability.mode === 'unavailable') return;
-      const sequence = ++analysisSequence;
-      analysisController?.abort();
-      analysisController = new AbortController();
-      const token = state.query.token;
-      dispatch({ type: 'analysis/started', token });
-      const bookMoveKeys = collectPersonalBookMoveKeys(state.graph.snapshot);
+      const tracked = trackedOperation((promise) => {
+        activeAnalysis = promise;
+      });
       try {
-        const result = await services.analysis.analyze(
-          game,
-          strength,
-          capability,
-          { bookMoveKeys },
-          analysisController.signal,
-          (progress) => {
-            if (sequence === analysisSequence) {
-              dispatch({ type: 'analysis/progress', token, progress });
+        const sequence = ++analysisSequence;
+        analysisController?.abort();
+        analysisController = new AbortController();
+        const token = state.query.token;
+        dispatch({ type: 'analysis/started', token });
+        const bookMoveKeys = collectPersonalBookMoveKeys(state.graph.snapshot);
+        try {
+          const result = await services.analysis.analyze(
+            game,
+            strength,
+            capability,
+            { bookMoveKeys },
+            analysisController.signal,
+            (progress) => {
+              if (sequence === analysisSequence) {
+                dispatch({ type: 'analysis/progress', token, progress });
+              }
             }
+          );
+          if (sequence === analysisSequence) {
+            dispatch({ type: 'analysis/terminal', token, result });
           }
-        );
-        if (sequence === analysisSequence) {
-          dispatch({ type: 'analysis/terminal', token, result });
-        }
-      } catch (error) {
-        if (sequence === analysisSequence) {
-          dispatch({
-            type: 'analysis/failed',
-            token,
-            error: error instanceof Error ? error.message : 'Game analysis failed.',
-          });
+        } catch (error) {
+          if (sequence === analysisSequence) {
+            dispatch({
+              type: 'analysis/failed',
+              token,
+              error: error instanceof Error ? error.message : 'Game analysis failed.',
+            });
+          }
+        } finally {
+          if (sequence === analysisSequence) analysisController = null;
         }
       } finally {
-        if (sequence === analysisSequence) analysisController = null;
+        tracked.finish();
+        if (activeAnalysis === tracked.promise) activeAnalysis = null;
       }
     },
     cancelAnalysis() {
@@ -204,16 +285,20 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
       analysisController = null;
       dispatch({ type: 'analysis/cancelled', token: state.query.token });
     },
-    async deleteUserData(username) {
+    deleteUserData(username) {
       const normalized = username.toLowerCase();
-      const result = await services.data.deleteUsername(normalized);
-      dispatch({ type: 'data/userDeleted', username: normalized });
-      return result;
+      return runDeletion(
+        'user',
+        () => services.data.deleteUsername(normalized),
+        () => ({ type: 'data/userDeleted', username: normalized })
+      );
     },
-    async clearAllData() {
-      const result = await services.data.clearAll();
-      dispatch({ type: 'data/allCleared' });
-      return result;
+    clearAllData() {
+      return runDeletion(
+        'all',
+        () => services.data.clearAll(),
+        () => ({ type: 'data/allCleared' })
+      );
     },
     dispatch,
     dispose() {
