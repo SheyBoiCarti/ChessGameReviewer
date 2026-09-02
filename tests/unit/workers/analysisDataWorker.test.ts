@@ -24,6 +24,81 @@ function game(overrides: Partial<NormalizedGameSummary> = {}): NormalizedGameSum
 }
 
 describe('analysis data worker', () => {
+  it('validates PGNs and returns valid ids with bounded diagnostics metadata', async () => {
+    const responses: Array<Record<string, unknown>> = [];
+    await handleRequest(
+      {
+        protocolVersion: 1,
+        jobId: 'validate-pgns',
+        type: 'VALIDATE_PGNS',
+        games: [
+          game({ id: 'valid' }),
+          game({ id: 'missing', pgn: undefined }),
+          game({ id: 'illegal', pgn: '1. e4 e5 2. NotAMove' }),
+        ],
+      },
+      (response) => responses.push(response)
+    );
+
+    expect(responses.map(({ type }) => type)).toEqual([
+      'JOB_ACCEPTED',
+      'PGN_VALIDATION_COMPLETE',
+    ]);
+    expect(responses.at(-1)).toMatchObject({
+      validGameIds: ['valid'],
+      totalInvalid: 2,
+      diagnosticCodes: ['MISSING_PGN', 'ILLEGAL_PGN'],
+      diagnostics: [
+        expect.objectContaining({ code: 'MISSING_PGN', gameId: 'missing' }),
+        expect.objectContaining({ code: 'ILLEGAL_PGN', gameId: 'illegal' }),
+      ],
+    });
+  });
+
+  it('bounds PGN validation detail rows and diagnostic codes', async () => {
+    const responses: Array<Record<string, unknown>> = [];
+    await handleRequest(
+      {
+        protocolVersion: 1,
+        jobId: 'bounded-validation',
+        type: 'VALIDATE_PGNS',
+        games: Array.from({ length: 105 }, (_, index) =>
+          game({ id: `missing-${index}`, pgn: undefined })
+        ),
+      },
+      (response) => responses.push(response)
+    );
+
+    expect(responses.at(-1)).toMatchObject({
+      type: 'PGN_VALIDATION_COMPLETE',
+      totalInvalid: 105,
+    });
+    expect(responses.at(-1)?.diagnostics).toHaveLength(100);
+    expect(responses.at(-1)?.diagnosticCodes).toHaveLength(1);
+  });
+
+  it('observes cancellation while validating a large PGN batch', async () => {
+    const responses: Array<{ type: string }> = [];
+    const validation = handleRequest(
+      {
+        protocolVersion: 1,
+        jobId: 'cancel-validation',
+        type: 'VALIDATE_PGNS',
+        games: Array.from({ length: 100 }, (_, index) => game({ id: `validation-${index}` })),
+      },
+      (response) => responses.push(response)
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await handleRequest(
+      { protocolVersion: 1, jobId: 'cancel-validation', type: 'CANCEL_JOB' },
+      () => undefined
+    );
+    await validation;
+
+    expect(responses.at(-1)?.type).toBe('CANCELLED');
+    expect(responses.some(({ type }) => type === 'PGN_VALIDATION_COMPLETE')).toBe(false);
+  });
+
   it('accepts a graph job and reports monotonic progress before completion', async () => {
     const responses: Array<{ type: string; builtCount?: number }> = [];
     await handleRequest(

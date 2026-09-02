@@ -3,6 +3,7 @@
 import { OpeningGraphBuilder } from '../lib/chess/graph/openingGraph';
 import { serializeOpeningGraph, snapshotPersistenceNotice } from '../lib/chess/graph/serialization';
 import { parseGamePgn, type ParsedGame } from '../lib/chess/pgnParser';
+import type { Diagnostic } from '../lib/api/contracts';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 import { isWorkerRequest, PROTOCOL_VERSION } from './protocol';
 
@@ -52,6 +53,30 @@ export async function handleRequest(
   };
   if (cancelledJobs.delete(request.jobId)) {
     post({ protocolVersion: PROTOCOL_VERSION, jobId: request.jobId, type: 'CANCELLED' });
+    return;
+  }
+  if (request.type === 'VALIDATE_PGNS') {
+    try {
+      const result = await validatePgnsInWorker(request.games, request.jobId);
+      if (!result || cancelledJobs.delete(request.jobId)) {
+        post({ protocolVersion: PROTOCOL_VERSION, jobId: request.jobId, type: 'CANCELLED' });
+        return;
+      }
+      post({
+        protocolVersion: PROTOCOL_VERSION,
+        jobId: request.jobId,
+        type: 'PGN_VALIDATION_COMPLETE',
+        ...result,
+      });
+    } catch {
+      post({
+        protocolVersion: PROTOCOL_VERSION,
+        jobId: request.jobId,
+        type: 'FAILED',
+        code: 'PGN_VALIDATION_FAILED',
+        message: 'PGN validation failed.',
+      });
+    }
     return;
   }
   try {
@@ -113,6 +138,47 @@ export async function handleRequest(
       message: 'Graph build failed.',
     });
   }
+}
+
+async function validatePgnsInWorker(
+  games: Extract<WorkerRequest, { type: 'VALIDATE_PGNS' }>['games'],
+  jobId: string
+): Promise<
+  | {
+      validGameIds: readonly string[];
+      diagnostics: readonly Diagnostic[];
+      totalInvalid: number;
+      diagnosticCodes: readonly string[];
+    }
+  | undefined
+> {
+  const validGameIds: string[] = [];
+  const diagnostics: Diagnostic[] = [];
+  const diagnosticCodes: string[] = [];
+  let totalInvalid = 0;
+
+  for (let index = 0; index < games.length; index += 1) {
+    if (cancelledJobs.has(jobId)) return undefined;
+    const result = parseGamePgn({ game: games[index]! });
+    if (result.ok) validGameIds.push(games[index]!.id);
+    else {
+      totalInvalid += 1;
+      for (const diagnostic of result.errors) {
+        if (diagnostics.length < MAX_DIAGNOSTICS) diagnostics.push(diagnostic);
+        if (
+          diagnosticCodes.length < MAX_DIAGNOSTIC_CODES &&
+          !diagnosticCodes.includes(diagnostic.code)
+        ) {
+          diagnosticCodes.push(diagnostic.code);
+        }
+      }
+    }
+    if ((index + 1) % PARSE_YIELD_EVERY_GAMES === 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  return { validGameIds, diagnostics, totalInvalid, diagnosticCodes };
 }
 
 async function parseGamesInWorker(
