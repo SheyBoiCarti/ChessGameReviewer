@@ -1,6 +1,7 @@
 'use client';
 
 import { IngestionManager } from '@/features/ingestion/ingestionService';
+import { PgnValidationWorkerClient } from '@/features/ingestion/pgnValidationWorkerClient';
 import type { IngestionDependencies } from '@/features/ingestion/types';
 import { GraphWorkerClient } from '@/features/opening-tree/graphWorkerClient';
 import type { WorkspaceServices } from './createWorkspaceController';
@@ -50,6 +51,12 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     });
     return databasePromise;
   };
+  const pgnValidator = new PgnValidationWorkerClient(
+    () =>
+      new Worker(new URL('../../workers/analysis-data.worker.ts', import.meta.url), {
+        type: 'module',
+      })
+  );
   const dependencies: IngestionDependencies = {
     fetchArchives: fetchPlayerArchives,
     fetchMonthlyGames,
@@ -57,9 +64,18 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     writeArchiveList: async (record) => putArchiveListMeta(await db(), record),
     readArchiveSyncs: async (username) => getArchiveSyncsForUser(await db(), username),
     readMonthGames: async (username, month) => getGamesForMonth(await db(), username, month),
+    validatePgns: (games, options) => pgnValidator.validate(games, options.signal),
     persistMonth: async (games, marker, signal) => saveSyncBatch(await db(), games, marker, signal),
   };
-  const ingestion = new IngestionManager(dependencies);
+  const ingestionManager = new IngestionManager(dependencies);
+  const ingestion = {
+    start: ingestionManager.start.bind(ingestionManager),
+    cancel: ingestionManager.cancel.bind(ingestionManager),
+    dispose: () => {
+      ingestionManager.cancel();
+      pgnValidator.dispose();
+    },
+  };
   const graph = new GraphWorkerClient(
     () =>
       new Worker(new URL('../../workers/analysis-data.worker.ts', import.meta.url), {

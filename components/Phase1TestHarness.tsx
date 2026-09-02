@@ -108,6 +108,12 @@ function dependencies(db: IDBDatabase, mode: FixtureMode): IngestionDependencies
     writeArchiveList: (record) => putArchiveListMeta(db, record),
     readArchiveSyncs: (username) => getArchiveSyncsForUser(db, username),
     readMonthGames: (username, month) => getGamesForMonth(db, username, month),
+    validatePgns: async (games) => ({
+      validGameIds: games.map(({ id }) => id),
+      diagnostics: [],
+      totalInvalid: 0,
+      diagnosticCodes: [],
+    }),
     persistMonth: (games, marker, signal) => saveSyncBatch(db, games, marker, signal),
   };
 }

@@ -8,7 +8,7 @@ import type {
 
 export const DB_NAME = 'ChessGameAnalyzerDB';
 export const SCHEMA_VERSION = 3;
-export const NORMALIZER_VERSION = 4;
+export const NORMALIZER_VERSION = 5;
 
 export const STORES = {
   ARCHIVE_SYNC: 'archiveSync',

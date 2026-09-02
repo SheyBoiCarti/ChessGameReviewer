@@ -46,6 +46,7 @@ function makeMockServices(games: GameRecord[] = [sampleGame]): WorkspaceServices
         offlineCacheOnly: false,
       }),
       cancel: vi.fn(),
+      dispose: vi.fn(),
     },
     graph: {
       build: vi.fn().mockResolvedValue({

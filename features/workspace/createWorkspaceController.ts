@@ -21,6 +21,7 @@ export interface WorkspaceServices {
   ingestion: {
     start(query: GameQuery, options: IngestionStartOptions): Promise<IngestionResult>;
     cancel(): void;
+    dispose(): void;
   };
   graph: {
     build(
@@ -217,6 +218,7 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
     dispose() {
       if (disposed) return;
       services.ingestion.cancel();
+      services.ingestion.dispose();
       analysisController?.abort();
       services.graph.cancel();
       services.graph.dispose();

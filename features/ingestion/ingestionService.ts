@@ -348,6 +348,15 @@ async function executeIngestion(
       diagnostics: diagnostics.map((diagnostic) => ({ ...diagnostic })),
     });
   };
+  const validateGames = async (monthGames: readonly GameRecord[]): Promise<GameRecord[]> => {
+    const validation = await runtime.deps.validatePgns(monthGames, { signal: runtime.signal });
+    throwIfAborted(runtime.signal);
+    const validIds = new Set(validation.validGameIds);
+    recordsExcluded += validation.totalInvalid;
+    recordsFailed += validation.totalInvalid;
+    for (const diagnostic of validation.diagnostics) appendDiagnostic(diagnostics, diagnostic);
+    return monthGames.filter(({ id }) => validIds.has(id));
+  };
 
   emit('planning');
   const syncs = await runtime.deps.readArchiveSyncs(query.username);
@@ -370,7 +379,8 @@ async function executeIngestion(
     if (!runtime.manualRefresh && sync && isSyncFresh(sync, runtime.now())) {
       const cachedGames = await runtime.deps.readMonthGames(query.username, month);
       recordsFetched += cachedGames.length;
-      for (const game of cachedGames) {
+      const validCachedGames = await validateGames(cachedGames);
+      for (const game of validCachedGames) {
         if (matchesQuery(game, query) && !seen.has(game.id)) {
           seen.add(game.id);
           games.push(game);
@@ -387,7 +397,8 @@ async function executeIngestion(
     if (planning.offlineCacheOnly) {
       const cachedGames = await runtime.deps.readMonthGames(query.username, month);
       recordsFetched += cachedGames.length;
-      for (const game of cachedGames) {
+      const validCachedGames = await validateGames(cachedGames);
+      for (const game of validCachedGames) {
         if (matchesQuery(game, query) && !seen.has(game.id)) {
           seen.add(game.id);
           games.push(game);
@@ -435,10 +446,13 @@ async function executeIngestion(
           continue;
         }
         normalizedMonthGames.push(normalized.game);
-        if (matchesQuery(normalized.game, query) && !seen.has(normalized.game.id)) {
-          seen.add(normalized.game.id);
+      }
+      const validMonthGames = await validateGames(normalizedMonthGames);
+      for (const game of validMonthGames) {
+        if (matchesQuery(game, query) && !seen.has(game.id)) {
+          seen.add(game.id);
           if (games.length < query.maxGames) {
-            games.push(normalized.game);
+            games.push(game);
           } else {
             recordsExcluded += 1;
           }
@@ -447,15 +461,15 @@ async function executeIngestion(
         }
       }
       await runtime.deps.persistMonth(
-        normalizedMonthGames,
+        validMonthGames,
         {
           key: `${query.username}:${month}`,
           username: query.username,
           month,
           lastSuccessfulFetchAt: runtime.now(),
           status: 'success',
-          observedGameIds: normalizedMonthGames.map((game) => game.id),
-          observedGameCount: normalizedMonthGames.length,
+          observedGameIds: validMonthGames.map((game) => game.id),
+          observedGameCount: validMonthGames.length,
           normalizerVersion: NORMALIZER_VERSION,
         },
         runtime.signal

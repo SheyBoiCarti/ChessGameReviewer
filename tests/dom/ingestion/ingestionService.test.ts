@@ -34,6 +34,12 @@ function fakeDependencies(overrides: Partial<IngestionDependencies> = {}): Inges
     writeArchiveList: vi.fn().mockResolvedValue(undefined),
     readArchiveSyncs: vi.fn().mockResolvedValue([]),
     readMonthGames: vi.fn().mockResolvedValue([]),
+    validatePgns: vi.fn(async (games: readonly { id: string }[]) => ({
+      validGameIds: games.map(({ id }) => id),
+      diagnostics: [],
+      totalInvalid: 0,
+      diagnosticCodes: [],
+    })),
     persistMonth: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
@@ -102,7 +108,7 @@ describe('runIngestion', () => {
       }),
       readArchiveSyncs: vi.fn().mockResolvedValue([
         makeArchiveSync({
-          normalizerVersion: 1,
+          normalizerVersion: 4,
         }),
       ]),
       readMonthGames: vi.fn().mockResolvedValue([cachedGame]),
@@ -126,6 +132,90 @@ describe('runIngestion', () => {
       expect.objectContaining({ normalizerVersion: NORMALIZER_VERSION }),
       expect.anything()
     );
+    expect(NORMALIZER_VERSION).toBe(5);
+  });
+
+  it('validates fetched PGNs before persistence, counting, and the max-games cutoff', async () => {
+    const persistMonth = vi.fn().mockResolvedValue(undefined);
+    const validatePgns = vi.fn(async (games: readonly { id: string }[]) => {
+      const invalid = games.filter(({ id }) => id === 'bad-pgn');
+      return {
+        validGameIds: games.filter(({ id }) => id !== 'bad-pgn').map(({ id }) => id),
+        diagnostics: invalid.map(({ id }) => ({
+          code: 'ILLEGAL_PGN',
+          message: 'The PGN is illegal.',
+          severity: 'error' as const,
+          gameId: id,
+        })),
+        totalInvalid: invalid.length,
+        diagnosticCodes: invalid.length > 0 ? ['ILLEGAL_PGN'] : [],
+      };
+    });
+    const fetchMonthlyGames = vi
+      .fn()
+      .mockResolvedValueOnce([
+        makeRawGame({ uuid: 'bad-pgn', pgn: '1. e4 NotAMove' }),
+        makeRawGame({ uuid: 'valid-new' }),
+      ])
+      .mockResolvedValueOnce([makeRawGame({ uuid: 'valid-old' })]);
+    const deps = fakeDependencies({
+      fetchArchives: vi
+        .fn()
+        .mockResolvedValue([
+          'https://api.chess.com/pub/player/janedoe/games/2026/08',
+          'https://api.chess.com/pub/player/janedoe/games/2026/07',
+        ]),
+      fetchMonthlyGames,
+      validatePgns: validatePgns as IngestionDependencies['validatePgns'],
+      persistMonth,
+    });
+
+    const result = await runIngestion(makeQuery({ maxGames: 2 }), { deps, now: () => NOW });
+
+    expect(result.games.map(({ id }) => id)).toEqual(['valid-new', 'valid-old']);
+    expect(fetchMonthlyGames).toHaveBeenCalledTimes(2);
+    expect(persistMonth).toHaveBeenCalledTimes(2);
+    for (const [persistedGames, marker] of persistMonth.mock.calls) {
+      expect(persistedGames).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: 'bad-pgn' })])
+      );
+      expect(marker.observedGameIds).not.toContain('bad-pgn');
+    }
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'ILLEGAL_PGN', gameId: 'bad-pgn' })
+    );
+  });
+
+  it('validates cached PGNs before accepting them', async () => {
+    const valid = makeGameRecord({ id: 'valid-cache' });
+    const invalid = makeGameRecord({ id: 'bad-cache', pgn: '1. e4 NotAMove' });
+    const deps = fakeDependencies({
+      readArchiveList: vi.fn().mockResolvedValue({
+        username: 'janedoe',
+        months: ['2026-08'],
+        fetchedAt: NOW - 60_000,
+      }),
+      readArchiveSyncs: vi.fn().mockResolvedValue([makeArchiveSync()]),
+      readMonthGames: vi.fn().mockResolvedValue([invalid, valid]),
+      validatePgns: vi.fn().mockResolvedValue({
+        validGameIds: ['valid-cache'],
+        diagnostics: [
+          {
+            code: 'ILLEGAL_PGN',
+            message: 'The cached PGN is illegal.',
+            severity: 'error',
+            gameId: 'bad-cache',
+          },
+        ],
+        totalInvalid: 1,
+        diagnosticCodes: ['ILLEGAL_PGN'],
+      }),
+    });
+
+    const result = await runIngestion(makeQuery(), { deps, now: () => NOW });
+
+    expect(result.games).toEqual([valid]);
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ gameId: 'bad-cache' }));
   });
 
   it('normalizes timevsinsufficient as draw for both white and black players', async () => {

@@ -8,7 +8,7 @@ describe('useWorkspace', () => {
   it('creates domain services once across React rerenders and disposes them on unmount', () => {
     const dispose = vi.fn();
     const services: WorkspaceServices = {
-      ingestion: { start: vi.fn(), cancel: vi.fn() },
+      ingestion: { start: vi.fn(), cancel: vi.fn(), dispose: vi.fn() },
       graph: { build: vi.fn(), cancel: vi.fn(), dispose },
       engine: { initialize: vi.fn(), dispose: vi.fn() },
       data: { deleteUsername: vi.fn(), clearAll: vi.fn(), dispose: vi.fn() },

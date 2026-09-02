@@ -87,7 +87,13 @@ describe('workspace controller', () => {
   });
 
   it('cancels active work and disposes owned graph and engine resources once', () => {
-    const counters = { ingestionCancel: 0, graphCancel: 0, graphDispose: 0, engineDispose: 0 };
+    const counters = {
+      ingestionCancel: 0,
+      ingestionDispose: 0,
+      graphCancel: 0,
+      graphDispose: 0,
+      engineDispose: 0,
+    };
     const services = createServices(async () => result(firstQuery, []), counters);
     const controller = createWorkspaceController(services);
 
@@ -97,6 +103,7 @@ describe('workspace controller', () => {
 
     expect(counters).toEqual({
       ingestionCancel: 2,
+      ingestionDispose: 1,
       graphCancel: 1,
       graphDispose: 1,
       engineDispose: 1,
@@ -278,13 +285,22 @@ describe('workspace controller', () => {
 
 function createServices(
   start: WorkspaceServices['ingestion']['start'],
-  counters = { ingestionCancel: 0, graphCancel: 0, graphDispose: 0, engineDispose: 0 }
+  counters = {
+    ingestionCancel: 0,
+    ingestionDispose: 0,
+    graphCancel: 0,
+    graphDispose: 0,
+    engineDispose: 0,
+  }
 ): WorkspaceServices {
   return {
     ingestion: {
       start,
       cancel: () => {
         counters.ingestionCancel += 1;
+      },
+      dispose: () => {
+        counters.ingestionDispose += 1;
       },
     },
     graph: {
