@@ -107,4 +107,44 @@ describe('ingestion feedback', () => {
     expect(screen.getByRole('status')).toHaveTextContent(/saved on this device/i);
     expect(screen.getByRole('status')).toHaveTextContent(/could not be refreshed/i);
   });
+
+  it('explains cancellation when no completed games were retained', () => {
+    render(
+      <DiagnosticSummary
+        result={{
+          jobId: 'job-1',
+          fingerprint: 'query-1',
+          status: 'cancelled',
+          games: [],
+          failedMonths: [],
+          diagnostics: [],
+          offlineCacheOnly: false,
+        }}
+        onRetry={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('No completed games were retained. Start a new query.')).toBeVisible();
+  });
+
+  it('reports how many completed games remain available after cancellation', () => {
+    render(
+      <DiagnosticSummary
+        result={{
+          jobId: 'job-1',
+          fingerprint: 'query-1',
+          status: 'cancelled',
+          games: [{ id: 'one' }, { id: 'two' }] as never,
+          failedMonths: [],
+          diagnostics: [],
+          offlineCacheOnly: false,
+        }}
+        onRetry={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByText('2 games from completed archive months were retained and remain available.')
+    ).toBeVisible();
+  });
 });
