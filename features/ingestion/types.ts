@@ -1,8 +1,8 @@
-import { GameQuery, UpstreamError, Diagnostic } from '../../lib/api/contracts';
-import { FetchOptions } from '../../lib/api/chesscomClient';
-import { RawChesscomGame } from '../../lib/api/chesscomSchemas';
-import { GameRecord, ArchiveSyncRecord } from '../../lib/db/schema';
-import { ArchiveListMeta } from '../../lib/db/repositories';
+import type { Diagnostic, GameQuery, UpstreamError } from '../../lib/api/contracts';
+import type { FetchOptions } from '../../lib/api/chesscomClient';
+import type { RawChesscomGame } from '../../lib/api/chesscomSchemas';
+import type { ArchiveListMeta } from '../../lib/db/repositories';
+import type { ArchiveSyncRecord, GameRecord } from '../../lib/db/schema';
 
 export type IngestionPhase = 'planning' | 'loading-cache' | 'fetching' | 'filtering';
 export type IngestionTerminalStatus = 'complete' | 'partial' | 'cancelled' | 'failed';
@@ -45,6 +45,13 @@ export interface IngestionResult {
   offlineCacheOnly: boolean;
 }
 
+export interface PgnValidationResult {
+  validGameIds: readonly string[];
+  diagnostics: readonly Diagnostic[];
+  totalInvalid: number;
+  diagnosticCodes: readonly string[];
+}
+
 export interface IngestionDependencies {
   fetchArchives(username: string, options: FetchOptions): Promise<string[]>;
   fetchMonthlyGames(
@@ -57,6 +64,10 @@ export interface IngestionDependencies {
   writeArchiveList(record: ArchiveListMeta): Promise<void>;
   readArchiveSyncs(username: string): Promise<ArchiveSyncRecord[]>;
   readMonthGames(username: string, month: string): Promise<GameRecord[]>;
+  validatePgns(
+    games: readonly GameRecord[],
+    options: { signal: AbortSignal }
+  ): Promise<PgnValidationResult>;
   persistMonth(games: GameRecord[], marker: ArchiveSyncRecord, signal?: AbortSignal): Promise<void>;
 }
 
