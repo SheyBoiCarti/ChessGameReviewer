@@ -18,6 +18,9 @@ import {
   saveSyncBatch,
   getEvaluation,
   putEvaluation,
+  touchEvaluation,
+  countEvaluations,
+  putEvaluationWithRetention,
   getGraphSnapshot,
   putGraphSnapshot,
   getMeta,
@@ -272,6 +275,47 @@ describe('Repositories & Atomic Transactions', () => {
   });
 
   describe('Evaluations & Graph Snapshots Repositories', () => {
+    it('touches existing evaluation access time and counts records', async () => {
+      const record: EvaluationRecord = {
+        key: 'touch-me',
+        positionHash: 'position',
+        engineBuild: 'engine',
+        lastUsedAt: 1,
+        evaluation: { score: 1 },
+      };
+      await putEvaluation(db, record);
+
+      await expect(touchEvaluation(db, record.key, 20)).resolves.toBe(true);
+      await expect(touchEvaluation(db, 'missing', 30)).resolves.toBe(false);
+      await expect(touchEvaluation(db, record.key, Number.NaN)).rejects.toThrow(
+        'lastUsedAt must be finite.'
+      );
+      await expect(countEvaluations(db)).resolves.toBe(1);
+      expect(await getEvaluation(db, record.key)).toMatchObject({ lastUsedAt: 20 });
+    });
+
+    it('keeps concurrent retained writes at the exact record cap', async () => {
+      await Promise.all(
+        Array.from({ length: 12 }, (_, index) =>
+          putEvaluationWithRetention(
+            db,
+            {
+              key: `retained-${index}`,
+              positionHash: `position-${index}`,
+              engineBuild: 'engine',
+              lastUsedAt: index,
+              evaluation: { score: index },
+            },
+            10
+          )
+        )
+      );
+
+      await expect(countEvaluations(db)).resolves.toBe(10);
+      await expect(getEvaluation(db, 'retained-0')).resolves.toBeNull();
+      await expect(getEvaluation(db, 'retained-11')).resolves.not.toBeNull();
+    });
+
     it('saves and reads evaluations', async () => {
       const evalRecord: EvaluationRecord = {
         key: 'fen_123:stockfish-16',

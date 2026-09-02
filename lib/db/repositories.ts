@@ -38,6 +38,14 @@ function reqToPromise<T>(req: IDBRequest<T>): Promise<T> {
   });
 }
 
+function transactionDone(tx: IDBTransaction): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(wrapIDBError(tx.error));
+    tx.onabort = () => reject(wrapIDBError(tx.error));
+  });
+}
+
 // ArchiveSync Repository
 export async function getArchiveSync(
   db: IDBDatabase,
@@ -261,6 +269,71 @@ export async function putEvaluation(db: IDBDatabase, record: EvaluationRecord): 
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(wrapIDBError(tx.error));
     tx.onabort = () => reject(wrapIDBError(tx.error));
+  });
+}
+
+export async function touchEvaluation(
+  db: IDBDatabase,
+  key: string,
+  lastUsedAt: number
+): Promise<boolean> {
+  if (!Number.isFinite(lastUsedAt)) throw new TypeError('lastUsedAt must be finite.');
+  const tx = db.transaction([STORES.EVALUATIONS], 'readwrite');
+  const store = tx.objectStore(STORES.EVALUATIONS);
+  const existing: unknown = await reqToPromise(store.get(key));
+  if (existing !== undefined) {
+    if (!isValidEvaluationRecord(existing)) throw new CorruptRecordError(STORES.EVALUATIONS);
+    store.put({ ...existing, lastUsedAt });
+  }
+  await transactionDone(tx);
+  return existing !== undefined;
+}
+
+export async function countEvaluations(db: IDBDatabase): Promise<number> {
+  const tx = db.transaction([STORES.EVALUATIONS], 'readonly');
+  const count = await reqToPromise(tx.objectStore(STORES.EVALUATIONS).count());
+  await transactionDone(tx);
+  return count;
+}
+
+export async function putEvaluationWithRetention(
+  db: IDBDatabase,
+  record: EvaluationRecord,
+  maxCount: number
+): Promise<void> {
+  if (!isValidEvaluationRecord(record)) {
+    throw new Error('Invalid EvaluationRecord provided to putEvaluationWithRetention');
+  }
+  if (!Number.isInteger(maxCount) || maxCount < 0) {
+    throw new TypeError('maxCount must be a non-negative integer.');
+  }
+
+  const tx = db.transaction([STORES.EVALUATIONS], 'readwrite');
+  const store = tx.objectStore(STORES.EVALUATIONS);
+  const existing = await reqToPromise(store.get(record.key));
+  const count = await reqToPromise(store.count());
+  const deleteCount = Math.max(0, count - maxCount + (existing === undefined ? 1 : 0));
+  if (deleteCount > 0) await deleteOldestEvaluations(store, deleteCount);
+  if (maxCount > 0) store.put(record);
+  else if (existing !== undefined) store.delete(record.key);
+  await transactionDone(tx);
+}
+
+function deleteOldestEvaluations(store: IDBObjectStore, count: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let deleted = 0;
+    const request = store.index('lastUsedAt').openCursor();
+    request.onerror = () => reject(wrapIDBError(request.error));
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor || deleted >= count) {
+        resolve();
+        return;
+      }
+      cursor.delete();
+      deleted += 1;
+      cursor.continue();
+    };
   });
 }
 

@@ -41,6 +41,23 @@ describe('Retention & LRU Eviction', () => {
   });
 
   describe('evictEvaluations', () => {
+    it('supports zero and rejects invalid retention limits', async () => {
+      await putEvaluation(db, {
+        key: 'remove-all',
+        positionHash: 'position',
+        engineBuild: 'engine',
+        lastUsedAt: 1,
+        evaluation: {},
+      });
+      await expect(evictEvaluations(db, { maxCount: 0 })).resolves.toBe(1);
+      await expect(evictEvaluations(db, { maxCount: -1 })).rejects.toThrow(
+        'maxCount must be a non-negative integer.'
+      );
+      await expect(evictEvaluations(db, { maxCount: 1.5 })).rejects.toThrow(
+        'maxCount must be a non-negative integer.'
+      );
+    });
+
     it('uses the default limit and leaves a small cache untouched', async () => {
       await expect(evictEvaluations(db)).resolves.toBe(0);
     });

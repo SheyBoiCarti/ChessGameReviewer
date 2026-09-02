@@ -11,6 +11,9 @@ export async function evictEvaluations(
   options: EvictEvaluationsOptions = {}
 ): Promise<number> {
   const maxCount = options.maxCount ?? 1000;
+  if (!Number.isInteger(maxCount) || maxCount < 0) {
+    throw new TypeError('maxCount must be a non-negative integer.');
+  }
 
   return new Promise<number>((resolve, reject) => {
     const tx = db.transaction([STORES.EVALUATIONS], 'readwrite');
@@ -21,7 +24,10 @@ export async function evictEvaluations(
     countReq.onsuccess = () => {
       const totalCount = countReq.result;
       if (totalCount <= maxCount) {
-        return resolve(0);
+        tx.oncomplete = () => resolve(0);
+        tx.onerror = () => reject(wrapIDBError(tx.error));
+        tx.onabort = () => reject(wrapIDBError(tx.error));
+        return;
       }
 
       const excess = totalCount - maxCount;
