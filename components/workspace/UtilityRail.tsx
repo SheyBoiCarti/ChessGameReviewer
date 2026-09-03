@@ -63,6 +63,7 @@ export function UtilityRail({
     const previous = previousResultFocusVersion.current;
     previousResultFocusVersion.current = resultFocusVersion;
     if (previous === resultFocusVersion || !open || !isMobile || !dialogRef.current) return;
+    if (document.activeElement?.getAttribute('aria-label')?.toLowerCase().includes('close')) return;
     dialogRef.current.querySelector<HTMLElement>('[data-utility-rail-result]')?.focus();
   }, [isMobile, open, resultFocusVersion]);
 
