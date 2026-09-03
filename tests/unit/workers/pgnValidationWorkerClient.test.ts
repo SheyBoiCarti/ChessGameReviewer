@@ -150,8 +150,8 @@ describe('PgnValidationWorkerClient', () => {
     const pending = client.validate([game()], new AbortController().signal);
     client.dispose();
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
-    await expect(
-      client.validate([game()], new AbortController().signal)
-    ).rejects.toThrow('PGN_VALIDATION_CLIENT_DISPOSED');
+    await expect(client.validate([game()], new AbortController().signal)).rejects.toThrow(
+      'PGN_VALIDATION_CLIENT_DISPOSED'
+    );
   });
 });

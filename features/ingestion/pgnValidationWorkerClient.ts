@@ -18,10 +18,7 @@ export class PgnValidationWorkerClient {
 
   constructor(private readonly workerFactory: () => Worker) {}
 
-  validate(
-    games: readonly GameRecord[],
-    signal: AbortSignal
-  ): Promise<PgnValidationResult> {
+  validate(games: readonly GameRecord[], signal: AbortSignal): Promise<PgnValidationResult> {
     if (this.disposed) return Promise.reject(new Error('PGN_VALIDATION_CLIENT_DISPOSED'));
     if (signal.aborted) return Promise.reject(abortError());
     this.cancel();

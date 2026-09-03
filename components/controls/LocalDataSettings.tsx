@@ -124,12 +124,8 @@ export function LocalDataSettings({
       >
         Clear all local data
       </button>
-      {maintenance.status === 'deleting-user' ? (
-        <p role="status">Deleting local data…</p>
-      ) : null}
-      {maintenance.status === 'clearing-all' ? (
-        <p role="status">Clearing all local data…</p>
-      ) : null}
+      {maintenance.status === 'deleting-user' ? <p role="status">Deleting local data…</p> : null}
+      {maintenance.status === 'clearing-all' ? <p role="status">Clearing all local data…</p> : null}
       {maintenance.error ? <p role="alert">{maintenance.error}</p> : null}
       {message ? <p role={message.kind}>{message.text}</p> : null}
       {confirmation ? (
