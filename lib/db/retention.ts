@@ -1,6 +1,6 @@
 import { STORES, SCHEMA_VERSION, NORMALIZER_VERSION } from './schema';
 import { getMeta } from './repositories';
-import { wrapIDBError } from './openDatabase';
+import { wrapIDBError } from './errors';
 
 export interface EvictEvaluationsOptions {
   maxCount?: number;
@@ -11,6 +11,9 @@ export async function evictEvaluations(
   options: EvictEvaluationsOptions = {}
 ): Promise<number> {
   const maxCount = options.maxCount ?? 1000;
+  if (!Number.isInteger(maxCount) || maxCount < 0) {
+    throw new TypeError('maxCount must be a non-negative integer.');
+  }
 
   return new Promise<number>((resolve, reject) => {
     const tx = db.transaction([STORES.EVALUATIONS], 'readwrite');
@@ -21,7 +24,10 @@ export async function evictEvaluations(
     countReq.onsuccess = () => {
       const totalCount = countReq.result;
       if (totalCount <= maxCount) {
-        return resolve(0);
+        tx.oncomplete = () => resolve(0);
+        tx.onerror = () => reject(wrapIDBError(tx.error));
+        tx.onabort = () => reject(wrapIDBError(tx.error));
+        return;
       }
 
       const excess = totalCount - maxCount;
@@ -108,6 +114,7 @@ export async function evictGraphSnapshots(
 
 export interface CompatibilityResult {
   compatible: boolean;
+  normalizerMatches: boolean;
   schemaVersion?: number;
   normalizerVersion?: number;
   reason?: string;
@@ -123,23 +130,16 @@ export async function checkSchemaCompatibility(db: IDBDatabase): Promise<Compati
   if (dbSchemaVersion > SCHEMA_VERSION) {
     return {
       compatible: false,
+      normalizerMatches: dbNormalizerVersion === NORMALIZER_VERSION,
       schemaVersion: dbSchemaVersion,
       normalizerVersion: dbNormalizerVersion,
       reason: `Stored database schema version (${dbSchemaVersion}) is newer than code schema version (${SCHEMA_VERSION}).`,
     };
   }
 
-  if (dbNormalizerVersion !== NORMALIZER_VERSION) {
-    return {
-      compatible: false,
-      schemaVersion: dbSchemaVersion,
-      normalizerVersion: dbNormalizerVersion,
-      reason: `Stored normalizer version (${dbNormalizerVersion}) does not match current code normalizer version (${NORMALIZER_VERSION}).`,
-    };
-  }
-
   return {
     compatible: true,
+    normalizerMatches: dbNormalizerVersion === NORMALIZER_VERSION,
     schemaVersion: dbSchemaVersion,
     normalizerVersion: dbNormalizerVersion,
   };

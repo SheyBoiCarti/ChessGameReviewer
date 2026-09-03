@@ -1,32 +1,22 @@
 import { DB_NAME, SCHEMA_VERSION, STORES } from './schema';
+import { extractPgnPlayers } from '../chess/pgnHeaders';
+import { NORMALIZER_VERSION } from './schema';
+import {
+  DatabaseBlockedError,
+  SchemaVersionError,
+  StorageUnavailableError,
+  wrapIDBError,
+} from './errors';
+import { checkSchemaCompatibility } from './retention';
+import { setMeta } from './repositories';
 
-export class StorageUnavailableError extends Error {
-  constructor(message = 'IndexedDB storage is unavailable or blocked.') {
-    super(message);
-    this.name = 'StorageUnavailableError';
-  }
-}
-
-export class QuotaExceededError extends Error {
-  constructor(message = 'Storage quota exceeded while writing to IndexedDB.') {
-    super(message);
-    this.name = 'QuotaExceededError';
-  }
-}
-
-export class DatabaseBlockedError extends Error {
-  constructor(message = 'Database upgrade is blocked by another open connection.') {
-    super(message);
-    this.name = 'DatabaseBlockedError';
-  }
-}
-
-export class SchemaVersionError extends Error {
-  constructor(message = 'Database schema version is incompatible.') {
-    super(message);
-    this.name = 'SchemaVersionError';
-  }
-}
+export {
+  DatabaseBlockedError,
+  QuotaExceededError,
+  SchemaVersionError,
+  StorageUnavailableError,
+  wrapIDBError,
+} from './errors';
 
 export interface OpenDatabaseOptions {
   name?: string;
@@ -145,6 +135,62 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
       if (!upgradeError && !Array.from(db.objectStoreNames).includes(STORES.META)) {
         db.createObjectStore(STORES.META, { keyPath: 'name' });
       }
+
+      // v2 -> v3 migration: backfill whitePlayer and blackPlayer on existing games
+      if (!upgradeError && event.oldVersion > 0 && event.oldVersion < 3 && gamesStore) {
+        try {
+          const cursorReq = gamesStore.openCursor();
+          cursorReq.onsuccess = () => {
+            const cursor = cursorReq.result;
+            if (!cursor) return;
+            const record = cursor.value;
+            if (!record.whitePlayer || !record.blackPlayer) {
+              const pgnData =
+                typeof record.pgn === 'string'
+                  ? extractPgnPlayers(record.pgn)
+                  : {
+                      white: { username: null, rating: null },
+                      black: { username: null, rating: null },
+                    };
+
+              const userColor = record.userColor === 'black' ? 'black' : 'white';
+              const userRating =
+                typeof record.userRating === 'number' && Number.isFinite(record.userRating)
+                  ? record.userRating
+                  : null;
+              const opponentRating =
+                typeof record.opponentRating === 'number' && Number.isFinite(record.opponentRating)
+                  ? record.opponentRating
+                  : null;
+
+              const whiteUsername =
+                pgnData.white.username ?? (userColor === 'white' ? record.username : null);
+              const blackUsername =
+                pgnData.black.username ?? (userColor === 'black' ? record.username : null);
+              const whiteRating =
+                pgnData.white.rating ?? (userColor === 'white' ? userRating : opponentRating);
+              const blackRating =
+                pgnData.black.rating ?? (userColor === 'black' ? userRating : opponentRating);
+
+              const updatedRecord = {
+                ...record,
+                whitePlayer: {
+                  username: whiteUsername,
+                  rating: whiteRating,
+                },
+                blackPlayer: {
+                  username: blackUsername,
+                  rating: blackRating,
+                },
+              };
+              cursor.update(updatedRecord);
+            }
+            cursor.continue();
+          };
+        } catch {
+          // Non-blocking guard for cursor initialization errors during upgrade
+        }
+      }
     };
 
     request.onsuccess = () => {
@@ -178,29 +224,9 @@ export function closeDatabase(db: IDBDatabase): void {
   }
 }
 
-export function wrapIDBError(err: unknown): Error {
-  if (err instanceof Error) {
-    if (err.name === 'QuotaExceededError' || err.message.includes('Quota')) {
-      return new QuotaExceededError();
-    }
-    if (
-      err.name === 'InvalidStateError' ||
-      err.name === 'SecurityError' ||
-      err.name === 'UnknownError'
-    ) {
-      return new StorageUnavailableError();
-    }
-    return new StorageUnavailableError();
-  }
-  if (typeof err === 'object' && err !== null) {
-    const name = 'name' in err ? String((err as { name: unknown }).name) : '';
-    const message = 'message' in err ? String((err as { message: unknown }).message) : '';
-    if (name === 'QuotaExceededError' || message.includes('Quota')) {
-      return new QuotaExceededError();
-    }
-    if (name === 'InvalidStateError' || name === 'SecurityError') {
-      return new StorageUnavailableError();
-    }
-  }
-  return new StorageUnavailableError();
+export async function initializeDatabaseMetadata(db: IDBDatabase): Promise<void> {
+  const compatibility = await checkSchemaCompatibility(db);
+  if (!compatibility.compatible) throw new SchemaVersionError();
+  await setMeta(db, 'schemaVersion', SCHEMA_VERSION);
+  await setMeta(db, 'normalizerVersion', NORMALIZER_VERSION);
 }

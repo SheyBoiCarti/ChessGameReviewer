@@ -50,6 +50,41 @@ describe('OpeningTreeTable', () => {
     expect(screen.getByText(/maximum is 40 plies/i)).toBeInTheDocument();
   });
 
+  it('names the serialized snapshot-size resource limit', () => {
+    const graph = { ...openingGraphFixture('limited'), reachedLimit: 'maxSnapshotBytes' as const };
+    render(
+      <OpeningTreeTable
+        graph={graph}
+        navigation={createGraphNavigation(graph)}
+        perspective="board"
+        onNavigate={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'This graph reached the snapshot size resource limit'
+    );
+  });
+
+  it('shows defensive graph exclusions without exposing PGN content', () => {
+    const graph = openingGraphFixture();
+    render(
+      <OpeningTreeTable
+        graph={graph}
+        navigation={createGraphNavigation(graph)}
+        perspective="user"
+        excludedGameCount={1}
+        diagnosticCodes={['ILLEGAL_PGN']}
+        onNavigate={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '1 game was excluded while building this opening graph'
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('ILLEGAL_PGN');
+  });
+
   it('shows terminal messaging without an empty fixed-height candidate region', () => {
     const graph = openingGraphFixture();
     render(

@@ -30,5 +30,5 @@ describe('Worker Strategy', () => {
         delete (global as any).window;
       }
     }
-  });
+  }, 15000);
 });

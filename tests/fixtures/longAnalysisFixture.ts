@@ -99,6 +99,7 @@ export function createLongGameAnalysisResult(plyCount = 41): GameAnalysisResult 
     annotations,
     analyzedPlies: plyCount,
     totalPlies: plyCount,
+    warnings: [],
     summary: {
       white: {
         accuracyEstimate: 92.4,

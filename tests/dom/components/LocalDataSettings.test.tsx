@@ -11,6 +11,7 @@ describe('LocalDataSettings', () => {
     render(
       <LocalDataSettings
         users={[{ username: 'player-one', approximateBytes: 4096 }]}
+        maintenance={{ status: 'idle', error: null }}
         onDeleteUsername={onDeleteUsername}
         onClearAll={vi.fn()}
       />
@@ -30,6 +31,7 @@ describe('LocalDataSettings', () => {
     render(
       <LocalDataSettings
         users={[]}
+        maintenance={{ status: 'idle', error: null }}
         onDeleteUsername={vi.fn()}
         onClearAll={vi.fn(async () => {
           throw new Error('Storage is unavailable.');
@@ -45,7 +47,14 @@ describe('LocalDataSettings', () => {
 
   it('traps focus, closes with Escape, and restores the trigger', async () => {
     const user = userEvent.setup();
-    render(<LocalDataSettings users={[]} onDeleteUsername={vi.fn()} onClearAll={vi.fn()} />);
+    render(
+      <LocalDataSettings
+        users={[]}
+        maintenance={{ status: 'idle', error: null }}
+        onDeleteUsername={vi.fn()}
+        onClearAll={vi.fn()}
+      />
+    );
 
     const trigger = screen.getByRole('button', { name: /clear all local data/i });
     await user.click(trigger);
@@ -54,5 +63,34 @@ describe('LocalDataSettings', () => {
     await user.keyboard('{Escape}');
     expect(dialog).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it('disables destructive controls and reports active maintenance', () => {
+    render(
+      <LocalDataSettings
+        users={[{ username: 'alice' }]}
+        maintenance={{ status: 'deleting-user', error: null }}
+        onDeleteUsername={vi.fn()}
+        onClearAll={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: /delete alice data/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /clear all local data/i })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('Deleting local data');
+  });
+
+  it('renders the safe maintenance failure without raw storage details', () => {
+    render(
+      <LocalDataSettings
+        users={[]}
+        maintenance={{ status: 'idle', error: 'Local data could not be deleted.' }}
+        onDeleteUsername={vi.fn()}
+        onClearAll={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Local data could not be deleted.');
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/quota|indexeddb/i);
   });
 });

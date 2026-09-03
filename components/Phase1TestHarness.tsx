@@ -57,6 +57,8 @@ function game(overrides: Partial<GameRecord> = {}): GameRecord {
     rated: true,
     userRating: 1500,
     opponentRating: 1500,
+    whitePlayer: { username: USERNAME, rating: 1500 },
+    blackPlayer: { username: 'opponent', rating: 1500 },
     pgn: '1. e4 e5 1/2-1/2',
     rules: 'chess',
     ...overrides,
@@ -77,26 +79,33 @@ function rawGame(id: string): RawChesscomGame {
   };
 }
 
-function dependencies(db: IDBDatabase, mode: FixtureMode): IngestionDependencies {
+function dependencies(
+  db: IDBDatabase,
+  mode: FixtureMode,
+  cancelAtSecondMonth?: () => void
+): IngestionDependencies {
   let monthCall = 0;
   return {
     fetchArchives: async (_username, options) => {
-      if (mode === 'cancelled') {
-        return new Promise<string[]>((_, reject) => {
+      if (mode === 'offline-cache-only') throw createOfflineError();
+      if (mode === 'failed') {
+        throw createPubApiError('PLAYER_NOT_FOUND', 'Player not found', false, 404);
+      }
+      return mode === 'partial' || mode === 'cancelled'
+        ? [archiveUrl('08'), archiveUrl('07')]
+        : [archiveUrl('08')];
+    },
+    fetchMonthlyGames: async (_username, _year, _month, options) => {
+      monthCall += 1;
+      if (mode === 'cancelled' && monthCall > 1) {
+        cancelAtSecondMonth?.();
+        return new Promise<RawChesscomGame[]>((_, reject) => {
           if (options.signal?.aborted) return reject(createAbortError());
           options.signal?.addEventListener('abort', () => reject(createAbortError()), {
             once: true,
           });
         });
       }
-      if (mode === 'offline-cache-only') throw createOfflineError();
-      if (mode === 'failed') {
-        throw createPubApiError('PLAYER_NOT_FOUND', 'Player not found', false, 404);
-      }
-      return mode === 'partial' ? [archiveUrl('08'), archiveUrl('07')] : [archiveUrl('08')];
-    },
-    fetchMonthlyGames: async () => {
-      monthCall += 1;
       if (mode === 'partial' && monthCall > 1) {
         throw createPubApiError('UPSTREAM_UNAVAILABLE', 'Upstream unavailable', true, 503);
       }
@@ -106,6 +115,12 @@ function dependencies(db: IDBDatabase, mode: FixtureMode): IngestionDependencies
     writeArchiveList: (record) => putArchiveListMeta(db, record),
     readArchiveSyncs: (username) => getArchiveSyncsForUser(db, username),
     readMonthGames: (username, month) => getGamesForMonth(db, username, month),
+    validatePgns: async (games) => ({
+      validGameIds: games.map(({ id }) => id),
+      diagnostics: [],
+      totalInvalid: 0,
+      diagnosticCodes: [],
+    }),
     persistMonth: (games, marker, signal) => saveSyncBatch(db, games, marker, signal),
   };
 }
@@ -129,6 +144,8 @@ export function Phase1TestHarness() {
   const [status, setStatus] = useState<IngestionTerminalStatus | 'idle'>('idle');
   const [offlineCacheOnly, setOfflineCacheOnly] = useState(false);
   const [deletionText, setDeletionText] = useState('');
+  const [retainedGames, setRetainedGames] = useState<readonly GameRecord[]>([]);
+  const [selectedRetainedGame, setSelectedRetainedGame] = useState('');
 
   useEffect(() => {
     let opened: IDBDatabase | null = null;
@@ -164,6 +181,8 @@ export function Phase1TestHarness() {
     if (!db) return;
     setStatus('idle');
     setOfflineCacheOnly(false);
+    setRetainedGames([]);
+    setSelectedRetainedGame('');
     if (mode === 'offline-cache-only') {
       await putArchiveListMeta(db, {
         username: USERNAME,
@@ -172,16 +191,18 @@ export function Phase1TestHarness() {
       });
       await saveSyncBatch(db, [game()], staleMarker());
     }
-    const manager = new IngestionManager(dependencies(db, mode));
+    let manager: IngestionManager;
+    manager = new IngestionManager(dependencies(db, mode, () => manager.cancel()));
     const resultPromise = manager.start(query(), {
       now: () => NOW,
       random: () => 0,
       wait: async () => undefined,
     });
-    if (mode === 'cancelled') queueMicrotask(() => manager.cancel());
     const result = await resultPromise;
     setStatus(result.status);
     setOfflineCacheOnly(result.offlineCacheOnly);
+    setRetainedGames(result.games);
+    setStoredCount((await getGamesForUser(db, USERNAME)).length);
   }
 
   return (
@@ -191,6 +212,12 @@ export function Phase1TestHarness() {
       <output data-testid="ingestion-status">{status}</output>
       <output data-testid="offline-cache-only">{String(offlineCacheOnly)}</output>
       <output data-testid="deletion-result">{deletionText}</output>
+      <output data-testid="selected-retained-game">{selectedRetainedGame}</output>
+      {retainedGames.map((retainedGame) => (
+        <button key={retainedGame.id} onClick={() => setSelectedRetainedGame(retainedGame.id)}>
+          {`Select retained ${retainedGame.id}`}
+        </button>
+      ))}
       <button disabled={!db} onClick={() => void seed()}>
         Seed local game
       </button>

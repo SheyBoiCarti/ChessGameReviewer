@@ -43,6 +43,8 @@ export function makeGameRecord(overrides: Partial<GameRecord> = {}): GameRecord 
     rated: true,
     userRating: 1500,
     opponentRating: 1500,
+    whitePlayer: { username: 'janedoe', rating: 1500 },
+    blackPlayer: { username: 'opponent', rating: 1500 },
     pgn: '1. e4 e5 1/2-1/2',
     rules: 'chess',
     ...overrides,

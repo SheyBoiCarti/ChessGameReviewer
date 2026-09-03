@@ -1,13 +1,12 @@
 import type { ParsedGame } from '../pgnParser';
 import { addVisit, emptyOutcome } from './outcomes';
 import { PathStore } from './pathStore';
-import type { GraphBuildLimits, GraphBuildOptions, PositionNode } from './types';
+import type { GraphBuildOptions, GraphStructuralLimits, PositionNode } from './types';
 
-const DEFAULT_LIMITS: GraphBuildLimits = {
+const DEFAULT_LIMITS: GraphStructuralLimits = {
   maxPositions: 150_000,
   maxEdges: 200_000,
   maxPathNodes: 200_001,
-  maxSnapshotBytes: 64 * 1024 * 1024,
 };
 
 export interface OpeningGraphSnapshot {
@@ -18,7 +17,7 @@ export interface OpeningGraphSnapshot {
   openingHorizon: number;
   includedGameCount: number;
   remainingGameCount: number;
-  reachedLimit?: keyof GraphBuildLimits;
+  reachedLimit?: keyof GraphStructuralLimits | 'maxSnapshotBytes';
 }
 
 export interface AsyncGraphBuildOptions {
@@ -37,9 +36,12 @@ interface BuildState {
 
 export class OpeningGraphBuilder {
   private readonly options: GraphBuildOptions;
-  private readonly limits: GraphBuildLimits;
+  private readonly limits: GraphStructuralLimits;
 
-  constructor(options: Partial<GraphBuildOptions> = {}, limits: Partial<GraphBuildLimits> = {}) {
+  constructor(
+    options: Partial<GraphBuildOptions> = {},
+    limits: Partial<GraphStructuralLimits> = {}
+  ) {
     const maxOpeningPlies = options.maxOpeningPlies ?? 30;
     if (!Number.isInteger(maxOpeningPlies) || maxOpeningPlies < 2 || maxOpeningPlies > 40) {
       throw new RangeError('INVALID_OPENING_HORIZON');
@@ -110,7 +112,7 @@ export class OpeningGraphBuilder {
   private addGame(
     state: BuildState,
     game: ParsedGame | undefined
-  ): keyof GraphBuildLimits | undefined {
+  ): keyof GraphStructuralLimits | undefined {
     if (!game || game.plies.length === 0 || !isContinuous(game)) return undefined;
     const firstPly = game.plies[0];
     if (!firstPly) return undefined;
@@ -182,7 +184,7 @@ export class OpeningGraphBuilder {
     edgeCount: number,
     pathCount: number,
     additions: { positions: number; edges: number; paths: number }
-  ): keyof GraphBuildLimits | undefined {
+  ): keyof GraphStructuralLimits | undefined {
     if (positionCount + additions.positions > this.limits.maxPositions) return 'maxPositions';
     if (edgeCount + additions.edges > this.limits.maxEdges) return 'maxEdges';
     if (pathCount + additions.paths > this.limits.maxPathNodes) return 'maxPathNodes';
@@ -200,7 +202,7 @@ function createBuildState(): BuildState {
   };
 }
 
-function canonicalGameOrder(games: readonly ParsedGame[]): ParsedGame[] {
+export function canonicalGameOrder(games: readonly ParsedGame[]): ParsedGame[] {
   return [...games].sort((left, right) => left.id.localeCompare(right.id));
 }
 
@@ -209,7 +211,7 @@ function snapshotFor(
   status: OpeningGraphSnapshot['status'],
   remainingGameCount: number,
   openingHorizon: number,
-  reachedLimit?: keyof GraphBuildLimits
+  reachedLimit?: keyof GraphStructuralLimits
 ): OpeningGraphSnapshot {
   if (!state.root) {
     state.root = createNode('');

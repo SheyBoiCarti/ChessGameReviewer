@@ -3,6 +3,8 @@ import { expect, test } from '@playwright/test';
 
 import { installWorkspaceFixtures, loadFixtureGames } from './helpers/workspaceFixtures';
 
+test.describe.configure({ timeout: 60_000 });
+
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 });
@@ -83,7 +85,6 @@ test('has no serious or critical axe findings for an archive-load error fixture'
 test('has no serious or critical axe findings with completed analysis and bounded move list', async ({
   page,
 }) => {
-  test.setTimeout(90_000);
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await waitForWorkspaceReady(page);

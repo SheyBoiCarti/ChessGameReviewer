@@ -1,6 +1,7 @@
 'use client';
 
 import { IngestionManager } from '@/features/ingestion/ingestionService';
+import { PgnValidationWorkerClient } from '@/features/ingestion/pgnValidationWorkerClient';
 import type { IngestionDependencies } from '@/features/ingestion/types';
 import { GraphWorkerClient } from '@/features/opening-tree/graphWorkerClient';
 import type { WorkspaceServices } from './createWorkspaceController';
@@ -14,7 +15,7 @@ import { analysisPreset } from '@/features/stockfish-analysis/presentation';
 import { fetchMonthlyGames, fetchPlayerArchives } from '@/lib/api/chesscomClient';
 import { parseGamePgn } from '@/lib/chess/pgnParser';
 import { clearAllData, deleteUserData } from '@/lib/db/deleteLocalData';
-import { closeDatabase, openDatabase } from '@/lib/db/openDatabase';
+import { closeDatabase, initializeDatabaseMetadata, openDatabase } from '@/lib/db/openDatabase';
 import {
   getArchiveListMeta,
   getArchiveSyncsForUser,
@@ -44,12 +45,25 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
         databasePromise = null;
       }
     }
-    databasePromise ??= openDatabase().then((opened) => {
-      database = opened;
-      return opened;
+    databasePromise ??= openDatabase().then(async (opened) => {
+      try {
+        await initializeDatabaseMetadata(opened);
+        database = opened;
+        return opened;
+      } catch (error) {
+        closeDatabase(opened);
+        databasePromise = null;
+        throw error;
+      }
     });
     return databasePromise;
   };
+  const pgnValidator = new PgnValidationWorkerClient(
+    () =>
+      new Worker(new URL('../../workers/analysis-data.worker.ts', import.meta.url), {
+        type: 'module',
+      })
+  );
   const dependencies: IngestionDependencies = {
     fetchArchives: fetchPlayerArchives,
     fetchMonthlyGames,
@@ -57,9 +71,18 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     writeArchiveList: async (record) => putArchiveListMeta(await db(), record),
     readArchiveSyncs: async (username) => getArchiveSyncsForUser(await db(), username),
     readMonthGames: async (username, month) => getGamesForMonth(await db(), username, month),
+    validatePgns: (games, options) => pgnValidator.validate(games, options.signal),
     persistMonth: async (games, marker, signal) => saveSyncBatch(await db(), games, marker, signal),
   };
-  const ingestion = new IngestionManager(dependencies);
+  const ingestionManager = new IngestionManager(dependencies);
+  const ingestion = {
+    start: ingestionManager.start.bind(ingestionManager),
+    cancel: ingestionManager.cancel.bind(ingestionManager),
+    dispose: () => {
+      ingestionManager.cancel();
+      pgnValidator.dispose();
+    },
+  };
   const graph = new GraphWorkerClient(
     () =>
       new Worker(new URL('../../workers/analysis-data.worker.ts', import.meta.url), {
@@ -109,6 +132,8 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
             rated: game.rated,
             userRating: game.userRating,
             opponentRating: game.opponentRating,
+            whitePlayer: game.whitePlayer,
+            blackPlayer: game.blackPlayer,
             pgn: game.pgn,
             rules: game.rules,
           },

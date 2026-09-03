@@ -14,6 +14,7 @@ import {
   type PromotionPiece,
 } from '@/features/board/moves';
 import { boardSquares, InvalidBoardPositionError } from '@/features/board/position';
+import type { PlayerMetadata } from '@/lib/api/contracts';
 import type { MoveQuality } from '@/lib/engine/accuracy';
 import {
   parseFenSideToMove,
@@ -44,6 +45,13 @@ export interface ChessboardViewProps {
   totalPlies?: number | undefined;
   onPlyChange?: ((ply: number) => void) | undefined;
   selectedSquare?: string | undefined;
+  players?:
+    | {
+        white: PlayerMetadata;
+        black: PlayerMetadata;
+      }
+    | undefined;
+  onFlipOrientation?: (() => void) | undefined;
 }
 
 export function ChessboardView({
@@ -60,6 +68,8 @@ export function ChessboardView({
   totalPlies,
   onPlyChange,
   selectedSquare: controlledSelectedSquare,
+  players,
+  onFlipOrientation,
 }: ChessboardViewProps) {
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
   const [focusedSquare, setFocusedSquare] = useState<Square | null>(null);
@@ -278,113 +288,166 @@ export function ChessboardView({
     setPendingPromotion(null);
   };
 
-  return (
-    <div className="board-region">
-      <div className={`board-stage${evaluationScore ? ' board-stage--with-evaluation' : ''}`}>
-        {evaluationScore ? <EvaluationBar score={evaluationScore} /> : null}
-        <div className="chessboard-frame">
-          <div
-            ref={boardRef}
-            className="chessboard"
-            role="grid"
-            aria-label="Chess board"
-            data-orientation={orientation}
-            tabIndex={0}
-            onKeyDown={handleKeyDown}
-            aria-describedby={
-              isInteractive
-                ? 'board-keyboard-interactive-help'
-                : historyModel
-                  ? 'board-keyboard-help'
-                  : undefined
-            }
-          >
-            {Array.from({ length: 8 }, (_, row) => (
-              <div className="board-row" role="row" key={row}>
-                {squares.slice(row * 8, row * 8 + 8).map((square, column) => {
-                  const isSelected = square.name === activeSelectedSquare;
-                  const isHighlighted =
-                    isSelected || square.name === lastMove?.from || square.name === lastMove?.to;
-                  const isLegalTarget = legalTargets.includes(square.name as Square);
-                  const isFocused = square.name === focusedSquare;
-                  const hasBadge = Boolean(lastMoveBadge && lastMoveBadge.square === square.name);
+  const topColor = orientation === 'white' ? 'black' : 'white';
+  const bottomColor = orientation === 'white' ? 'white' : 'black';
+  const topPlayer = orientation === 'white' ? players?.black : players?.white;
+  const bottomPlayer = orientation === 'white' ? players?.white : players?.black;
 
-                  return (
-                    <div
-                      className={`board-square ${square.isLight ? 'square-light' : 'square-dark'}${isHighlighted ? ' square-highlighted' : ''}${isSelected ? ' square-selected' : ''}${isFocused ? ' square-focused' : ''}`}
-                      role="gridcell"
-                      aria-label={square.name}
-                      aria-selected={isSelected}
-                      data-square={square.name}
-                      key={square.name}
-                      onClick={() => handleSquareClick(square.name as Square)}
-                      draggable={
-                        isInteractive && Boolean(square.piece && square.piece.color === mover)
-                      }
-                      onDragStart={(e) => handleDragStart(e, square.name as Square)}
-                      onDragOver={(e) => {
-                        if (isInteractive) e.preventDefault();
-                      }}
-                      onDrop={(e) => handleDrop(e, square.name as Square)}
-                    >
-                      {column === 0 ? (
-                        <span className="board-rank-label" aria-hidden="true">
-                          {square.rank}
-                        </span>
-                      ) : null}
-                      {square.piece ? <Piece piece={square.piece} square={square.name} /> : null}
-                      {isLegalTarget ? (
-                        <span
-                          className={`legal-target-dot ${square.piece ? 'legal-target-dot--capture' : ''}`}
-                          aria-hidden="true"
-                        />
-                      ) : null}
-                      {hasBadge && lastMoveBadge ? (
-                        <MoveClassificationBadge quality={lastMoveBadge.quality} size="square" />
-                      ) : null}
-                      {row === 7 ? (
-                        <span className="board-file-label" aria-hidden="true">
-                          {square.file}
-                        </span>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-          {pvArrow ? <BoardArrow move={pvArrow} orientation={orientation} /> : null}
+  return (
+    <div className="board-shell">
+      {onFlipOrientation ? (
+        <div className="board-toolbar">
+          <button
+            type="button"
+            className="board-toolbar__flip-button"
+            onClick={onFlipOrientation}
+            aria-label="Flip board orientation"
+          >
+            Flip board
+          </button>
         </div>
+      ) : null}
+      {players ? <PlayerRow color={topColor} player={topPlayer} position="top" /> : null}
+      <div className="board-region">
+        <div className={`board-stage${evaluationScore ? ' board-stage--with-evaluation' : ''}`}>
+          {evaluationScore ? <EvaluationBar score={evaluationScore} /> : null}
+          <div className="chessboard-frame">
+            <div
+              ref={boardRef}
+              className="chessboard"
+              role="grid"
+              aria-label="Chess board"
+              data-orientation={orientation}
+              tabIndex={0}
+              onKeyDown={handleKeyDown}
+              aria-describedby={
+                isInteractive
+                  ? 'board-keyboard-interactive-help'
+                  : historyModel
+                    ? 'board-keyboard-help'
+                    : undefined
+              }
+            >
+              {Array.from({ length: 8 }, (_, row) => (
+                <div className="board-row" role="row" key={row}>
+                  {squares.slice(row * 8, row * 8 + 8).map((square, column) => {
+                    const isSelected = square.name === activeSelectedSquare;
+                    const isHighlighted =
+                      isSelected || square.name === lastMove?.from || square.name === lastMove?.to;
+                    const isLegalTarget = legalTargets.includes(square.name as Square);
+                    const isFocused = square.name === focusedSquare;
+                    const hasBadge = Boolean(lastMoveBadge && lastMoveBadge.square === square.name);
+
+                    return (
+                      <div
+                        className={`board-square ${square.isLight ? 'square-light' : 'square-dark'}${isHighlighted ? ' square-highlighted' : ''}${isSelected ? ' square-selected' : ''}${isFocused ? ' square-focused' : ''}`}
+                        role="gridcell"
+                        aria-label={square.name}
+                        aria-selected={isSelected}
+                        data-square={square.name}
+                        key={square.name}
+                        onClick={() => handleSquareClick(square.name as Square)}
+                        draggable={
+                          isInteractive && Boolean(square.piece && square.piece.color === mover)
+                        }
+                        onDragStart={(e) => handleDragStart(e, square.name as Square)}
+                        onDragOver={(e) => {
+                          if (isInteractive) e.preventDefault();
+                        }}
+                        onDrop={(e) => handleDrop(e, square.name as Square)}
+                      >
+                        {column === 0 ? (
+                          <span className="board-rank-label" aria-hidden="true">
+                            {square.rank}
+                          </span>
+                        ) : null}
+                        {square.piece ? <Piece piece={square.piece} square={square.name} /> : null}
+                        {isLegalTarget ? (
+                          <span
+                            className={`legal-target-dot ${square.piece ? 'legal-target-dot--capture' : ''}`}
+                            aria-hidden="true"
+                          />
+                        ) : null}
+                        {hasBadge && lastMoveBadge ? (
+                          <MoveClassificationBadge quality={lastMoveBadge.quality} size="square" />
+                        ) : null}
+                        {row === 7 ? (
+                          <span className="board-file-label" aria-hidden="true">
+                            {square.file}
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+            {pvArrow ? <BoardArrow move={pvArrow} orientation={orientation} /> : null}
+          </div>
+        </div>
+        <PromotionDialog
+          isOpen={pendingPromotion !== null}
+          color={mover}
+          onSelect={handlePromotionSelect}
+          onCancel={handlePromotionCancel}
+        />
+        {announcement ? (
+          <span className="sr-only" role="status" aria-live="polite">
+            {announcement}
+          </span>
+        ) : null}
+        <p id="board-keyboard-interactive-help" className="sr-only">
+          Use Arrow keys to navigate squares. Press Enter or Space to select a piece and choose a
+          legal destination. Press Escape to clear selection. Left and Right Arrow navigate history
+          when no piece is selected.
+        </p>
+        {historyModel ? (
+          <>
+            <p id="board-keyboard-help" className="sr-only">
+              Use Left and Right Arrow to move through history. Home returns to the first position
+              and End moves to the last.
+            </p>
+            <MoveHistoryControls
+              currentPly={historyModel.currentPly}
+              totalPlies={historyModel.totalPlies}
+              onPlyChange={historyModel.onPlyChange}
+            />
+          </>
+        ) : null}
       </div>
-      <PromotionDialog
-        isOpen={pendingPromotion !== null}
-        color={mover}
-        onSelect={handlePromotionSelect}
-        onCancel={handlePromotionCancel}
-      />
-      {announcement ? (
-        <span className="sr-only" role="status" aria-live="polite">
-          {announcement}
-        </span>
-      ) : null}
-      <p id="board-keyboard-interactive-help" className="sr-only">
-        Use Arrow keys to navigate squares. Press Enter or Space to select a piece and choose a
-        legal destination. Press Escape to clear selection. Left and Right Arrow navigate history
-        when no piece is selected.
-      </p>
-      {historyModel ? (
-        <>
-          <p id="board-keyboard-help" className="sr-only">
-            Use Left and Right Arrow to move through history. Home returns to the first position and
-            End moves to the last.
-          </p>
-          <MoveHistoryControls
-            currentPly={historyModel.currentPly}
-            totalPlies={historyModel.totalPlies}
-            onPlyChange={historyModel.onPlyChange}
-          />
-        </>
-      ) : null}
+      {players ? <PlayerRow color={bottomColor} player={bottomPlayer} position="bottom" /> : null}
+    </div>
+  );
+}
+
+function PlayerRow({
+  color,
+  player,
+  position,
+}: {
+  color: 'white' | 'black';
+  player: PlayerMetadata | undefined;
+  position: 'top' | 'bottom';
+}) {
+  const colorLabel = color === 'white' ? 'White' : 'Black';
+  const defaultName = `${colorLabel} player`;
+  const name = player?.username?.trim() || defaultName;
+  const rating =
+    player?.rating !== null && player?.rating !== undefined ? `(${player.rating})` : null;
+
+  return (
+    <div
+      className={`player-row player-row--${position} player-row--${color}`}
+      aria-label={`${colorLabel}: ${name}${rating ? ` ${rating}` : ''}`}
+    >
+      <div className="player-row__info">
+        <span
+          className={`player-row__color-indicator player-row__color-indicator--${color}`}
+          aria-hidden="true"
+        />
+        <span className="player-row__name">{name}</span>
+        {rating ? <span className="player-row__rating">{rating}</span> : null}
+      </div>
     </div>
   );
 }

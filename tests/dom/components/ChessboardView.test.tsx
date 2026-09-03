@@ -225,4 +225,89 @@ describe('ChessboardView', () => {
     expect(onMove).toHaveBeenCalledTimes(1);
     expect(onMove.mock.calls[0]![0]).toMatchObject({ uci: 'a7a8q', san: 'a8=Q+' });
   });
+
+  describe('Player rows and board orientation toolbar', () => {
+    const players = {
+      white: { username: 'HikaruNakamura', rating: 2875 },
+      black: { username: 'MagnusCarlsen', rating: 2882 },
+    };
+
+    it('renders Black player on top and White player on bottom in white orientation', () => {
+      render(
+        <ChessboardView
+          fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          orientation="white"
+          players={players}
+        />
+      );
+
+      const topRow = screen.getByLabelText(/black: magnuscarlsen \(2882\)/i);
+      const bottomRow = screen.getByLabelText(/white: hikarunakamura \(2875\)/i);
+
+      expect(topRow).toHaveClass('player-row--top');
+      expect(bottomRow).toHaveClass('player-row--bottom');
+      expect(within(topRow).getByText('MagnusCarlsen')).toBeInTheDocument();
+      expect(within(topRow).getByText('(2882)')).toBeInTheDocument();
+      expect(within(bottomRow).getByText('HikaruNakamura')).toBeInTheDocument();
+      expect(within(bottomRow).getByText('(2875)')).toBeInTheDocument();
+    });
+
+    it('renders White player on top and Black player on bottom in black orientation', () => {
+      render(
+        <ChessboardView
+          fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          orientation="black"
+          players={players}
+        />
+      );
+
+      const topRow = screen.getByLabelText(/white: hikarunakamura \(2875\)/i);
+      const bottomRow = screen.getByLabelText(/black: magnuscarlsen \(2882\)/i);
+
+      expect(topRow).toHaveClass('player-row--top');
+      expect(bottomRow).toHaveClass('player-row--bottom');
+      expect(within(topRow).getByText('HikaruNakamura')).toBeInTheDocument();
+      expect(within(bottomRow).getByText('MagnusCarlsen')).toBeInTheDocument();
+    });
+
+    it('handles missing username and rating with accessible fallbacks', () => {
+      render(
+        <ChessboardView
+          fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          orientation="white"
+          players={{
+            white: { username: null, rating: null },
+            black: { username: 'Guest', rating: null },
+          }}
+        />
+      );
+
+      const topRow = screen.getByLabelText(/black: guest/i);
+      const bottomRow = screen.getByLabelText(/white: white player/i);
+
+      expect(within(bottomRow).getByText('White player')).toBeInTheDocument();
+      expect(within(topRow).getByText('Guest')).toBeInTheDocument();
+      expect(screen.queryByText(/\(\d+\)/)).not.toBeInTheDocument();
+    });
+
+    it('renders a visible Flip board button and triggers callback on click', async () => {
+      const user = userEvent.setup();
+      const onFlip = vi.fn();
+
+      render(
+        <ChessboardView
+          fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          orientation="white"
+          onFlipOrientation={onFlip}
+        />
+      );
+
+      const flipButton = screen.getByRole('button', { name: /flip board/i });
+      expect(flipButton).toBeVisible();
+      expect(flipButton).toHaveTextContent('Flip board');
+
+      await user.click(flipButton);
+      expect(onFlip).toHaveBeenCalledTimes(1);
+    });
+  });
 });

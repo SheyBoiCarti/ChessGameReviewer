@@ -44,9 +44,8 @@ export interface GraphBuildOptions {
   includeRepeatedPositions: boolean;
 }
 
-export interface GraphBuildLimits {
+export interface GraphStructuralLimits {
   maxPositions: number;
   maxEdges: number;
   maxPathNodes: number;
-  maxSnapshotBytes: number;
 }
