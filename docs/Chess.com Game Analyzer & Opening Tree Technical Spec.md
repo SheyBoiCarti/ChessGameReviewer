@@ -133,7 +133,18 @@ Build an unaffiliated, browser-based application that retrieves public standard-
 | Reliability/testing   | 12–13          | Every phase          |
 | Deployment/operations | 14–15          | Phases 1 and 5       |
 
-## 6. Documentation map
+## 6. Implementation status
+
+| Requirement range | Status         | Notes                                                              |
+| ----------------- | -------------- | ------------------------------------------------------------------ |
+| FR-ING-001–011    | Implemented    | Remediation verified in the 2026-09-02 audit record.               |
+| FR-GRAPH-001–008  | Implemented    | Includes enforced serialized snapshot budget.                      |
+| FR-ENG-001–009    | Implemented    | Cache degradation remains non-fatal and visible.                   |
+| FR-DATA-001–004   | Implemented    | Graph snapshot persistence remains optional.                       |
+| FR-ADV-001–006    | Deferred       | Planned Phase 5 functionality; not present in the current release. |
+| FR-ADV-007        | Governing rule | Applies when any advanced metric is implemented.                   |
+
+## 7. Documentation map
 
 - [Canonical architecture and technical decisions](superpowers/specs/2026-08-11-chesscom-game-analyzer-design.md)
 - [Master implementation plan](superpowers/plans/master-implementation-plan.md)
