@@ -39,8 +39,13 @@ export interface WorkspaceState {
     error: string | null;
   };
   graph: {
-    status: 'idle' | 'building' | 'limited' | 'failed' | 'complete';
+    status: 'idle' | 'building' | 'partial' | 'limited' | 'failed' | 'complete';
     snapshot: SerializedOpeningGraph | null;
+    diagnosticCodes: readonly string[];
+    error: string | null;
+  };
+  dataMaintenance: {
+    status: 'idle' | 'deleting-user' | 'clearing-all';
     error: string | null;
   };
   selection: WorkspaceSelection;
@@ -72,8 +77,9 @@ export type WorkspaceAction =
   | {
       type: 'graph/terminal';
       token: number;
-      status: 'limited' | 'complete';
+      status: 'partial' | 'limited' | 'complete';
       snapshot: SerializedOpeningGraph;
+      diagnosticCodes: readonly string[];
     }
   | { type: 'graph/failed'; token: number; error: string }
   | { type: 'selection/game'; gameId: string | null }
@@ -91,6 +97,9 @@ export type WorkspaceAction =
   | { type: 'analysis/cancelled'; token: number }
   | { type: 'analysis/failed'; token: number; error: string }
   | { type: 'preferences/changed'; preferences: Partial<WorkspacePreferences> }
+  | { type: 'operations/invalidated'; token: number }
+  | { type: 'data/deletionStarted'; kind: 'user' | 'all' }
+  | { type: 'data/deletionFailed'; error: string }
   | { type: 'data/userDeleted'; username: string }
   | { type: 'data/allCleared' };
 

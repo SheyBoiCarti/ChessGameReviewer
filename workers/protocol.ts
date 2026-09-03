@@ -1,11 +1,16 @@
-import type { NormalizedGameSummary } from '../lib/api/contracts';
+import type { Diagnostic, NormalizedGameSummary } from '../lib/api/contracts';
 import type { GraphBuildOptions } from '../lib/chess/graph/types';
 import type { SerializedOpeningGraph } from '../lib/chess/graph/serialization';
 
 export const PROTOCOL_VERSION = 1;
-export type SnapshotPersistenceNotice = 'SNAPSHOT_TOO_LARGE_TO_PERSIST';
 
 export type WorkerRequest =
+  | {
+      protocolVersion: typeof PROTOCOL_VERSION;
+      jobId: string;
+      type: 'VALIDATE_PGNS';
+      games: readonly NormalizedGameSummary[];
+    }
   | {
       protocolVersion: typeof PROTOCOL_VERSION;
       jobId: string;
@@ -22,6 +27,15 @@ export type WorkerResponse =
   | {
       protocolVersion: typeof PROTOCOL_VERSION;
       jobId: string;
+      type: 'PGN_VALIDATION_COMPLETE';
+      validGameIds: readonly string[];
+      diagnostics: readonly Diagnostic[];
+      totalInvalid: number;
+      diagnosticCodes: readonly string[];
+    }
+  | {
+      protocolVersion: typeof PROTOCOL_VERSION;
+      jobId: string;
       type: 'PROGRESS';
       parsedCount: number;
       builtCount: number;
@@ -33,7 +47,14 @@ export type WorkerResponse =
       jobId: string;
       type: 'COMPLETE';
       snapshot: SerializedOpeningGraph;
-      persistenceNotice?: SnapshotPersistenceNotice;
+    }
+  | {
+      protocolVersion: typeof PROTOCOL_VERSION;
+      jobId: string;
+      type: 'PARTIAL';
+      snapshot: SerializedOpeningGraph;
+      excludedGameCount: number;
+      diagnosticCodes: readonly string[];
     }
   | {
       protocolVersion: typeof PROTOCOL_VERSION;
@@ -43,7 +64,8 @@ export type WorkerResponse =
       reachedLimit: string;
       includedGameCount: number;
       remainingGameCount: number;
-      persistenceNotice?: SnapshotPersistenceNotice;
+      excludedGameCount: number;
+      diagnosticCodes: readonly string[];
     }
   | { protocolVersion: typeof PROTOCOL_VERSION; jobId: string; type: 'CANCELLED' }
   | {
@@ -64,6 +86,8 @@ export function isWorkerRequest(value: unknown): value is WorkerRequest {
   )
     return false;
   if (value.type === 'CANCEL_JOB' || value.type === 'DISPOSE') return true;
+  if (value.type === 'VALIDATE_PGNS')
+    return Array.isArray(value.games) && value.games.every(isNormalizedGameSummary);
   return (
     value.type === 'BUILD_GRAPH' &&
     Array.isArray(value.games) &&

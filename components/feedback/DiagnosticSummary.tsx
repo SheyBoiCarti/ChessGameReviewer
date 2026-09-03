@@ -76,7 +76,9 @@ function guidance(result: IngestionResult): string {
     case 'partial':
       return `${result.games.length} games are available, but one or more archive months failed.`;
     case 'cancelled':
-      return `${result.games.length} completed cached games were retained. Resume or start a new query.`;
+      return result.games.length === 0
+        ? 'No completed games were retained. Start a new query.'
+        : `${result.games.length} games from completed archive months were retained and remain available.`;
     case 'failed':
       return 'No complete result is available. Review the guidance below and try again.';
     case 'complete':

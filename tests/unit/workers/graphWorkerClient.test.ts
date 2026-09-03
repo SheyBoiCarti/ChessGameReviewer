@@ -64,8 +64,15 @@ describe('GraphWorkerClient', () => {
       reachedLimit: 'maxEdges',
       includedGameCount: 1,
       remainingGameCount: 2,
+      excludedGameCount: 1,
+      diagnosticCodes: ['ILLEGAL_PGN'],
     });
-    await expect(limited).resolves.toMatchObject({ status: 'limited', reachedLimit: 'maxEdges' });
+    await expect(limited).resolves.toMatchObject({
+      status: 'limited',
+      reachedLimit: 'maxEdges',
+      excludedGameCount: 1,
+      diagnosticCodes: ['ILLEGAL_PGN'],
+    });
 
     const cancelled = client.build(
       [],
@@ -83,5 +90,30 @@ describe('GraphWorkerClient', () => {
     (worker as unknown as FakeWorker).dispatchEvent(new Event('error'));
     await expect(failed).rejects.toThrow('GRAPH_WORKER_FAILED');
     client.dispose();
+  });
+
+  it('settles a defensive partial response with exclusion metadata', async () => {
+    const worker = new FakeWorker() as unknown as Worker;
+    const client = new GraphWorkerClient(worker);
+    const build = client.build(
+      [],
+      { maxOpeningPlies: 30, includeRepeatedPositions: true },
+      'partial-query'
+    );
+    const request = (worker as unknown as FakeWorker).messages.at(-1) as { jobId: string };
+    (worker as unknown as FakeWorker).emit({
+      protocolVersion: 1,
+      jobId: request.jobId,
+      type: 'PARTIAL',
+      snapshot: {},
+      excludedGameCount: 2,
+      diagnosticCodes: ['MISSING_PGN', 'ILLEGAL_PGN'],
+    });
+
+    await expect(build).resolves.toMatchObject({
+      status: 'partial',
+      excludedGameCount: 2,
+      diagnosticCodes: ['MISSING_PGN', 'ILLEGAL_PGN'],
+    });
   });
 });

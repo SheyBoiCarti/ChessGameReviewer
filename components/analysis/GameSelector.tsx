@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { GameRecord } from '@/lib/db/schema';
+import { extractPgnPlayers } from '@/lib/chess/pgnHeaders';
 
 export function GameSelector({
   games,
@@ -139,9 +140,19 @@ function GameButton({
 }
 
 function opponentName(game: GameRecord): string {
-  const tag = game.userColor === 'white' ? 'Black' : 'White';
-  const match = new RegExp(`^\\[${tag} "([^"]+)"\\]$`, 'm').exec(game.pgn);
-  return match?.[1] ?? 'Unknown opponent';
+  const opponent = game.userColor === 'white' ? game.blackPlayer : game.whitePlayer;
+  if (opponent?.username && opponent.username.trim().length > 0) {
+    return opponent.username.trim();
+  }
+  if (game.pgn) {
+    const pgnPlayers = extractPgnPlayers(game.pgn);
+    const pgnOpponent =
+      game.userColor === 'white' ? pgnPlayers.black.username : pgnPlayers.white.username;
+    if (pgnOpponent && pgnOpponent.trim().length > 0) {
+      return pgnOpponent.trim();
+    }
+  }
+  return 'Unknown opponent';
 }
 
 function metadata(game: GameRecord, status: string | undefined): string {

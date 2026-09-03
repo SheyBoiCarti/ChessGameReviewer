@@ -22,6 +22,8 @@ const parsedGame: ParsedGame = {
   rated: true,
   userRating: 1500,
   opponentRating: 1500,
+  whitePlayer: { username: 'player', rating: 1500 },
+  blackPlayer: { username: 'opponent', rating: 1500 },
   warnings: [],
   plies: [
     {
@@ -61,9 +63,16 @@ class MemoryRepository implements EvaluationCacheRepository {
   async get(key: string) {
     return this.records.get(key) ?? null;
   }
-  async put(record: any) {
+  async touch(key: string, lastUsedAt: number) {
+    const record = this.records.get(key);
+    if (!record) return false;
+    this.records.set(key, { ...record, lastUsedAt });
+    return true;
+  }
+  async putWithRetention(record: any, _maxCount: number) {
     this.records.set(record.key, record);
   }
+  async recoverQuota() {}
 }
 
 function engineForMultiPv(
@@ -233,9 +242,13 @@ describe('analyzeGame', () => {
         async get() {
           return null;
         },
-        async put() {
+        async touch() {
+          return false;
+        },
+        async putWithRetention() {
           throw new DOMException('quota exceeded', 'QuotaExceededError');
         },
+        async recoverQuota() {},
       },
       () => 1
     );
@@ -257,6 +270,61 @@ describe('analyzeGame', () => {
     });
     expect(result.status).toBe('complete');
     expect(result.annotations).toHaveLength(1);
+  });
+
+  it('reports a safe cache persistence warning while completing live analysis', async () => {
+    const cache = new EvaluationCache({
+      async get() {
+        return null;
+      },
+      async touch() {
+        return false;
+      },
+      async putWithRetention() {
+        throw new Error(`raw cache failure for ${initialFen}`);
+      },
+      async recoverQuota() {},
+    });
+
+    const result = await analyzeGame({
+      game: { ...parsedGame, plies: [parsedGame.plies[0]!] },
+      cache,
+      settings,
+      engine: engineForMultiPv({}),
+    });
+
+    expect(result).toMatchObject({
+      status: 'complete',
+      warnings: [expect.objectContaining({ code: 'EVALUATION_CACHE_WRITE_FAILED' })],
+    });
+    expect(JSON.stringify(result.warnings)).not.toContain(initialFen);
+  });
+
+  it('retains cache warnings in a cancelled result', async () => {
+    const cache = new EvaluationCache({
+      async get() {
+        throw new Error('raw read failure');
+      },
+      async touch() {
+        return false;
+      },
+      async putWithRetention() {},
+      async recoverQuota() {},
+    });
+    const controller = new AbortController();
+
+    const result = await analyzeGame({
+      game: parsedGame,
+      cache,
+      settings,
+      signal: controller.signal,
+      engine: engineForMultiPv({}, () => controller.abort()),
+    });
+
+    expect(result).toMatchObject({
+      status: 'cancelled',
+      warnings: [expect.objectContaining({ code: 'EVALUATION_CACHE_READ_FAILED' })],
+    });
   });
 
   it('records terminal positions directly with empty candidates', async () => {

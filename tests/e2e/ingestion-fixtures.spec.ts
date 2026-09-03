@@ -28,6 +28,11 @@ for (const [mode, expectedStatus] of cases) {
     await run.click();
 
     await expect(page.getByTestId('ingestion-status')).toHaveText(expectedStatus);
+    if (mode === 'cancelled') {
+      await expect(page.getByRole('button', { name: 'Select retained fixture-1' })).toBeVisible();
+      await page.getByRole('button', { name: 'Select retained fixture-1' }).click();
+      await expect(page.getByTestId('selected-retained-game')).toHaveText('fixture-1');
+    }
     if (mode === 'offline-cache-only') {
       await expect(page.getByTestId('offline-cache-only')).toHaveText('true');
     }

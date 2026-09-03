@@ -16,7 +16,7 @@ const emptySelection = {
   ply: 0,
 } as const;
 
-const idleGraph = { status: 'idle', snapshot: null, error: null } as const;
+const idleGraph = { status: 'idle', snapshot: null, diagnosticCodes: [], error: null } as const;
 const idleAnalysis = {
   status: 'idle',
   capability: null,
@@ -29,6 +29,7 @@ export const initialWorkspaceState: WorkspaceState = {
   query: { draft: defaultQuery, active: null, token: 0 },
   ingestion: { status: 'idle', progress: null, result: null, error: null },
   graph: idleGraph,
+  dataMaintenance: { status: 'idle', error: null },
   selection: emptySelection,
   analysis: idleAnalysis,
   preferences: {
@@ -41,7 +42,12 @@ export const initialWorkspaceState: WorkspaceState = {
 };
 
 export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction): WorkspaceState {
-  if ('token' in action && action.type !== 'query/started' && action.token !== state.query.token) {
+  if (
+    'token' in action &&
+    action.type !== 'query/started' &&
+    action.type !== 'operations/invalidated' &&
+    action.token !== state.query.token
+  ) {
     return state;
   }
 
@@ -80,11 +86,19 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         ingestion: { ...state.ingestion, status: 'failed', error: action.error },
       };
     case 'graph/started':
-      return { ...state, graph: { status: 'building', snapshot: null, error: null } };
+      return {
+        ...state,
+        graph: { status: 'building', snapshot: null, diagnosticCodes: [], error: null },
+      };
     case 'graph/terminal':
       return {
         ...state,
-        graph: { status: action.status, snapshot: action.snapshot, error: null },
+        graph: {
+          status: action.status,
+          snapshot: action.snapshot,
+          diagnosticCodes: action.diagnosticCodes,
+          error: null,
+        },
         selection: {
           ...state.selection,
           positionKey: action.snapshot.rootKey,
@@ -92,7 +106,10 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         },
       };
     case 'graph/failed':
-      return { ...state, graph: { status: 'failed', snapshot: null, error: action.error } };
+      return {
+        ...state,
+        graph: { status: 'failed', snapshot: null, diagnosticCodes: [], error: action.error },
+      };
     case 'selection/game':
       return {
         ...state,
@@ -163,12 +180,50 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
       return { ...state, analysis: { ...state.analysis, status: 'failed', error: action.error } };
     case 'preferences/changed':
       return { ...state, preferences: { ...state.preferences, ...action.preferences } };
-    case 'data/userDeleted':
-      return state.query.active?.username === action.username.toLowerCase()
-        ? resetLoadedData(state)
-        : state;
+    case 'operations/invalidated':
+      return {
+        ...state,
+        query: { ...state.query, token: action.token },
+        ingestion:
+          state.ingestion.status === 'loading'
+            ? { ...state.ingestion, status: 'cancelled' }
+            : state.ingestion,
+        graph: state.graph.status === 'building' ? idleGraph : state.graph,
+        analysis:
+          state.analysis.status === 'running'
+            ? { ...state.analysis, status: 'cancelled' }
+            : state.analysis,
+      };
+    case 'data/deletionStarted':
+      return {
+        ...state,
+        dataMaintenance: {
+          status: action.kind === 'user' ? 'deleting-user' : 'clearing-all',
+          error: null,
+        },
+      };
+    case 'data/deletionFailed':
+      return {
+        ...state,
+        dataMaintenance: { status: 'idle', error: action.error },
+      };
+    case 'data/userDeleted': {
+      const matchesActiveUser = state.query.active?.username === action.username.toLowerCase();
+      if (
+        !matchesActiveUser &&
+        state.dataMaintenance.status === 'idle' &&
+        state.dataMaintenance.error === null
+      ) {
+        return state;
+      }
+      const next = matchesActiveUser ? resetLoadedData(state) : state;
+      return { ...next, dataMaintenance: { status: 'idle', error: null } };
+    }
     case 'data/allCleared':
-      return resetLoadedData(state);
+      return {
+        ...resetLoadedData(state),
+        dataMaintenance: { status: 'idle', error: null },
+      };
   }
 }
 
@@ -178,6 +233,7 @@ function resetLoadedData(state: WorkspaceState): WorkspaceState {
     query: { ...state.query, active: null },
     ingestion: { status: 'idle', progress: null, result: null, error: null },
     graph: idleGraph,
+    dataMaintenance: state.dataMaintenance,
     selection: emptySelection,
     analysis: idleAnalysis,
   };

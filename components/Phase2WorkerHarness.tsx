@@ -18,6 +18,8 @@ const WORKER_FIXTURE_GAMES: readonly NormalizedGameSummary[] = Array.from(
     rated: true,
     userRating: 1500,
     opponentRating: 1600,
+    whitePlayer: { username: 'fixture', rating: 1500 },
+    blackPlayer: { username: 'opponent', rating: 1600 },
     rules: 'chess',
     pgn: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 1-0',
   })
@@ -25,6 +27,7 @@ const WORKER_FIXTURE_GAMES: readonly NormalizedGameSummary[] = Array.from(
 
 export function Phase2WorkerHarness() {
   const client = useRef<GraphWorkerClient | null>(null);
+  const [ready, setReady] = useState(false);
   const [status, setStatus] = useState('idle');
   const [mainThreadHeartbeat, setMainThreadHeartbeat] = useState(false);
 
@@ -32,7 +35,11 @@ export function Phase2WorkerHarness() {
     const worker = new Worker(new URL('../workers/analysis-data.worker.ts', import.meta.url));
     const graphClient = new GraphWorkerClient(worker);
     client.current = graphClient;
-    return () => graphClient.dispose();
+    setReady(true);
+    return () => {
+      client.current = null;
+      graphClient.dispose();
+    };
   }, []);
 
   async function buildGraph(): Promise<void> {
@@ -60,7 +67,9 @@ export function Phase2WorkerHarness() {
       <h1>Phase 2 Worker Test Harness</h1>
       <output data-testid="graph-worker-status">{status}</output>
       <output data-testid="main-thread-heartbeat">{String(mainThreadHeartbeat)}</output>
-      <button onClick={() => void buildGraph()}>Build 1,000 games in worker</button>
+      <button disabled={!ready} onClick={() => void buildGraph()}>
+        Build 1,000 games in worker
+      </button>
     </main>
   );
 }

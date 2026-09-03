@@ -1,17 +1,18 @@
 import type { NormalizedGameSummary } from '../../lib/api/contracts';
 import type { SerializedOpeningGraph } from '../../lib/chess/graph/serialization';
 import type { GraphBuildOptions } from '../../lib/chess/graph/types';
-import {
-  PROTOCOL_VERSION,
-  type SnapshotPersistenceNotice,
-  type WorkerResponse,
-} from '../../workers/protocol';
+import { PROTOCOL_VERSION, type WorkerResponse } from '../../workers/protocol';
 
 export type GraphBuildWorkerResult =
   | {
       status: 'complete';
       snapshot: SerializedOpeningGraph;
-      persistenceNotice?: SnapshotPersistenceNotice;
+    }
+  | {
+      status: 'partial';
+      snapshot: SerializedOpeningGraph;
+      excludedGameCount: number;
+      diagnosticCodes: readonly string[];
     }
   | {
       status: 'limited';
@@ -19,7 +20,8 @@ export type GraphBuildWorkerResult =
       reachedLimit: string;
       includedGameCount: number;
       remainingGameCount: number;
-      persistenceNotice?: SnapshotPersistenceNotice;
+      excludedGameCount: number;
+      diagnosticCodes: readonly string[];
     };
 
 export class GraphWorkerClient {
@@ -101,7 +103,13 @@ export class GraphWorkerClient {
       this.finish({
         status: 'complete',
         snapshot: response.snapshot,
-        ...(response.persistenceNotice ? { persistenceNotice: response.persistenceNotice } : {}),
+      });
+    if (response.type === 'PARTIAL')
+      this.finish({
+        status: 'partial',
+        snapshot: response.snapshot,
+        excludedGameCount: response.excludedGameCount,
+        diagnosticCodes: response.diagnosticCodes,
       });
     if (response.type === 'LIMITED')
       this.finish({
@@ -110,7 +118,8 @@ export class GraphWorkerClient {
         reachedLimit: response.reachedLimit,
         includedGameCount: response.includedGameCount,
         remainingGameCount: response.remainingGameCount,
-        ...(response.persistenceNotice ? { persistenceNotice: response.persistenceNotice } : {}),
+        excludedGameCount: response.excludedGameCount,
+        diagnosticCodes: response.diagnosticCodes,
       });
     if (response.type === 'CANCELLED') this.fail(new Error('GRAPH_BUILD_CANCELLED'));
     if (response.type === 'FAILED') this.fail(new Error(`${response.code}: ${response.message}`));

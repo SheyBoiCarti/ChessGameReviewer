@@ -7,7 +7,9 @@ test('builds a graph in the browser worker without console errors', async ({ pag
     if (message.type() === 'error') errors.push(message.text());
   });
   await page.goto('/phase-2-test-harness');
-  await page.getByRole('button', { name: 'Build 1,000 games in worker' }).click();
+  const buildButton = page.getByRole('button', { name: 'Build 1,000 games in worker' });
+  await expect(buildButton).toBeEnabled();
+  await buildButton.click();
   await expect(page.getByTestId('graph-worker-status')).toHaveText('complete', {
     timeout: 30_000,
   });

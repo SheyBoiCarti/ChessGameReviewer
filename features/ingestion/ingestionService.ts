@@ -2,6 +2,7 @@ import type {
   Diagnostic,
   GameQuery,
   PlayerColor,
+  PlayerMetadata,
   TimeClass,
   UpstreamError,
   UpstreamErrorCode,
@@ -10,6 +11,11 @@ import type { RawChesscomGame } from '../../lib/api/chesscomSchemas';
 import { PubApiError, createAbortError, throwIfAborted } from '../../lib/api/errors';
 import { determineUserOutcome } from '../../lib/chess/results';
 import { NORMALIZER_VERSION, type ArchiveSyncRecord, type GameRecord } from '../../lib/db/schema';
+import {
+  QuotaExceededError,
+  SchemaVersionError,
+  StorageUnavailableError,
+} from '../../lib/db/errors';
 import { validateGameQuery } from '../../lib/validation/gameQuery';
 import { fingerprintQuery, parseArchiveMonth, planArchiveMonths } from './archivePlanner';
 import { executeWithRetry, type RetryOptions } from './retryPolicy';
@@ -89,6 +95,27 @@ export function isOfflineError(error: unknown): boolean {
 }
 
 function safeDiagnostic(error: unknown): Diagnostic {
+  if (error instanceof SchemaVersionError) {
+    return {
+      code: 'LOCAL_STORAGE_INCOMPATIBLE',
+      message: 'Local storage was created by a newer app version. Clear local data and try again.',
+      severity: 'error',
+    };
+  }
+  if (error instanceof StorageUnavailableError) {
+    return {
+      code: 'LOCAL_STORAGE_UNAVAILABLE',
+      message: 'Local storage is unavailable. Check your browser settings and try again.',
+      severity: 'error',
+    };
+  }
+  if (error instanceof QuotaExceededError) {
+    return {
+      code: 'LOCAL_STORAGE_QUOTA',
+      message: 'Local storage is full. Clear some local data and try again.',
+      severity: 'error',
+    };
+  }
   if (isPubApiError(error)) {
     return { code: error.code, message: error.message, severity: 'error' };
   }
@@ -187,8 +214,36 @@ function normalizeRawGame(raw: RawChesscomGame, username: string): Normalization
   });
   if (!outcome.success) return outcome;
 
-  const user = userColor === 'white' ? raw.white : raw.black;
-  const opponent = userColor === 'white' ? raw.black : raw.white;
+  const whitePlayerUsername =
+    raw.white.username !== undefined && raw.white.username.trim().length > 0
+      ? raw.white.username.trim()
+      : null;
+  const whitePlayerRating =
+    raw.white.rating !== undefined && Number.isFinite(raw.white.rating) && raw.white.rating > 0
+      ? raw.white.rating
+      : null;
+
+  const blackPlayerUsername =
+    raw.black.username !== undefined && raw.black.username.trim().length > 0
+      ? raw.black.username.trim()
+      : null;
+  const blackPlayerRating =
+    raw.black.rating !== undefined && Number.isFinite(raw.black.rating) && raw.black.rating > 0
+      ? raw.black.rating
+      : null;
+
+  const whitePlayer: PlayerMetadata = {
+    username: whitePlayerUsername,
+    rating: whitePlayerRating,
+  };
+  const blackPlayer: PlayerMetadata = {
+    username: blackPlayerUsername,
+    rating: blackPlayerRating,
+  };
+
+  const userRating = userColor === 'white' ? whitePlayer.rating : blackPlayer.rating;
+  const opponentRating = userColor === 'white' ? blackPlayer.rating : whitePlayer.rating;
+
   return {
     success: true,
     game: {
@@ -202,8 +257,10 @@ function normalizeRawGame(raw: RawChesscomGame, username: string): Normalization
       timeClass: raw.time_class as TimeClass,
       ...(raw.time_control ? { timeControl: raw.time_control } : {}),
       rated: raw.rated ?? false,
-      userRating: user.rating ?? null,
-      opponentRating: opponent.rating ?? null,
+      userRating,
+      opponentRating,
+      whitePlayer,
+      blackPlayer,
       ...(raw.accuracies ? { accuracies: raw.accuracies } : {}),
       pgn: raw.pgn ?? '',
       rules: 'chess',
@@ -297,6 +354,7 @@ async function executeIngestion(
   let recordsFetched = 0;
   let recordsExcluded = 0;
   let recordsFailed = 0;
+  let offlineCacheOnly = false;
   const emit = (
     phase: IngestionProgress['phase'],
     details: Pick<IngestionProgress, 'currentMonth' | 'source' | 'retry'> = {}
@@ -317,145 +375,181 @@ async function executeIngestion(
       diagnostics: diagnostics.map((diagnostic) => ({ ...diagnostic })),
     });
   };
-
-  emit('planning');
-  const syncs = await runtime.deps.readArchiveSyncs(query.username);
-  const syncByMonth = new Map(syncs.map((sync) => [sync.month, sync]));
-  const planning = await resolveArchiveMonths(query, runtime, syncs);
-  monthsPlanned = planning.months.length;
-  emit('loading-cache');
-
-  if (planning.offlineCacheOnly) {
-    diagnostics.push({
-      code: 'OFFLINE_STALE_CACHE',
-      message: 'Showing cached games because the network is unavailable.',
-      severity: 'warning',
-    });
-  }
-
-  for (const month of planning.months) {
+  const validateGames = async (monthGames: readonly GameRecord[]): Promise<GameRecord[]> => {
+    const validation = await runtime.deps.validatePgns(monthGames, { signal: runtime.signal });
     throwIfAborted(runtime.signal);
-    const sync = syncByMonth.get(month);
-    if (!runtime.manualRefresh && sync && isSyncFresh(sync, runtime.now())) {
-      const cachedGames = await runtime.deps.readMonthGames(query.username, month);
-      recordsFetched += cachedGames.length;
-      for (const game of cachedGames) {
-        if (matchesQuery(game, query) && !seen.has(game.id)) {
-          seen.add(game.id);
-          games.push(game);
-          if (games.length === query.maxGames) break;
-        } else {
-          recordsExcluded += 1;
-        }
-      }
-      monthsCompleted += 1;
-      emit('filtering', { currentMonth: month, source: 'indexeddb' });
-      if (games.length === query.maxGames) break;
-      continue;
-    }
+    const validIds = new Set(validation.validGameIds);
+    recordsExcluded += validation.totalInvalid;
+    recordsFailed += validation.totalInvalid;
+    for (const diagnostic of validation.diagnostics) appendDiagnostic(diagnostics, diagnostic);
+    return monthGames.filter(({ id }) => validIds.has(id));
+  };
+
+  try {
+    emit('planning');
+    const syncs = await runtime.deps.readArchiveSyncs(query.username);
+    const syncByMonth = new Map(syncs.map((sync) => [sync.month, sync]));
+    const planning = await resolveArchiveMonths(query, runtime, syncs);
+    offlineCacheOnly = planning.offlineCacheOnly;
+    monthsPlanned = planning.months.length;
+    emit('loading-cache');
+
     if (planning.offlineCacheOnly) {
-      const cachedGames = await runtime.deps.readMonthGames(query.username, month);
-      recordsFetched += cachedGames.length;
-      for (const game of cachedGames) {
-        if (matchesQuery(game, query) && !seen.has(game.id)) {
-          seen.add(game.id);
-          games.push(game);
-          if (games.length === query.maxGames) break;
-        } else {
-          recordsExcluded += 1;
-        }
-      }
-      monthsCompleted += 1;
-      emit('filtering', { currentMonth: month, source: 'indexeddb' });
-      if (games.length === query.maxGames) break;
-      continue;
+      diagnostics.push({
+        code: 'OFFLINE_STALE_CACHE',
+        message: 'Showing cached games because the network is unavailable.',
+        severity: 'warning',
+      });
     }
 
-    let attempts = 0;
-    try {
-      const [year, monthNumber] = month.split('-') as [string, string];
-      emit('fetching', { currentMonth: month, source: 'browser-fetch' });
-      const rawGames = await executeWithRetry(
-        (attempt) => {
-          attempts = attempt;
-          return runtime.deps.fetchMonthlyGames(query.username, year, monthNumber, {
-            signal: runtime.signal,
-          });
-        },
-        {
-          ...runtime.retry,
-          onRetry: (retry) =>
-            emit('fetching', {
-              currentMonth: month,
-              source: 'browser-fetch',
-              retry,
-            }),
-        }
-      );
+    for (const month of planning.months) {
       throwIfAborted(runtime.signal);
-      recordsFetched += rawGames.length;
-      const normalizedMonthGames: GameRecord[] = [];
-      for (const raw of rawGames) {
-        const normalized = normalizeRawGame(raw, query.username);
-        if (!normalized.success) {
-          appendDiagnostic(diagnostics, normalized.diagnostic);
-          recordsExcluded += 1;
-          recordsFailed += 1;
-          continue;
-        }
-        normalizedMonthGames.push(normalized.game);
-        if (matchesQuery(normalized.game, query) && !seen.has(normalized.game.id)) {
-          seen.add(normalized.game.id);
-          if (games.length < query.maxGames) {
-            games.push(normalized.game);
+      const sync = syncByMonth.get(month);
+      if (!runtime.manualRefresh && sync && isSyncFresh(sync, runtime.now())) {
+        const cachedGames = await runtime.deps.readMonthGames(query.username, month);
+        recordsFetched += cachedGames.length;
+        const validCachedGames = await validateGames(cachedGames);
+        for (const game of validCachedGames) {
+          if (matchesQuery(game, query) && !seen.has(game.id)) {
+            seen.add(game.id);
+            games.push(game);
+            if (games.length === query.maxGames) break;
           } else {
             recordsExcluded += 1;
           }
-        } else {
-          recordsExcluded += 1;
         }
+        monthsCompleted += 1;
+        emit('filtering', { currentMonth: month, source: 'indexeddb' });
+        if (games.length === query.maxGames) break;
+        continue;
       }
-      await runtime.deps.persistMonth(
-        normalizedMonthGames,
-        {
-          key: `${query.username}:${month}`,
-          username: query.username,
-          month,
-          lastSuccessfulFetchAt: runtime.now(),
-          status: 'success',
-          observedGameIds: normalizedMonthGames.map((game) => game.id),
-          observedGameCount: normalizedMonthGames.length,
-          normalizerVersion: NORMALIZER_VERSION,
-        },
-        runtime.signal
-      );
-      monthsCompleted += 1;
-      emit('filtering', { currentMonth: month, source: 'browser-fetch' });
-    } catch (error) {
-      if (isPubApiError(error, 'ABORTED') || runtime.signal.aborted) throw error;
-      const upstreamError = toUpstreamError(error);
-      failedMonths.push({
-        month,
-        error: upstreamError,
-        retryable: upstreamError.retryable,
-        attempts: Math.max(attempts, 1),
-      });
-      appendDiagnostic(diagnostics, safeDiagnostic(error));
-      continue;
-    }
-    if (games.length === query.maxGames) break;
-  }
+      if (planning.offlineCacheOnly) {
+        const cachedGames = await runtime.deps.readMonthGames(query.username, month);
+        recordsFetched += cachedGames.length;
+        const validCachedGames = await validateGames(cachedGames);
+        for (const game of validCachedGames) {
+          if (matchesQuery(game, query) && !seen.has(game.id)) {
+            seen.add(game.id);
+            games.push(game);
+            if (games.length === query.maxGames) break;
+          } else {
+            recordsExcluded += 1;
+          }
+        }
+        monthsCompleted += 1;
+        emit('filtering', { currentMonth: month, source: 'indexeddb' });
+        if (games.length === query.maxGames) break;
+        continue;
+      }
 
-  const status = failedMonths.length > 0 ? (games.length > 0 ? 'partial' : 'failed') : 'complete';
-  return terminal(
-    runtime,
-    fingerprint,
-    status,
-    games,
-    failedMonths,
-    diagnostics,
-    planning.offlineCacheOnly
-  );
+      let attempts = 0;
+      try {
+        const [year, monthNumber] = month.split('-') as [string, string];
+        emit('fetching', { currentMonth: month, source: 'browser-fetch' });
+        const rawGames = await executeWithRetry(
+          (attempt) => {
+            attempts = attempt;
+            return runtime.deps.fetchMonthlyGames(query.username, year, monthNumber, {
+              signal: runtime.signal,
+            });
+          },
+          {
+            ...runtime.retry,
+            onRetry: (retry) =>
+              emit('fetching', {
+                currentMonth: month,
+                source: 'browser-fetch',
+                retry,
+              }),
+          }
+        );
+        throwIfAborted(runtime.signal);
+        recordsFetched += rawGames.length;
+        const normalizedMonthGames: GameRecord[] = [];
+        for (const raw of rawGames) {
+          const normalized = normalizeRawGame(raw, query.username);
+          if (!normalized.success) {
+            appendDiagnostic(diagnostics, normalized.diagnostic);
+            recordsExcluded += 1;
+            recordsFailed += 1;
+            continue;
+          }
+          normalizedMonthGames.push(normalized.game);
+        }
+        const validMonthGames = await validateGames(normalizedMonthGames);
+        const stagedMatches: GameRecord[] = [];
+        const stagedIds = new Set<string>();
+        for (const game of validMonthGames) {
+          if (matchesQuery(game, query) && !seen.has(game.id) && !stagedIds.has(game.id)) {
+            if (games.length + stagedMatches.length < query.maxGames) {
+              stagedIds.add(game.id);
+              stagedMatches.push(game);
+            } else {
+              recordsExcluded += 1;
+            }
+          } else {
+            recordsExcluded += 1;
+          }
+        }
+        await runtime.deps.persistMonth(
+          validMonthGames,
+          {
+            key: `${query.username}:${month}`,
+            username: query.username,
+            month,
+            lastSuccessfulFetchAt: runtime.now(),
+            status: 'success',
+            observedGameIds: validMonthGames.map((game) => game.id),
+            observedGameCount: validMonthGames.length,
+            normalizerVersion: NORMALIZER_VERSION,
+          },
+          runtime.signal
+        );
+        for (const game of stagedMatches) {
+          seen.add(game.id);
+          games.push(game);
+        }
+        monthsCompleted += 1;
+        emit('filtering', { currentMonth: month, source: 'browser-fetch' });
+      } catch (error) {
+        if (isPubApiError(error, 'ABORTED') || runtime.signal.aborted) throw error;
+        const upstreamError = toUpstreamError(error);
+        failedMonths.push({
+          month,
+          error: upstreamError,
+          retryable: upstreamError.retryable,
+          attempts: Math.max(attempts, 1),
+        });
+        appendDiagnostic(diagnostics, safeDiagnostic(error));
+        continue;
+      }
+      if (games.length === query.maxGames) break;
+    }
+
+    const status = failedMonths.length > 0 ? (games.length > 0 ? 'partial' : 'failed') : 'complete';
+    return terminal(
+      runtime,
+      fingerprint,
+      status,
+      games,
+      failedMonths,
+      diagnostics,
+      offlineCacheOnly
+    );
+  } catch (error) {
+    if (isPubApiError(error, 'ABORTED') || runtime.signal.aborted) {
+      return terminal(
+        runtime,
+        fingerprint,
+        'cancelled',
+        games,
+        failedMonths,
+        diagnostics,
+        offlineCacheOnly
+      );
+    }
+    throw error;
+  }
 }
 
 export async function runIngestion(

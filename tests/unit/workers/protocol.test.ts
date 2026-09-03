@@ -31,4 +31,23 @@ describe('analysis worker protocol validation', () => {
       isWorkerRequest({ protocolVersion: PROTOCOL_VERSION, jobId: '', type: 'CANCEL_JOB' })
     ).toBe(false);
   });
+
+  it('accepts a versioned VALIDATE_PGNS request and rejects a non-array games payload', () => {
+    expect(
+      isWorkerRequest({
+        protocolVersion: PROTOCOL_VERSION,
+        jobId: 'validation-job',
+        type: 'VALIDATE_PGNS',
+        games: [],
+      })
+    ).toBe(true);
+    expect(
+      isWorkerRequest({
+        protocolVersion: PROTOCOL_VERSION,
+        jobId: 'validation-job',
+        type: 'VALIDATE_PGNS',
+        games: {},
+      })
+    ).toBe(false);
+  });
 });

@@ -2,11 +2,15 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   openDatabase,
   closeDatabase,
+  initializeDatabaseMetadata,
   QuotaExceededError,
+  SchemaVersionError,
   StorageUnavailableError,
   wrapIDBError,
 } from '../../../lib/db/openDatabase';
-import { DB_NAME, STORES } from '../../../lib/db/schema';
+import { DB_NAME, STORES, SCHEMA_VERSION } from '../../../lib/db/schema';
+import { NORMALIZER_VERSION } from '../../../lib/db/schema';
+import { getMeta, setMeta } from '../../../lib/db/repositories';
 
 describe('openDatabase', () => {
   beforeEach(() => {
@@ -17,7 +21,7 @@ describe('openDatabase', () => {
   it('opens IndexedDB database and initializes all current object stores and indexes', async () => {
     const db = await openDatabase();
     expect(db.name).toBe(DB_NAME);
-    expect(db.version).toBe(2);
+    expect(db.version).toBe(SCHEMA_VERSION);
 
     const storeNames = Array.from(db.objectStoreNames);
     expect(storeNames).toContain(STORES.ARCHIVE_SYNC);
@@ -81,6 +85,29 @@ describe('openDatabase', () => {
     expect(wrapIDBError({ name: 'SecurityError' })).toBeInstanceOf(StorageUnavailableError);
     expect(wrapIDBError({})).toBeInstanceOf(StorageUnavailableError);
     expect(wrapIDBError('failure')).toBeInstanceOf(StorageUnavailableError);
+  });
+
+  it('initializes current schema and normalizer metadata after a compatible open', async () => {
+    const db = await openDatabase();
+
+    await initializeDatabaseMetadata(db);
+
+    await expect(getMeta(db, 'schemaVersion')).resolves.toMatchObject({ value: SCHEMA_VERSION });
+    await expect(getMeta(db, 'normalizerVersion')).resolves.toMatchObject({
+      value: NORMALIZER_VERSION,
+    });
+    closeDatabase(db);
+  });
+
+  it('rejects a newer stored schema without overwriting its metadata', async () => {
+    const db = await openDatabase();
+    await setMeta(db, 'schemaVersion', SCHEMA_VERSION + 1);
+
+    await expect(initializeDatabaseMetadata(db)).rejects.toBeInstanceOf(SchemaVersionError);
+    await expect(getMeta(db, 'schemaVersion')).resolves.toMatchObject({
+      value: SCHEMA_VERSION + 1,
+    });
+    closeDatabase(db);
   });
 
   it('ignores close errors during cleanup', () => {

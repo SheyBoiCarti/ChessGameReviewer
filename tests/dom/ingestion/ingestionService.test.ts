@@ -15,6 +15,8 @@ import {
   IngestionManager,
   runIngestion,
 } from '../../../features/ingestion/ingestionService';
+import { NORMALIZER_VERSION } from '../../../lib/db/schema';
+import { SchemaVersionError, StorageUnavailableError } from '../../../lib/db/openDatabase';
 import {
   makeArchiveSync,
   makeGameRecord,
@@ -33,6 +35,12 @@ function fakeDependencies(overrides: Partial<IngestionDependencies> = {}): Inges
     writeArchiveList: vi.fn().mockResolvedValue(undefined),
     readArchiveSyncs: vi.fn().mockResolvedValue([]),
     readMonthGames: vi.fn().mockResolvedValue([]),
+    validatePgns: vi.fn(async (games: readonly { id: string }[]) => ({
+      validGameIds: games.map(({ id }) => id),
+      diagnostics: [],
+      totalInvalid: 0,
+      diagnosticCodes: [],
+    })),
     persistMonth: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
@@ -101,7 +109,7 @@ describe('runIngestion', () => {
       }),
       readArchiveSyncs: vi.fn().mockResolvedValue([
         makeArchiveSync({
-          normalizerVersion: 1,
+          normalizerVersion: 4,
         }),
       ]),
       readMonthGames: vi.fn().mockResolvedValue([cachedGame]),
@@ -122,9 +130,93 @@ describe('runIngestion', () => {
     expect(deps.fetchMonthlyGames).toHaveBeenCalledTimes(1);
     expect(persistMonth).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ id: 'recovered-game', result: 'draw' })]),
-      expect.objectContaining({ normalizerVersion: 3 }),
+      expect.objectContaining({ normalizerVersion: NORMALIZER_VERSION }),
       expect.anything()
     );
+    expect(NORMALIZER_VERSION).toBe(5);
+  });
+
+  it('validates fetched PGNs before persistence, counting, and the max-games cutoff', async () => {
+    const persistMonth = vi.fn().mockResolvedValue(undefined);
+    const validatePgns = vi.fn(async (games: readonly { id: string }[]) => {
+      const invalid = games.filter(({ id }) => id === 'bad-pgn');
+      return {
+        validGameIds: games.filter(({ id }) => id !== 'bad-pgn').map(({ id }) => id),
+        diagnostics: invalid.map(({ id }) => ({
+          code: 'ILLEGAL_PGN',
+          message: 'The PGN is illegal.',
+          severity: 'error' as const,
+          gameId: id,
+        })),
+        totalInvalid: invalid.length,
+        diagnosticCodes: invalid.length > 0 ? ['ILLEGAL_PGN'] : [],
+      };
+    });
+    const fetchMonthlyGames = vi
+      .fn()
+      .mockResolvedValueOnce([
+        makeRawGame({ uuid: 'bad-pgn', pgn: '1. e4 NotAMove' }),
+        makeRawGame({ uuid: 'valid-new' }),
+      ])
+      .mockResolvedValueOnce([makeRawGame({ uuid: 'valid-old' })]);
+    const deps = fakeDependencies({
+      fetchArchives: vi
+        .fn()
+        .mockResolvedValue([
+          'https://api.chess.com/pub/player/janedoe/games/2026/08',
+          'https://api.chess.com/pub/player/janedoe/games/2026/07',
+        ]),
+      fetchMonthlyGames,
+      validatePgns: validatePgns as IngestionDependencies['validatePgns'],
+      persistMonth,
+    });
+
+    const result = await runIngestion(makeQuery({ maxGames: 2 }), { deps, now: () => NOW });
+
+    expect(result.games.map(({ id }) => id)).toEqual(['valid-new', 'valid-old']);
+    expect(fetchMonthlyGames).toHaveBeenCalledTimes(2);
+    expect(persistMonth).toHaveBeenCalledTimes(2);
+    for (const [persistedGames, marker] of persistMonth.mock.calls) {
+      expect(persistedGames).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: 'bad-pgn' })])
+      );
+      expect(marker.observedGameIds).not.toContain('bad-pgn');
+    }
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'ILLEGAL_PGN', gameId: 'bad-pgn' })
+    );
+  });
+
+  it('validates cached PGNs before accepting them', async () => {
+    const valid = makeGameRecord({ id: 'valid-cache' });
+    const invalid = makeGameRecord({ id: 'bad-cache', pgn: '1. e4 NotAMove' });
+    const deps = fakeDependencies({
+      readArchiveList: vi.fn().mockResolvedValue({
+        username: 'janedoe',
+        months: ['2026-08'],
+        fetchedAt: NOW - 60_000,
+      }),
+      readArchiveSyncs: vi.fn().mockResolvedValue([makeArchiveSync()]),
+      readMonthGames: vi.fn().mockResolvedValue([invalid, valid]),
+      validatePgns: vi.fn().mockResolvedValue({
+        validGameIds: ['valid-cache'],
+        diagnostics: [
+          {
+            code: 'ILLEGAL_PGN',
+            message: 'The cached PGN is illegal.',
+            severity: 'error',
+            gameId: 'bad-cache',
+          },
+        ],
+        totalInvalid: 1,
+        diagnosticCodes: ['ILLEGAL_PGN'],
+      }),
+    });
+
+    const result = await runIngestion(makeQuery(), { deps, now: () => NOW });
+
+    expect(result.games).toEqual([valid]);
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ gameId: 'bad-cache' }));
   });
 
   it('normalizes timevsinsufficient as draw for both white and black players', async () => {
@@ -430,7 +522,7 @@ describe('runIngestion', () => {
     });
   });
 
-  it('keeps accepted games when persistence fails with an untyped storage error', async () => {
+  it('does not publish staged games when persistence fails with an untyped storage error', async () => {
     const deps = fakeDependencies({
       fetchMonthlyGames: vi.fn().mockResolvedValue([makeRawGame()]),
       persistMonth: vi.fn().mockRejectedValue(new Error('quota details')),
@@ -439,8 +531,8 @@ describe('runIngestion', () => {
     const result = await runIngestion(makeQuery(), { deps, now: () => NOW });
 
     expect(result).toMatchObject({
-      status: 'partial',
-      games: [expect.objectContaining({ id: 'game-100' })],
+      status: 'failed',
+      games: [],
     });
     expect(result.failedMonths).toHaveLength(1);
     expect(result.failedMonths[0]).toMatchObject({
@@ -451,6 +543,21 @@ describe('runIngestion', () => {
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({ code: 'INGESTION_FAILED' })
     );
+  });
+
+  it.each([
+    [new SchemaVersionError('private schema name'), 'LOCAL_STORAGE_INCOMPATIBLE'],
+    [new StorageUnavailableError('private browser detail'), 'LOCAL_STORAGE_UNAVAILABLE'],
+  ])('reports a safe diagnostic for typed local storage failures', async (error, code) => {
+    const deps = fakeDependencies({
+      fetchMonthlyGames: vi.fn().mockResolvedValue([makeRawGame()]),
+      persistMonth: vi.fn().mockRejectedValue(error),
+    });
+
+    const result = await runIngestion(makeQuery(), { deps, now: () => NOW });
+
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ code, severity: 'error' }));
+    expect(JSON.stringify(result.diagnostics)).not.toContain('private');
   });
 
   it('returns one cancelled result during archive fetch and emits no late progress', async () => {
@@ -472,6 +579,79 @@ describe('runIngestion', () => {
     const progressCountAtTerminal = progress.length;
     await Promise.resolve();
     expect(progress).toHaveLength(progressCountAtTerminal);
+  });
+
+  it('retains a completed cached month when cancellation interrupts the next month', async () => {
+    const controller = new AbortController();
+    const progress: IngestionProgress[] = [];
+    const cachedGame = makeGameRecord({ id: 'completed-month-game' });
+    let validationCall = 0;
+    const deps = fakeDependencies({
+      readArchiveList: vi.fn().mockResolvedValue({
+        username: 'janedoe',
+        months: ['2026-08', '2026-07'],
+        fetchedAt: NOW - 60_000,
+      }),
+      readArchiveSyncs: vi
+        .fn()
+        .mockResolvedValue([makeArchiveSync({ month: '2026-08', key: 'janedoe:2026-08' })]),
+      readMonthGames: vi.fn().mockResolvedValue([cachedGame]),
+      fetchMonthlyGames: vi.fn().mockResolvedValue([makeRawGame({ uuid: 'incomplete-game' })]),
+      validatePgns: vi.fn(
+        (games: readonly { id: string }[], { signal }: { signal: AbortSignal }) => {
+          validationCall += 1;
+          if (validationCall === 2) return rejectWhenAborted(signal);
+          return Promise.resolve({
+            validGameIds: games.map(({ id }) => id),
+            diagnostics: [],
+            totalInvalid: 0,
+            diagnosticCodes: [],
+          });
+        }
+      ),
+    });
+    const pending = runIngestion(makeQuery({ maxGames: 10 }), {
+      deps,
+      signal: controller.signal,
+      now: () => NOW,
+      onProgress: (event) => progress.push(event),
+    });
+    await vi.waitFor(() => expect(validationCall).toBe(2));
+
+    controller.abort();
+    const result = await pending;
+
+    expect(result).toMatchObject({
+      status: 'cancelled',
+      games: [expect.objectContaining({ id: 'completed-month-game' })],
+      failedMonths: [],
+    });
+    expect(result.games.some(({ id }) => id === 'incomplete-game')).toBe(false);
+    expect(progress.at(-1)?.recordsAccepted).toBe(1);
+  });
+
+  it('does not publish a network month before its persistence commit', async () => {
+    const commit = deferred<void>();
+    const progress: IngestionProgress[] = [];
+    const persistMonth = vi.fn(() => commit.promise);
+    const pending = runIngestion(makeQuery(), {
+      deps: fakeDependencies({
+        fetchMonthlyGames: vi.fn().mockResolvedValue([makeRawGame({ uuid: 'staged-game' })]),
+        persistMonth,
+      }),
+      now: () => NOW,
+      onProgress: (event) => progress.push(event),
+    });
+    await vi.waitFor(() => expect(persistMonth).toHaveBeenCalledTimes(1));
+
+    expect(progress.every(({ recordsAccepted }) => recordsAccepted === 0)).toBe(true);
+    commit.resolve(undefined);
+
+    await expect(pending).resolves.toMatchObject({
+      status: 'complete',
+      games: [expect.objectContaining({ id: 'staged-game' })],
+    });
+    expect(progress.at(-1)?.recordsAccepted).toBe(1);
   });
 
   it('cancels during a retry wait without starting another attempt', async () => {
@@ -585,6 +765,62 @@ describe('runIngestion', () => {
         retry: { attempt: 2, delayMs: 500 },
       })
     );
+  });
+
+  it('normalizes explicit White and Black player metadata with display casing and derived ratings', async () => {
+    const rawGame = makeRawGame({
+      white: { username: 'HikaruNakamura', rating: 2875, result: 'win' },
+      black: { username: 'janedoe', rating: 1520, result: 'checkmated' },
+    });
+    const persistMonth = vi.fn().mockResolvedValue(undefined);
+    const deps = fakeDependencies({
+      readArchiveList: vi.fn().mockResolvedValue(null),
+      fetchArchives: vi
+        .fn()
+        .mockResolvedValue(['https://api.chess.com/pub/player/janedoe/games/2026/08']),
+      fetchMonthlyGames: vi.fn().mockResolvedValue([rawGame]),
+      persistMonth,
+    });
+
+    const result = await runIngestion(makeQuery({ username: 'janedoe' }), {
+      deps,
+      now: () => NOW,
+    });
+
+    expect(result.status).toBe('complete');
+    expect(result.games).toHaveLength(1);
+    const game = result.games[0]!;
+    expect(game.username).toBe('janedoe');
+    expect(game.userColor).toBe('black');
+    expect(game.whitePlayer).toEqual({ username: 'HikaruNakamura', rating: 2875 });
+    expect(game.blackPlayer).toEqual({ username: 'janedoe', rating: 1520 });
+    expect(game.userRating).toBe(1520);
+    expect(game.opponentRating).toBe(2875);
+  });
+
+  it('handles missing or non-numeric player metadata by normalizing to null', async () => {
+    const rawGame = makeRawGame({
+      white: { username: '   ', result: 'agreed' },
+      black: { username: 'janedoe', rating: 1500, result: 'agreed' },
+    });
+    const deps = fakeDependencies({
+      readArchiveList: vi.fn().mockResolvedValue(null),
+      fetchArchives: vi
+        .fn()
+        .mockResolvedValue(['https://api.chess.com/pub/player/janedoe/games/2026/08']),
+      fetchMonthlyGames: vi.fn().mockResolvedValue([rawGame]),
+      persistMonth: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const result = await runIngestion(makeQuery({ username: 'janedoe' }), {
+      deps,
+      now: () => NOW,
+    });
+
+    expect(result.status).toBe('complete');
+    const game = result.games[0]!;
+    expect(game.whitePlayer).toEqual({ username: null, rating: null });
+    expect(game.blackPlayer).toEqual({ username: 'janedoe', rating: 1500 });
   });
 });
 

@@ -16,11 +16,15 @@ export function OpeningTreeTable({
   graph,
   navigation,
   perspective,
+  excludedGameCount = 0,
+  diagnosticCodes = [],
   onNavigate,
 }: {
   graph: OpeningGraphSnapshot;
   navigation: GraphNavigationState;
   perspective: OutcomePerspective;
+  excludedGameCount?: number;
+  diagnosticCodes?: readonly string[];
   onNavigate(value: GraphNavigationState): void;
 }) {
   const [sort, setSort] = useState<MoveSort>('games');
@@ -34,6 +38,12 @@ export function OpeningTreeTable({
   return (
     <section className="opening-tree surface-panel" aria-labelledby="opening-tree-heading">
       <h3 id="opening-tree-heading">Opening candidates</h3>
+      {excludedGameCount > 0 ? (
+        <p className="limited-notice" role="status">
+          {excludedGameCount} {excludedGameCount === 1 ? 'game was' : 'games were'} excluded while
+          building this opening graph. Categories: {diagnosticCodes.join(', ') || 'unknown'}.
+        </p>
+      ) : null}
       {graph.status === 'limited' ? (
         <p className="limited-notice" role="status">
           This graph reached the {limitName(graph.reachedLimit)} resource limit.{' '}

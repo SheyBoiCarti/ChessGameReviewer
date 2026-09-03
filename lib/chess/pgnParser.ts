@@ -1,8 +1,9 @@
 import { Chess } from 'chess.js';
 
-import type { Diagnostic, NormalizedGameSummary } from '../api/contracts';
+import type { Diagnostic, NormalizedGameSummary, PlayerMetadata } from '../api/contracts';
 import { sanitizeMessage } from '../api/errors';
 import { normalizePositionKey } from './fen';
+import { extractPgnPlayers } from './pgnHeaders';
 
 export interface MovePly {
   ply: number;
@@ -24,6 +25,8 @@ export interface ParsedGame {
   rated: boolean;
   userRating: number | null;
   opponentRating: number | null;
+  whitePlayer: PlayerMetadata;
+  blackPlayer: PlayerMetadata;
   accuracies?: NormalizedGameSummary['accuracies'];
   plies: readonly MovePly[];
   warnings: readonly Diagnostic[];
@@ -62,6 +65,16 @@ export function parseGamePgn({ game }: { game: NormalizedGameSummary }): ParseRe
       }
     }
 
+    const pgnFallback =
+      typeof game.pgn === 'string'
+        ? extractPgnPlayers(game.pgn)
+        : {
+            white: { username: null, rating: null },
+            black: { username: null, rating: null },
+          };
+    const whitePlayer: PlayerMetadata = game.whitePlayer ?? pgnFallback.white;
+    const blackPlayer: PlayerMetadata = game.blackPlayer ?? pgnFallback.black;
+
     return {
       ok: true,
       game: {
@@ -74,6 +87,8 @@ export function parseGamePgn({ game }: { game: NormalizedGameSummary }): ParseRe
         rated: game.rated,
         userRating: game.userRating,
         opponentRating: game.opponentRating,
+        whitePlayer,
+        blackPlayer,
         ...(game.accuracies ? { accuracies: game.accuracies } : {}),
         plies,
         warnings: [],

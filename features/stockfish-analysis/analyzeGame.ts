@@ -16,7 +16,12 @@ import {
 import type { EvaluationResult } from '@/lib/engine/stockfishAdapter';
 
 import { bookMoveKey, repertoireMoveKey } from './bookMoves';
-import { EvaluationCache, serializeEvaluationKey, type EvaluationKey } from './evaluationCache';
+import {
+  EvaluationCache,
+  serializeEvaluationKey,
+  type AnalysisWarning,
+  type EvaluationKey,
+} from './evaluationCache';
 
 export interface AnalysisEngine {
   evaluate(
@@ -78,6 +83,7 @@ export interface GameAnalysisResult {
   analyzedPlies: number;
   totalPlies: number;
   summary: GameAnalysisSummary;
+  warnings: readonly AnalysisWarning[];
   error?: string;
 }
 
@@ -106,11 +112,13 @@ export async function analyzeGame(input: AnalyzeGameInput): Promise<GameAnalysis
   const repertoireKeys = input.repertoireMoveKeys ?? input.bookMoveKeys;
 
   for (const ply of plies) {
-    if (input.signal?.aborted) return result('cancelled', annotations, plies.length);
+    if (input.signal?.aborted)
+      return result('cancelled', annotations, plies.length, input.cache.warnings());
     try {
       const mover = parseFenSideToMove(ply.fenBefore);
       const before = await getPositionEvaluation(ply.fenBefore, input, evaluations);
-      if (input.signal?.aborted) return result('cancelled', annotations, plies.length);
+      if (input.signal?.aborted)
+        return result('cancelled', annotations, plies.length, input.cache.warnings());
       const after = await getPositionEvaluation(ply.fenAfter, input, evaluations);
 
       const secondBestScore = before.candidates.find(
@@ -149,11 +157,16 @@ export async function analyzeGame(input: AnalyzeGameInput): Promise<GameAnalysis
     }
   }
 
-  if (!failure) return result('complete', annotations, plies.length);
+  if (!failure) return result('complete', annotations, plies.length, input.cache.warnings());
   if (isAbortError(failure) || input.signal?.aborted)
-    return result('cancelled', annotations, plies.length);
+    return result('cancelled', annotations, plies.length, input.cache.warnings());
   return {
-    ...result(annotations.length === 0 ? 'failed' : 'partial', annotations, plies.length),
+    ...result(
+      annotations.length === 0 ? 'failed' : 'partial',
+      annotations,
+      plies.length,
+      input.cache.warnings()
+    ),
     error: errorMessage(failure),
   };
 }
@@ -288,7 +301,8 @@ function selectAndValidatePlies(game: ParsedGame, requested: readonly number[] |
 function result(
   status: GameAnalysisStatus,
   annotations: readonly GameAnnotation[],
-  totalPlies: number
+  totalPlies: number,
+  warnings: readonly AnalysisWarning[]
 ): Omit<GameAnalysisResult, 'error'> {
   return {
     status,
@@ -296,6 +310,7 @@ function result(
     analyzedPlies: annotations.length,
     totalPlies,
     summary: summarize(annotations),
+    warnings,
   };
 }
 

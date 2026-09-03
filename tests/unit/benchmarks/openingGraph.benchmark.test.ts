@@ -6,7 +6,7 @@ import { OpeningGraphBuilder } from '@/lib/chess/graph/openingGraph';
 import { serializeOpeningGraph, serializedGraphByteSize } from '@/lib/chess/graph/serialization';
 import { parseGamePgn } from '@/lib/chess/pgnParser';
 import type { NormalizedGameSummary } from '@/lib/api/contracts';
-import { handleRequest } from '@/workers/analysis-data.worker';
+import { buildGraphWithinByteBudget, handleRequest } from '@/workers/analysis-data.worker';
 
 const SOURCE_GAME = parseGamePgn({
   game: {
@@ -20,6 +20,8 @@ const SOURCE_GAME = parseGamePgn({
     rated: true,
     userRating: 1500,
     opponentRating: 1600,
+    whitePlayer: { username: 'benchmark', rating: 1500 },
+    blackPlayer: { username: 'opponent', rating: 1600 },
     rules: 'chess',
     pgn: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 1-0',
   },
@@ -57,6 +59,25 @@ function measure(count: number) {
 }
 
 describe('opening graph recorded benchmark', () => {
+  it('uses one build attempt for a normal within-budget workload', async () => {
+    const attempts: number[] = [];
+    const workload = games(1_000);
+    const result = await buildGraphWithinByteBudget(
+      workload,
+      { maxOpeningPlies: 10, includeRepeatedPositions: true },
+      {
+        queryFingerprint: 'single-pass',
+        sourceGameCount: workload.length,
+        excludedGameCount: 0,
+        buildTimestamp: 0,
+      },
+      { onBuildAttempt: (gameCount) => attempts.push(gameCount) }
+    );
+
+    expect(result.status).toBe('complete');
+    expect(attempts).toEqual([1_000]);
+  });
+
   it('parses and builds 1,000 normalized games in the analysis-data worker', async () => {
     const rawGames: NormalizedGameSummary[] = Array.from({ length: 1_000 }, (_, index) => ({
       id: `worker-benchmark-${index}`,
@@ -69,6 +90,8 @@ describe('opening graph recorded benchmark', () => {
       rated: true,
       userRating: 1500,
       opponentRating: 1600,
+      whitePlayer: { username: 'benchmark', rating: 1500 },
+      blackPlayer: { username: 'opponent', rating: 1600 },
       rules: 'chess',
       pgn: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 1-0',
     }));

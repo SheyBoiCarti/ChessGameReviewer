@@ -17,6 +17,8 @@ describe('parseGamePgn', () => {
         rated: true,
         userRating: null,
         opponentRating: null,
+        whitePlayer: { username: 'alice', rating: null },
+        blackPlayer: { username: 'bob', rating: null },
         rules: 'chess',
       },
     });
@@ -39,6 +41,8 @@ describe('parseGamePgn', () => {
         rated: true,
         userRating: 1500,
         opponentRating: 1600,
+        whitePlayer: { username: 'alice', rating: 1500 },
+        blackPlayer: { username: 'bob', rating: 1600 },
         rules: 'chess',
         pgn: '[Event "Test"]\n\n1. e4 e5 2. Nf3 Nc6 1-0',
       },
@@ -79,6 +83,8 @@ describe('parseGamePgn', () => {
         rated: true,
         userRating: 1500,
         opponentRating: 1600,
+        whitePlayer: { username: 'bob', rating: 1600 },
+        blackPlayer: { username: 'alice', rating: 1500 },
         rules: 'chess',
         pgn: '1. e4 e5 2. Qh9 1-0',
       },
@@ -110,6 +116,8 @@ describe('parseGamePgn', () => {
           rated: true,
           userRating: 1500,
           opponentRating: 1600,
+          whitePlayer: { username: 'alice', rating: 1500 },
+          blackPlayer: { username: 'bob', rating: 1600 },
           rules: 'chess',
           pgn: '1. e4 e5 2. Qh9 1-0',
         },
@@ -139,6 +147,8 @@ describe('parseGamePgn', () => {
         rated: false,
         userRating: null,
         opponentRating: null,
+        whitePlayer: { username: 'alice', rating: null },
+        blackPlayer: { username: 'bob', rating: null },
         rules: 'chess',
         pgn: '[SetUp "1"]\n[FEN "4k3/8/8/8/8/8/8/4K3 w - - 0 1"]\n\n1. Kf2 1/2-1/2',
       },
@@ -153,7 +163,7 @@ describe('parseGamePgn', () => {
     const result = parseGamePgn({
       game: {
         id: 'annotated-game',
-        url: 'https://www.chess.com/game/live/annotated',
+        url: 'https://example.test/annotated',
         usernameKey: 'alice',
         userColor: 'white',
         result: 'win',
@@ -162,6 +172,8 @@ describe('parseGamePgn', () => {
         rated: true,
         userRating: 1500,
         opponentRating: 1600,
+        whitePlayer: { username: 'alice', rating: 1500 },
+        blackPlayer: { username: 'bob', rating: 1600 },
         rules: 'chess',
         pgn: '1. e4 {King pawn opening.} e5 (1... c5) 2. Nf3 Nc6 1-0',
       },
@@ -177,7 +189,7 @@ describe('parseGamePgn', () => {
     const result = parseGamePgn({
       game: {
         id: 'promotion-game',
-        url: 'https://www.chess.com/game/live/4',
+        url: 'https://example.test/4',
         usernameKey: 'alice',
         userColor: 'white',
         result: 'win',
@@ -186,6 +198,8 @@ describe('parseGamePgn', () => {
         rated: true,
         userRating: 1500,
         opponentRating: 1600,
+        whitePlayer: { username: 'alice', rating: 1500 },
+        blackPlayer: { username: 'bob', rating: 1600 },
         rules: 'chess',
         pgn: '[SetUp "1"]\n[FEN "7k/P7/8/8/8/8/8/K7 w - - 0 1"]\n\n1. a8=Q+ 1-0',
       },
@@ -217,6 +231,8 @@ describe('parseGamePgn', () => {
           rated: true,
           userRating: null,
           opponentRating: null,
+          whitePlayer: { username: 'alice', rating: null },
+          blackPlayer: { username: 'bob', rating: null },
           rules: 'chess',
           pgn: chess.pgn(),
         },
@@ -231,5 +247,57 @@ describe('parseGamePgn', () => {
         ).toBe(true);
       }
     }
+  });
+
+  it('populates whitePlayer and blackPlayer from NormalizedGameSummary', () => {
+    const result = parseGamePgn({
+      game: {
+        id: 'player-test-1',
+        url: 'https://www.chess.com/game/live/p1',
+        usernameKey: 'alice',
+        userColor: 'white',
+        result: 'win',
+        endedAt: 1,
+        timeClass: 'blitz',
+        rated: true,
+        userRating: 1500,
+        opponentRating: 1600,
+        whitePlayer: { username: 'Alice', rating: 1500 },
+        blackPlayer: { username: 'Bob', rating: 1600 },
+        rules: 'chess',
+        pgn: '1. e4 e5 1-0',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.game.whitePlayer).toEqual({ username: 'Alice', rating: 1500 });
+    expect(result.game.blackPlayer).toEqual({ username: 'Bob', rating: 1600 });
+  });
+
+  it('extracts whitePlayer and blackPlayer from PGN headers as fallback when not provided on summary', () => {
+    const result = parseGamePgn({
+      game: {
+        id: 'player-test-fallback',
+        url: 'https://www.chess.com/game/live/pf',
+        usernameKey: 'alice',
+        userColor: 'white',
+        result: 'win',
+        endedAt: 1,
+        timeClass: 'blitz',
+        rated: true,
+        userRating: null,
+        opponentRating: null,
+        whitePlayer: undefined as any,
+        blackPlayer: undefined as any,
+        rules: 'chess',
+        pgn: '[White "MagnusCarlsen"]\n[Black "HikaruNakamura"]\n[WhiteElo "2850"]\n[BlackElo "2800"]\n\n1. e4 e5 1-0',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.game.whitePlayer).toEqual({ username: 'MagnusCarlsen', rating: 2850 });
+    expect(result.game.blackPlayer).toEqual({ username: 'HikaruNakamura', rating: 2800 });
   });
 });
