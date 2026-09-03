@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 
 import type { Diagnostic, GameQuery, PlayerColor, TimeClass } from '@/lib/api/contracts';
 import { validateGameQuery } from '@/lib/validation/gameQuery';
@@ -16,6 +16,8 @@ export interface GameQueryFormProps {
   disabled?: boolean;
   openingHorizon?: number;
   onOpeningHorizonChange?(value: number): void;
+  initialQuery?: Partial<GameQuery>;
+  onDraftChange?(query: Partial<GameQuery>): void;
 }
 
 export function GameQueryForm({
@@ -23,17 +25,42 @@ export function GameQueryForm({
   disabled = false,
   openingHorizon = 30,
   onOpeningHorizonChange,
+  initialQuery,
+  onDraftChange,
 }: GameQueryFormProps) {
-  const [username, setUsername] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [maxGames, setMaxGames] = useState('500');
-  const [timeClasses, setTimeClasses] = useState<TimeClass[]>([...timeClassOptions]);
-  const [colors, setColors] = useState<PlayerColor[]>(['white', 'black']);
-  const [rated, setRated] = useState<'any' | 'rated' | 'unrated'>('any');
+  const [username, setUsername] = useState(initialQuery?.username ?? '');
+  const [dateFrom, setDateFrom] = useState(initialQuery?.dateFrom ?? '');
+  const [dateTo, setDateTo] = useState(initialQuery?.dateTo ?? '');
+  const [maxGames, setMaxGames] = useState(String(initialQuery?.maxGames ?? 500));
+  const [timeClasses, setTimeClasses] = useState<TimeClass[]>(
+    initialQuery?.timeClasses ? [...initialQuery.timeClasses] : [...timeClassOptions]
+  );
+  const [colors, setColors] = useState<PlayerColor[]>(
+    initialQuery?.colors ? [...initialQuery.colors] : ['white', 'black']
+  );
+  const [rated, setRated] = useState<'any' | 'rated' | 'unrated'>(
+    initialQuery?.rated === true ? 'rated' : initialQuery?.rated === false ? 'unrated' : 'any'
+  );
   const [horizonDraft, setHorizonDraft] = useState(String(openingHorizon));
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
+
+  useEffect(() => {
+    setHorizonDraft(String(openingHorizon));
+  }, [openingHorizon]);
+
+  const updateDraft = (changes: Partial<GameQuery>) => {
+    onDraftChange?.({
+      username,
+      dateFrom,
+      dateTo,
+      maxGames: Number(maxGames) || 500,
+      timeClasses,
+      colors,
+      rated: rated === 'any' ? undefined : rated === 'rated',
+      ...changes,
+    });
+  };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -73,7 +100,11 @@ export function GameQueryForm({
           name="username"
           autoComplete="off"
           value={username}
-          onChange={(event) => setUsername(event.currentTarget.value)}
+          onChange={(event) => {
+            const next = event.currentTarget.value;
+            setUsername(next);
+            updateDraft({ username: next });
+          }}
           aria-describedby={diagnostic('INVALID_USERNAME') ? 'username-error' : undefined}
           disabled={disabled}
         />
@@ -91,7 +122,11 @@ export function GameQueryForm({
             id="game-query-from"
             type="date"
             value={dateFrom}
-            onChange={(event) => setDateFrom(event.currentTarget.value)}
+            onChange={(event) => {
+              const next = event.currentTarget.value;
+              setDateFrom(next);
+              updateDraft({ dateFrom: next });
+            }}
             aria-describedby="date-help"
             disabled={disabled}
           />
@@ -102,7 +137,11 @@ export function GameQueryForm({
             id="game-query-to"
             type="date"
             value={dateTo}
-            onChange={(event) => setDateTo(event.currentTarget.value)}
+            onChange={(event) => {
+              const next = event.currentTarget.value;
+              setDateTo(next);
+              updateDraft({ dateTo: next });
+            }}
             aria-describedby="date-help"
             disabled={disabled}
           />
@@ -135,7 +174,11 @@ export function GameQueryForm({
               min="1"
               max="5000"
               value={maxGames}
-              onChange={(event) => setMaxGames(event.currentTarget.value)}
+              onChange={(event) => {
+                const next = event.currentTarget.value;
+                setMaxGames(next);
+                updateDraft({ maxGames: Number(next) || 500 });
+              }}
               aria-describedby={maxGamesError ? 'maximum-games-error' : undefined}
               disabled={disabled}
             />
@@ -173,7 +216,11 @@ export function GameQueryForm({
                 <input
                   type="checkbox"
                   checked={timeClasses.includes(timeClass)}
-                  onChange={() => setTimeClasses(toggle(timeClasses, timeClass))}
+                  onChange={() => {
+                    const next = toggle(timeClasses, timeClass);
+                    setTimeClasses(next);
+                    updateDraft({ timeClasses: next });
+                  }}
                   disabled={disabled}
                 />
                 {titleCase(timeClass)}
@@ -195,7 +242,11 @@ export function GameQueryForm({
                 <input
                   type="checkbox"
                   checked={colors.includes(value)}
-                  onChange={() => setColors(toggle(colors, value))}
+                  onChange={() => {
+                    const next = toggle(colors, value);
+                    setColors(next);
+                    updateDraft({ colors: next });
+                  }}
                   disabled={disabled}
                 />
                 {label}
@@ -214,7 +265,11 @@ export function GameQueryForm({
           <select
             id="game-query-rated"
             value={rated}
-            onChange={(event) => setRated(event.currentTarget.value as typeof rated)}
+            onChange={(event) => {
+              const next = event.currentTarget.value as typeof rated;
+              setRated(next);
+              updateDraft({ rated: next === 'any' ? undefined : next === 'rated' });
+            }}
             aria-describedby={ratedStatusError ? 'rated-status-error' : undefined}
             disabled={disabled}
           >

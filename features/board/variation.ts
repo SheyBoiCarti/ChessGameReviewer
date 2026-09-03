@@ -1,4 +1,4 @@
-import type { AppliedBoardMove } from './moves';
+import { applyBoardMove, type AppliedBoardMove } from './moves';
 
 export interface AnalysisVariationState {
   basePly: number;
@@ -60,4 +60,31 @@ export function variationFen(state: AnalysisVariationState): string {
   }
   const lastMove = state.moves[state.cursor - 1];
   return lastMove ? lastMove.fenAfter : state.baseFen;
+}
+
+export function createVariationFromUciSequence(
+  basePly: number,
+  baseFen: string,
+  uciMoves: readonly string[]
+): AnalysisVariationState | null {
+  if (uciMoves.length === 0) return null;
+  let currentFen = baseFen;
+  const moves: AppliedBoardMove[] = [];
+  for (const uci of uciMoves) {
+    if (uci.length < 4) break;
+    const from = uci.slice(0, 2) as import('chess.js').Square;
+    const to = uci.slice(2, 4) as import('chess.js').Square;
+    const promotion = uci.length > 4 ? (uci[4] as import('./moves').PromotionPiece) : undefined;
+    const applied = applyBoardMove(currentFen, { from, to, ...(promotion ? { promotion } : {}) });
+    if (!applied) break;
+    moves.push(applied);
+    currentFen = applied.fenAfter;
+  }
+  if (moves.length === 0) return null;
+  return {
+    basePly,
+    baseFen,
+    moves,
+    cursor: moves.length,
+  };
 }

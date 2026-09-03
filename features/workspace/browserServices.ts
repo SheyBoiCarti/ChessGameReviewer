@@ -19,6 +19,7 @@ import { closeDatabase, initializeDatabaseMetadata, openDatabase } from '@/lib/d
 import {
   getArchiveListMeta,
   getArchiveSyncsForUser,
+  getDistinctUsernames,
   getGamesForMonth,
   putArchiveListMeta,
   saveSyncBatch,
@@ -119,6 +120,7 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     data: {
       deleteUsername: async (username) => deleteUserData(await db(), username),
       clearAll: async () => clearAllData(await db()),
+      listUsernames: async () => getDistinctUsernames(await db()),
       dispose: () => {
         disposed = true;
         if (database) closeDatabase(database);

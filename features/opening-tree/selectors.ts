@@ -87,7 +87,8 @@ export function ratingTierFor(
 
 export function selectCandidateMoves(
   node: PositionNode,
-  sort: MoveSort = 'games'
+  sort: MoveSort = 'games',
+  perspective: OutcomePerspective = 'user'
 ): CandidateMove[] {
   return [...node.outgoing.values()]
     .map((edge) => ({
@@ -96,14 +97,22 @@ export function selectCandidateMoves(
       targetKey: edge.targetKey,
       metrics: describeOutcome(edge.aggregate),
     }))
-    .sort((left, right) =>
-      sort === 'games'
-        ? right.metrics.sampleSize - left.metrics.sampleSize || left.san.localeCompare(right.san)
-        : sort === 'score'
-          ? (right.metrics.userScore ?? -Infinity) - (left.metrics.userScore ?? -Infinity) ||
-            left.san.localeCompare(right.san)
-          : left.san.localeCompare(right.san)
-    );
+    .sort((left, right) => {
+      if (sort === 'games') {
+        return (
+          right.metrics.sampleSize - left.metrics.sampleSize || left.san.localeCompare(right.san)
+        );
+      }
+      if (sort === 'score') {
+        const leftScore = perspective === 'user' ? left.metrics.userScore : left.metrics.whiteScore;
+        const rightScore =
+          perspective === 'user' ? right.metrics.userScore : right.metrics.whiteScore;
+        return (
+          (rightScore ?? -Infinity) - (leftScore ?? -Infinity) || left.san.localeCompare(right.san)
+        );
+      }
+      return left.san.localeCompare(right.san);
+    });
 }
 
 export function selectArrivalOrders(

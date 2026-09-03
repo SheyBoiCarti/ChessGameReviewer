@@ -209,7 +209,7 @@ export function ChessboardView({
       return;
     }
 
-    if (isInteractive) {
+    if (isInteractive && !event.altKey) {
       const current = focusedSquare ?? (orientation === 'white' ? 'e2' : 'e7');
       const fileStep = orientation === 'white' ? 1 : -1;
       const rankStep = orientation === 'white' ? 1 : -1;
@@ -226,13 +226,13 @@ export function ChessboardView({
         setFocusedSquare(next);
         return;
       }
-      if (event.key === 'ArrowLeft' && selectedSquare !== null) {
+      if (event.key === 'ArrowLeft') {
         event.preventDefault();
         const next = offsetSquare(current, -fileStep, 0);
         setFocusedSquare(next);
         return;
       }
-      if (event.key === 'ArrowRight' && selectedSquare !== null) {
+      if (event.key === 'ArrowRight') {
         event.preventDefault();
         const next = offsetSquare(current, fileStep, 0);
         setFocusedSquare(next);
@@ -310,7 +310,9 @@ export function ChessboardView({
       {players ? <PlayerRow color={topColor} player={topPlayer} position="top" /> : null}
       <div className="board-region">
         <div className={`board-stage${evaluationScore ? ' board-stage--with-evaluation' : ''}`}>
-          {evaluationScore ? <EvaluationBar score={evaluationScore} /> : null}
+          {evaluationScore ? (
+            <EvaluationBar score={evaluationScore} orientation={orientation} />
+          ) : null}
           <div className="chessboard-frame">
             <div
               ref={boardRef}
@@ -397,9 +399,9 @@ export function ChessboardView({
           </span>
         ) : null}
         <p id="board-keyboard-interactive-help" className="sr-only">
-          Use Arrow keys to navigate squares. Press Enter or Space to select a piece and choose a
-          legal destination. Press Escape to clear selection. Left and Right Arrow navigate history
-          when no piece is selected.
+          Use Arrow keys to navigate squares across files and ranks. Press Enter or Space to select
+          a piece and choose a legal destination. Press Escape to clear selection. Press Alt+Arrow
+          keys or Home/End to navigate history.
         </p>
         {historyModel ? (
           <>

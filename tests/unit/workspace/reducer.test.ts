@@ -127,6 +127,7 @@ describe('workspace reducer', () => {
         result: { status: 'complete', annotations: [] } as never,
         progress: null,
         error: null,
+        resultsByGameId: {},
       },
     };
 

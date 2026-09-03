@@ -18,6 +18,7 @@ import { UnobservedMoveNotice } from '@/components/opening/UnobservedMoveNotice'
 import type { AppliedBoardMove } from '@/features/board/moves';
 import {
   appendVariationMove,
+  createVariationFromUciSequence,
   moveVariationCursor,
   startVariation,
   variationFen,
@@ -85,6 +86,19 @@ export function ChessWorkspace({
   const parsedGame = useMemo(() => parseSelectedGame(selectedRecord), [selectedRecord]);
   const displayedFen = boardFen(tab, graph, navigation, parsedGame, state.selection.ply);
 
+  const analysisStatusMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (state.analysis.resultsByGameId) {
+      for (const id of Object.keys(state.analysis.resultsByGameId)) {
+        map[id] = 'Analysed';
+      }
+    }
+    if (state.analysis.status === 'running' && state.selection.gameId) {
+      map[state.selection.gameId] = 'Analysing…';
+    }
+    return map;
+  }, [state.analysis.resultsByGameId, state.analysis.status, state.selection.gameId]);
+
   useEffect(() => {
     setVariation(null);
   }, [state.selection.gameId]);
@@ -140,6 +154,24 @@ export function ChessWorkspace({
   useEffect(() => {
     document.documentElement.dataset.theme = state.preferences.theme;
   }, [state.preferences.theme]);
+
+  const [storedUsernames, setStoredUsernames] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (tab === 'settings') {
+      void controller.listStoredUsernames().then((users) => {
+        setStoredUsernames(users);
+      });
+    }
+  }, [tab, controller]);
+
+  const allStoredUsers = useMemo(() => {
+    const set = new Set(storedUsernames.map((u) => u.toLowerCase()));
+    if (state.query.active?.username) {
+      set.add(state.query.active.username.toLowerCase());
+    }
+    return Array.from(set).map((username) => ({ username }));
+  }, [storedUsernames, state.query.active]);
 
   const selectTab = (next: WorkspaceTab) => {
     setTab(next);
@@ -197,27 +229,26 @@ export function ChessWorkspace({
 
       if (res.observed && res.nextPathId !== null) {
         setUnobservedMove(null);
-        setNavigation((prev) =>
-          prev
-            ? navigateCandidate(graph, prev, {
-                targetKey: res.nextPositionKey,
-                uci: applied.uci,
-                san: applied.san,
-                aggregate: {
-                  games: 0,
-                  userWins: 0,
-                  draws: 0,
-                  userLosses: 0,
-                  whiteWins: 0,
-                  blackWins: 0,
-                  opponentRatingSum: 0,
-                  opponentRatingCount: 0,
-                },
-              })
-            : null
-        );
-        controller.navigateGraph(res.nextPositionKey, res.nextPathId);
-        return true;
+        try {
+          setNavigation((prev) =>
+            prev
+              ? navigateCandidate(
+                  graph,
+                  prev,
+                  {
+                    targetKey: res.nextPositionKey,
+                    uci: applied.uci,
+                    san: applied.san,
+                  },
+                  res.nextPathId
+                )
+              : null
+          );
+          controller.navigateGraph(res.nextPositionKey, res.nextPathId);
+          return true;
+        } catch {
+          return false;
+        }
       } else {
         setUnobservedMove({
           move: applied,
@@ -260,11 +291,7 @@ export function ChessWorkspace({
           : undefined;
 
   const historyValue: MoveHistoryModel | undefined = isOpeningBoard
-    ? {
-        currentPly: 0,
-        totalPlies: 0,
-        onPlyChange: () => undefined,
-      }
+    ? undefined
     : tab === 'analysis' && variation
       ? {
           currentPly: variation.cursor,
@@ -354,6 +381,13 @@ export function ChessWorkspace({
             >
               <GameQueryForm
                 disabled={state.ingestion.status === 'loading'}
+                initialQuery={state.query.active ?? state.query.draft}
+                onDraftChange={(draft) =>
+                  controller.dispatch({
+                    type: 'query/draftChanged',
+                    query: { ...state.query.draft, ...draft },
+                  })
+                }
                 openingHorizon={state.preferences.openingHorizon}
                 onOpeningHorizonChange={(openingHorizon) =>
                   controller.dispatch({
@@ -389,7 +423,7 @@ export function ChessWorkspace({
               {state.ingestion.result?.offlineCacheOnly ? <OfflineCacheNotice /> : null}
             </UtilityRail>
           }
-          board={board}
+          board={tab === 'settings' ? null : board}
           tabs={<WorkspaceTabs selected={tab} onSelect={selectTab} />}
           panel={
             <div
@@ -405,6 +439,11 @@ export function ChessWorkspace({
                   games={state.ingestion.result?.games ?? []}
                   selectedGameId={state.selection.gameId}
                   onSelect={(gameId) => controller.selectGame(gameId)}
+                  onAnalyze={(gameId) => {
+                    controller.selectGame(gameId);
+                    selectTab('analysis');
+                  }}
+                  analysisStatus={analysisStatusMap}
                 />
               ) : null}
 
@@ -457,6 +496,7 @@ export function ChessWorkspace({
                     result={state.analysis.result}
                     progress={state.analysis.progress}
                     strength={state.preferences.analysisStrength}
+                    upstreamAccuracies={selectedRecord.accuracies}
                     onStrengthChange={(analysisStrength) =>
                       controller.dispatch({
                         type: 'preferences/changed',
@@ -471,6 +511,16 @@ export function ChessWorkspace({
                     fenByPly={Object.fromEntries(
                       parsedGame.plies.map((move) => [move.ply, move.fenBefore])
                     )}
+                    onExplorePv={(pvFen, uciMoves) => {
+                      const variationState = createVariationFromUciSequence(
+                        state.selection.ply,
+                        pvFen,
+                        uciMoves
+                      );
+                      if (variationState) {
+                        setVariation(variationState);
+                      }
+                    }}
                   />
                 ) : (
                   <EmptyWorkspace message="Select a parsed game before starting local analysis." />
@@ -535,10 +585,20 @@ export function ChessWorkspace({
                     </label>
                   </section>
                   <LocalDataSettings
-                    users={state.query.active ? [{ username: state.query.active.username }] : []}
+                    users={allStoredUsers}
                     maintenance={state.dataMaintenance}
-                    onDeleteUsername={controller.deleteUserData}
-                    onClearAll={controller.clearAllData}
+                    onDeleteUsername={async (username) => {
+                      const res = await controller.deleteUserData(username);
+                      setStoredUsernames((prev) =>
+                        prev.filter((u) => u.toLowerCase() !== username.toLowerCase())
+                      );
+                      return res;
+                    }}
+                    onClearAll={async () => {
+                      const res = await controller.clearAllData();
+                      setStoredUsernames([]);
+                      return res;
+                    }}
                   />
                 </div>
               ) : null}

@@ -36,6 +36,7 @@ export interface AnalyzerWorkspaceProps {
   selectedPly: number;
   fenByPly: Readonly<Record<number, string>>;
   upstreamAccuracies?: SideAccuracy | undefined;
+  onExplorePv?(startFen: string, uciMoves: readonly string[]): void;
 }
 
 export function AnalyzerWorkspace({
@@ -52,6 +53,7 @@ export function AnalyzerWorkspace({
   selectedPly,
   fenByPly,
   upstreamAccuracies,
+  onExplorePv,
 }: AnalyzerWorkspaceProps) {
   const preset = analysisPreset(strength);
   const limitLabel = preset.limit.depth
@@ -133,6 +135,7 @@ export function AnalyzerWorkspace({
               annotation={selectedAnnotation}
               startFen={fenByPly[selectedAnnotation.ply]}
               onSelectPly={onSelectPly}
+              onExplorePv={onExplorePv}
             />
           ) : (
             <div className="annotation-panel-empty" role="note">

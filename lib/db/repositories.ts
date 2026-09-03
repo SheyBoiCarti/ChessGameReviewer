@@ -438,3 +438,29 @@ export async function putArchiveListMeta(db: IDBDatabase, record: ArchiveListMet
   };
   await setMeta(db, `archiveList:${record.username.toLowerCase()}`, safeRecord);
 }
+
+export async function getDistinctUsernames(db: IDBDatabase): Promise<string[]> {
+  try {
+    const tx = db.transaction([STORES.ARCHIVE_SYNC], 'readonly');
+    const store = tx.objectStore(STORES.ARCHIVE_SYNC);
+    const index = store.index('username');
+    return await new Promise<string[]>((resolve, reject) => {
+      const usernames = new Set<string>();
+      const req = index.openKeyCursor(null, 'nextunique');
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          if (typeof cursor.key === 'string') {
+            usernames.add(cursor.key);
+          }
+          cursor.continue();
+        } else {
+          resolve(Array.from(usernames));
+        }
+      };
+      req.onerror = () => reject(wrapIDBError(req.error));
+    });
+  } catch {
+    return [];
+  }
+}
