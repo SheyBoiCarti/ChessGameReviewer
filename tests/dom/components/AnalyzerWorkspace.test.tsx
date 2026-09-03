@@ -94,6 +94,7 @@ describe('AnalyzerWorkspace', () => {
       annotations: [annotation()],
       analyzedPlies: 2,
       totalPlies: 2,
+      warnings: [],
       summary: {
         white: {
           accuracyEstimate: 94.5,
@@ -149,6 +150,7 @@ describe('AnalyzerWorkspace', () => {
       annotations: [annotation()],
       analyzedPlies: 2,
       totalPlies: 2,
+      warnings: [],
       summary: {
         white: {
           accuracyEstimate: 94.5,
@@ -244,6 +246,34 @@ describe('AnalyzerWorkspace', () => {
     expect(onSelectPly).toHaveBeenCalledWith(1);
     expect(screen.getByText('e4 e5')).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/chess\.com affiliation|parity/i);
+  });
+
+  it('announces non-fatal local cache persistence degradation', () => {
+    render(
+      <AnalyzerWorkspace
+        capability={capability('threaded')}
+        status="complete"
+        result={{
+          ...analysisResult(),
+          status: 'complete',
+          warnings: [{ code: 'EVALUATION_CACHE_WRITE_FAILED', message: 'raw detail' }],
+        }}
+        progress={null}
+        strength="balanced"
+        onStrengthChange={vi.fn()}
+        onStart={vi.fn()}
+        onCancel={vi.fn()}
+        onResume={vi.fn()}
+        onSelectPly={vi.fn()}
+        selectedPly={1}
+        fenByPly={{ 1: 'start' }}
+      />
+    );
+
+    expect(
+      screen.getByText(/analysis completed, but some results could not be saved locally/i)
+    ).toHaveTextContent(/analysis completed, but some results could not be saved locally/i);
+    expect(document.body).not.toHaveTextContent('raw detail');
   });
 
   it('renders 41 compact move rows and at most one EngineAnnotationPanel for a 41-ply game', () => {
@@ -367,6 +397,7 @@ function analysisResult(): GameAnalysisResult {
         breakdown: emptyBreakdown(),
       },
     },
+    warnings: [],
     error: 'Analysis was interrupted.',
   };
 }

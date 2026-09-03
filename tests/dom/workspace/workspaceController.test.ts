@@ -216,6 +216,7 @@ describe('workspace controller', () => {
       annotations: [],
       analyzedPlies: 0,
       totalPlies: 0,
+      warnings: [],
       summary: {
         white: {
           accuracyEstimate: null,
@@ -271,6 +272,7 @@ describe('workspace controller', () => {
         annotations: [],
         analyzedPlies: 1,
         totalPlies: 2,
+        warnings: [],
         summary: {
           white: {
             accuracyEstimate: null,
@@ -421,6 +423,7 @@ function createServices(
         annotations: [],
         analyzedPlies: 0,
         totalPlies: 0,
+        warnings: [],
         summary: {
           white: {
             accuracyEstimate: null,

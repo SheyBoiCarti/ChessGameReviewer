@@ -28,13 +28,16 @@ class MemoryRepository implements EvaluationCacheRepository {
   async get(key: string): Promise<EvaluationRecord | null> {
     return this.entries.get(key) ?? null;
   }
-  async put(record: EvaluationRecord): Promise<void> {
+  async touch(key: string, lastUsedAt: number): Promise<boolean> {
+    const record = this.entries.get(key);
+    if (!record) return false;
+    this.entries.set(key, { ...record, lastUsedAt });
+    return true;
+  }
+  async putWithRetention(record: EvaluationRecord, _maxCount: number): Promise<void> {
     this.entries.set(record.key, record);
   }
-  async touch(): Promise<void> {}
-  async prune(): Promise<number> {
-    return 0;
-  }
+  async recoverQuota(): Promise<void> {}
 }
 
 describe('Evaluation Invariants', () => {
