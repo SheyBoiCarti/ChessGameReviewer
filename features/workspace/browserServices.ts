@@ -35,6 +35,8 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
   const db = async () => {
     if (disposed) {
       disposed = false;
+      database = null;
+      databasePromise = null;
     }
     if (database) {
       try {
@@ -58,12 +60,18 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     });
     return databasePromise;
   };
-  const pgnValidator = new PgnValidationWorkerClient(
-    () =>
-      new Worker(new URL('../../workers/analysis-data.worker.ts', import.meta.url), {
-        type: 'module',
-      })
-  );
+  let pgnValidator: PgnValidationWorkerClient | null = null;
+  const getPgnValidator = () => {
+    if (!pgnValidator) {
+      pgnValidator = new PgnValidationWorkerClient(
+        () =>
+          new Worker(new URL('../../workers/analysis-data.worker.ts', import.meta.url), {
+            type: 'module',
+          })
+      );
+    }
+    return pgnValidator;
+  };
   const dependencies: IngestionDependencies = {
     fetchArchives: fetchPlayerArchives,
     fetchMonthlyGames,
@@ -71,7 +79,7 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     writeArchiveList: async (record) => putArchiveListMeta(await db(), record),
     readArchiveSyncs: async (username) => getArchiveSyncsForUser(await db(), username),
     readMonthGames: async (username, month) => getGamesForMonth(await db(), username, month),
-    validatePgns: (games, options) => pgnValidator.validate(games, options.signal),
+    validatePgns: (games, options) => getPgnValidator().validate(games, options.signal),
     persistMonth: async (games, marker, signal) => saveSyncBatch(await db(), games, marker, signal),
   };
   const ingestionManager = new IngestionManager(dependencies);
@@ -80,7 +88,8 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     cancel: ingestionManager.cancel.bind(ingestionManager),
     dispose: () => {
       ingestionManager.cancel();
-      pgnValidator.dispose();
+      pgnValidator?.dispose();
+      pgnValidator = null;
     },
   };
   const graph = new GraphWorkerClient(
@@ -114,6 +123,7 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
         disposed = true;
         if (database) closeDatabase(database);
         database = null;
+        databasePromise = null;
       },
     },
     analysis: {
