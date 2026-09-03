@@ -63,6 +63,7 @@ export interface WorkspaceState {
     result: GameAnalysisResult | null;
     progress: { analyzedPlies: number; totalPlies: number } | null;
     error: string | null;
+    resultsByGameId: Record<string, GameAnalysisResult>;
   };
   preferences: WorkspacePreferences;
 }

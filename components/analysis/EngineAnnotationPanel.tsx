@@ -1,5 +1,5 @@
 import type { GameAnnotation } from '@/features/stockfish-analysis/analyzeGame';
-import { qualityLabel } from '@/features/stockfish-analysis/presentation';
+import { convertPvToSan, qualityLabel } from '@/features/stockfish-analysis/presentation';
 import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
 
 import { PrincipalVariationList } from './PrincipalVariationList';
@@ -8,11 +8,18 @@ export function EngineAnnotationPanel({
   annotation,
   startFen,
   onSelectPly,
+  onExplorePv,
 }: {
   annotation: GameAnnotation;
   startFen: string | undefined;
   onSelectPly(ply: number): void;
+  onExplorePv?: ((startFen: string, uciMoves: readonly string[]) => void) | undefined;
 }) {
+  const bestMoveSan = startFen
+    ? (convertPvToSan(startFen, [annotation.before.bestMove]).moves[0] ??
+      annotation.before.bestMove)
+    : annotation.before.bestMove;
+
   return (
     <article className="annotation-panel">
       <h4>
@@ -43,7 +50,11 @@ export function EngineAnnotationPanel({
         </div>
         <div>
           <dt>Best move</dt>
-          <dd>{annotation.before.bestMove}</dd>
+          <dd>
+            {bestMoveSan !== annotation.before.bestMove
+              ? `${bestMoveSan} (${annotation.before.bestMove})`
+              : bestMoveSan}
+          </dd>
         </div>
         <div>
           <dt>Depth</dt>
@@ -53,7 +64,11 @@ export function EngineAnnotationPanel({
       <button type="button" onClick={() => onSelectPly(annotation.ply)}>
         Show this position on board
       </button>
-      <PrincipalVariationList annotation={annotation} startFen={startFen} />
+      <PrincipalVariationList
+        annotation={annotation}
+        startFen={startFen}
+        onExplorePv={onExplorePv}
+      />
     </article>
   );
 }

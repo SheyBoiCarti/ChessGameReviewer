@@ -405,6 +405,16 @@ button:disabled {
   align-items: start;
 }
 
+.workspace-layout--no-board {
+  grid-template-columns: minmax(20rem, 54rem);
+  justify-content: center;
+}
+
+.workspace-layout--no-board .workspace-layout__context {
+  position: static;
+  max-block-size: none;
+}
+
 .workspace-layout__utility:empty {
   display: none;
 }
@@ -545,6 +555,19 @@ button:disabled {
 .number-fields > *,
 .game-selector-controls > * {
   flex: 1 1 9rem;
+}
+
+.game-selector-actions {
+  display: flex;
+  margin-block: var(--space-2);
+}
+
+.game-selector-actions__analyze {
+  width: 100%;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 label,
@@ -1389,6 +1412,21 @@ li[data-selected='true'] {
 .accuracy-graph polyline {
   stroke: #60a5fa;
   stroke-width: 2;
+}
+
+.accuracy-graph__point {
+  fill: #60a5fa;
+  cursor: pointer;
+  transition:
+    r 120ms ease,
+    fill 120ms ease;
+}
+
+.accuracy-graph__point:hover,
+.accuracy-graph__point:focus-visible {
+  fill: var(--accent-gold);
+  r: 3.5;
+  outline: none;
 }
 
 .analysis-move-list {

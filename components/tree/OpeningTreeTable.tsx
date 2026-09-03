@@ -32,8 +32,9 @@ export function OpeningTreeTable({
   if (!node) {
     return <p role="alert">The selected graph position is unavailable. Return to the root.</p>;
   }
-  const candidates = selectCandidateMoves(node, sort);
+  const candidates = selectCandidateMoves(node, sort, perspective);
   const scoreLabel = perspective === 'user' ? 'Expected user score' : 'Expected White score';
+  const winRateLabel = perspective === 'user' ? 'Win rate' : 'White win rate';
 
   return (
     <section className="opening-tree surface-panel" aria-labelledby="opening-tree-heading">
@@ -79,7 +80,7 @@ export function OpeningTreeTable({
             <thead>
               <tr>
                 <th>Move</th>
-                <th>Games</th>
+                <th>{winRateLabel}</th>
                 <th>{scoreLabel}</th>
                 <th>Draw rate</th>
                 <th>Average opponent rating</th>
@@ -92,6 +93,10 @@ export function OpeningTreeTable({
                   perspective === 'user'
                     ? candidate.metrics.userScore
                     : candidate.metrics.whiteScore;
+                const winRate =
+                  perspective === 'user'
+                    ? candidate.metrics.userWinRate
+                    : candidate.metrics.whiteWinRate;
                 return (
                   <tr key={candidate.uci}>
                     <td>
@@ -106,7 +111,7 @@ export function OpeningTreeTable({
                         Play {candidate.san}
                       </button>
                     </td>
-                    <td>{candidate.metrics.sampleSize}</td>
+                    <td>{percent(winRate)}</td>
                     <td>{percent(score)}</td>
                     <td>{percent(candidate.metrics.drawRate)}</td>
                     <td>{candidate.metrics.averageOpponentRating?.toFixed(0) ?? '—'}</td>

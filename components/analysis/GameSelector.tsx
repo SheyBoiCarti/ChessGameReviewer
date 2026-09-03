@@ -9,11 +9,13 @@ export function GameSelector({
   games,
   selectedGameId,
   onSelect,
+  onAnalyze,
   analysisStatus = {},
 }: {
   games: readonly GameRecord[];
   selectedGameId: string | null;
   onSelect(gameId: string): void;
+  onAnalyze?(gameId: string): void;
   analysisStatus?: Readonly<Record<string, string>>;
 }) {
   const container = useRef<HTMLElement>(null);
@@ -57,6 +59,17 @@ export function GameSelector({
           </select>
         </label>
       </div>
+      {selectedGameId && onAnalyze ? (
+        <div className="game-selector-actions">
+          <button
+            type="button"
+            className="button-primary game-selector-actions__analyze"
+            onClick={() => onAnalyze(selectedGameId)}
+          >
+            Open Stockfish Analysis for Selected Game →
+          </button>
+        </div>
+      ) : null}
       {rows.length === 0 ? (
         <p>No games match the current filter.</p>
       ) : (

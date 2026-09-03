@@ -39,6 +39,7 @@ export interface WorkspaceServices {
   data: {
     deleteUsername(username: string): Promise<DeletionResult>;
     clearAll(): Promise<ClearAllResult>;
+    listUsernames?(): Promise<string[]>;
     dispose(): void;
   };
   analysis: {
@@ -66,6 +67,7 @@ export interface WorkspaceController {
   cancelAnalysis(): void;
   deleteUserData(username: string): Promise<DeletionResult>;
   clearAllData(): Promise<ClearAllResult>;
+  listStoredUsernames(): Promise<string[]>;
   dispatch(action: WorkspaceAction): void;
   dispose(): void;
 }
@@ -299,6 +301,9 @@ export function createWorkspaceController(services: WorkspaceServices): Workspac
         () => services.data.clearAll(),
         () => ({ type: 'data/allCleared' })
       );
+    },
+    listStoredUsernames() {
+      return services.data.listUsernames ? services.data.listUsernames() : Promise.resolve([]);
     },
     dispatch,
     dispose() {

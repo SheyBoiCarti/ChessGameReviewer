@@ -28,11 +28,13 @@ export function createGraphNavigation(graph: OpeningGraphSnapshot): GraphNavigat
 export function navigateCandidate(
   graph: OpeningGraphSnapshot,
   state: GraphNavigationState,
-  edge: MoveEdge
+  edge: MoveEdge | { targetKey: string; uci: string; san?: string },
+  overridePathId?: number | null
 ): GraphNavigationState {
   if (!graph.positions.has(edge.targetKey)) throw new Error('UNKNOWN_GRAPH_POSITION');
-  const pathId = graph.paths.lookup(state.pathId, edge.uci);
-  if (pathId === undefined) throw new Error('UNKNOWN_GRAPH_PATH');
+  const lookedUp = graph.paths.lookup(state.pathId, edge.uci);
+  const pathId = lookedUp ?? overridePathId ?? null;
+  if (pathId === null || pathId === undefined) throw new Error('UNKNOWN_GRAPH_PATH');
   const entry = { positionKey: edge.targetKey, pathId };
   return { ...entry, history: [...state.history, entry] };
 }

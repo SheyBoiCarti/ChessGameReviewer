@@ -23,6 +23,7 @@ const idleAnalysis = {
   result: null,
   progress: null,
   error: null,
+  resultsByGameId: {},
 } as const;
 
 export const initialWorkspaceState: WorkspaceState = {
@@ -110,20 +111,30 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         ...state,
         graph: { status: 'failed', snapshot: null, diagnosticCodes: [], error: action.error },
       };
-    case 'selection/game':
+    case 'selection/game': {
+      const cached = action.gameId
+        ? (state.analysis.resultsByGameId?.[action.gameId] ?? null)
+        : null;
       return {
         ...state,
         selection: { ...state.selection, gameId: action.gameId, ply: 0 },
         analysis: {
           ...idleAnalysis,
           capability: state.analysis.capability,
-          status: state.analysis.capability?.mode === 'unavailable' ? 'unavailable' : 'idle',
+          resultsByGameId: state.analysis.resultsByGameId,
+          status: cached
+            ? 'complete'
+            : state.analysis.capability?.mode === 'unavailable'
+              ? 'unavailable'
+              : 'idle',
+          result: cached,
           error:
-            state.analysis.capability?.mode === 'unavailable'
+            !cached && state.analysis.capability?.mode === 'unavailable'
               ? (state.analysis.capability.reason ?? null)
               : null,
         },
       };
+    }
     case 'selection/position':
       return {
         ...state,
@@ -161,7 +172,12 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
       };
     case 'analysis/progress':
       return { ...state, analysis: { ...state.analysis, progress: action.progress } };
-    case 'analysis/terminal':
+    case 'analysis/terminal': {
+      const gameId = state.selection.gameId;
+      const resultsByGameId =
+        gameId && action.result.status === 'complete'
+          ? { ...state.analysis.resultsByGameId, [gameId]: action.result }
+          : state.analysis.resultsByGameId;
       return {
         ...state,
         analysis: {
@@ -169,8 +185,10 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           status: action.result.status,
           result: action.result,
           error: action.result.error ?? null,
+          resultsByGameId,
         },
       };
+    }
     case 'analysis/cancelled':
       return {
         ...state,
