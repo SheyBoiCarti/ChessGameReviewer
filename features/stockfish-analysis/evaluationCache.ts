@@ -1,7 +1,7 @@
 import type { EvaluationRecord } from '@/lib/db/schema';
 import { getEvaluation, putEvaluationWithRetention, touchEvaluation } from '@/lib/db/repositories';
 import { evictEvaluations } from '@/lib/db/retention';
-import { QuotaExceededError } from '@/lib/db/openDatabase';
+import { QuotaExceededError } from '@/lib/db/errors';
 import type { EvaluationLimit, EvaluationResult } from '@/lib/engine/stockfishAdapter';
 
 /**

@@ -11,6 +11,11 @@ import type { RawChesscomGame } from '../../lib/api/chesscomSchemas';
 import { PubApiError, createAbortError, throwIfAborted } from '../../lib/api/errors';
 import { determineUserOutcome } from '../../lib/chess/results';
 import { NORMALIZER_VERSION, type ArchiveSyncRecord, type GameRecord } from '../../lib/db/schema';
+import {
+  QuotaExceededError,
+  SchemaVersionError,
+  StorageUnavailableError,
+} from '../../lib/db/errors';
 import { validateGameQuery } from '../../lib/validation/gameQuery';
 import { fingerprintQuery, parseArchiveMonth, planArchiveMonths } from './archivePlanner';
 import { executeWithRetry, type RetryOptions } from './retryPolicy';
@@ -90,6 +95,27 @@ export function isOfflineError(error: unknown): boolean {
 }
 
 function safeDiagnostic(error: unknown): Diagnostic {
+  if (error instanceof SchemaVersionError) {
+    return {
+      code: 'LOCAL_STORAGE_INCOMPATIBLE',
+      message: 'Local storage was created by a newer app version. Clear local data and try again.',
+      severity: 'error',
+    };
+  }
+  if (error instanceof StorageUnavailableError) {
+    return {
+      code: 'LOCAL_STORAGE_UNAVAILABLE',
+      message: 'Local storage is unavailable. Check your browser settings and try again.',
+      severity: 'error',
+    };
+  }
+  if (error instanceof QuotaExceededError) {
+    return {
+      code: 'LOCAL_STORAGE_QUOTA',
+      message: 'Local storage is full. Clear some local data and try again.',
+      severity: 'error',
+    };
+  }
   if (isPubApiError(error)) {
     return { code: error.code, message: error.message, severity: 'error' };
   }

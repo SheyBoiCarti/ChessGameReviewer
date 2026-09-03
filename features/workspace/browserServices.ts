@@ -15,7 +15,7 @@ import { analysisPreset } from '@/features/stockfish-analysis/presentation';
 import { fetchMonthlyGames, fetchPlayerArchives } from '@/lib/api/chesscomClient';
 import { parseGamePgn } from '@/lib/chess/pgnParser';
 import { clearAllData, deleteUserData } from '@/lib/db/deleteLocalData';
-import { closeDatabase, openDatabase } from '@/lib/db/openDatabase';
+import { closeDatabase, initializeDatabaseMetadata, openDatabase } from '@/lib/db/openDatabase';
 import {
   getArchiveListMeta,
   getArchiveSyncsForUser,
@@ -45,9 +45,16 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
         databasePromise = null;
       }
     }
-    databasePromise ??= openDatabase().then((opened) => {
-      database = opened;
-      return opened;
+    databasePromise ??= openDatabase().then(async (opened) => {
+      try {
+        await initializeDatabaseMetadata(opened);
+        database = opened;
+        return opened;
+      } catch (error) {
+        closeDatabase(opened);
+        databasePromise = null;
+        throw error;
+      }
     });
     return databasePromise;
   };

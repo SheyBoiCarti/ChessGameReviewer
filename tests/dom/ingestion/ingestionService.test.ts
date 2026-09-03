@@ -16,6 +16,7 @@ import {
   runIngestion,
 } from '../../../features/ingestion/ingestionService';
 import { NORMALIZER_VERSION } from '../../../lib/db/schema';
+import { SchemaVersionError, StorageUnavailableError } from '../../../lib/db/openDatabase';
 import {
   makeArchiveSync,
   makeGameRecord,
@@ -542,6 +543,21 @@ describe('runIngestion', () => {
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({ code: 'INGESTION_FAILED' })
     );
+  });
+
+  it.each([
+    [new SchemaVersionError('private schema name'), 'LOCAL_STORAGE_INCOMPATIBLE'],
+    [new StorageUnavailableError('private browser detail'), 'LOCAL_STORAGE_UNAVAILABLE'],
+  ])('reports a safe diagnostic for typed local storage failures', async (error, code) => {
+    const deps = fakeDependencies({
+      fetchMonthlyGames: vi.fn().mockResolvedValue([makeRawGame()]),
+      persistMonth: vi.fn().mockRejectedValue(error),
+    });
+
+    const result = await runIngestion(makeQuery(), { deps, now: () => NOW });
+
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ code, severity: 'error' }));
+    expect(JSON.stringify(result.diagnostics)).not.toContain('private');
   });
 
   it('returns one cancelled result during archive fetch and emits no late progress', async () => {

@@ -1,6 +1,6 @@
 import { STORES, SCHEMA_VERSION, NORMALIZER_VERSION } from './schema';
 import { getMeta } from './repositories';
-import { wrapIDBError } from './openDatabase';
+import { wrapIDBError } from './errors';
 
 export interface EvictEvaluationsOptions {
   maxCount?: number;
@@ -114,6 +114,7 @@ export async function evictGraphSnapshots(
 
 export interface CompatibilityResult {
   compatible: boolean;
+  normalizerMatches: boolean;
   schemaVersion?: number;
   normalizerVersion?: number;
   reason?: string;
@@ -129,23 +130,16 @@ export async function checkSchemaCompatibility(db: IDBDatabase): Promise<Compati
   if (dbSchemaVersion > SCHEMA_VERSION) {
     return {
       compatible: false,
+      normalizerMatches: dbNormalizerVersion === NORMALIZER_VERSION,
       schemaVersion: dbSchemaVersion,
       normalizerVersion: dbNormalizerVersion,
       reason: `Stored database schema version (${dbSchemaVersion}) is newer than code schema version (${SCHEMA_VERSION}).`,
     };
   }
 
-  if (dbNormalizerVersion !== NORMALIZER_VERSION) {
-    return {
-      compatible: false,
-      schemaVersion: dbSchemaVersion,
-      normalizerVersion: dbNormalizerVersion,
-      reason: `Stored normalizer version (${dbNormalizerVersion}) does not match current code normalizer version (${NORMALIZER_VERSION}).`,
-    };
-  }
-
   return {
     compatible: true,
+    normalizerMatches: dbNormalizerVersion === NORMALIZER_VERSION,
     schemaVersion: dbSchemaVersion,
     normalizerVersion: dbNormalizerVersion,
   };

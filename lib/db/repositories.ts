@@ -12,7 +12,7 @@ import {
   isValidMetaRecord,
   StoreName,
 } from './schema';
-import { wrapIDBError } from './openDatabase';
+import { wrapIDBError } from './errors';
 import { throwIfAborted } from '../api/errors';
 
 export interface ArchiveListMeta {

@@ -1,33 +1,22 @@
 import { DB_NAME, SCHEMA_VERSION, STORES } from './schema';
 import { extractPgnPlayers } from '../chess/pgnHeaders';
+import { NORMALIZER_VERSION } from './schema';
+import {
+  DatabaseBlockedError,
+  SchemaVersionError,
+  StorageUnavailableError,
+  wrapIDBError,
+} from './errors';
+import { checkSchemaCompatibility } from './retention';
+import { setMeta } from './repositories';
 
-export class StorageUnavailableError extends Error {
-  constructor(message = 'IndexedDB storage is unavailable or blocked.') {
-    super(message);
-    this.name = 'StorageUnavailableError';
-  }
-}
-
-export class QuotaExceededError extends Error {
-  constructor(message = 'Storage quota exceeded while writing to IndexedDB.') {
-    super(message);
-    this.name = 'QuotaExceededError';
-  }
-}
-
-export class DatabaseBlockedError extends Error {
-  constructor(message = 'Database upgrade is blocked by another open connection.') {
-    super(message);
-    this.name = 'DatabaseBlockedError';
-  }
-}
-
-export class SchemaVersionError extends Error {
-  constructor(message = 'Database schema version is incompatible.') {
-    super(message);
-    this.name = 'SchemaVersionError';
-  }
-}
+export {
+  DatabaseBlockedError,
+  QuotaExceededError,
+  SchemaVersionError,
+  StorageUnavailableError,
+  wrapIDBError,
+} from './errors';
 
 export interface OpenDatabaseOptions {
   name?: string;
@@ -235,29 +224,9 @@ export function closeDatabase(db: IDBDatabase): void {
   }
 }
 
-export function wrapIDBError(err: unknown): Error {
-  if (err instanceof Error) {
-    if (err.name === 'QuotaExceededError' || err.message.includes('Quota')) {
-      return new QuotaExceededError();
-    }
-    if (
-      err.name === 'InvalidStateError' ||
-      err.name === 'SecurityError' ||
-      err.name === 'UnknownError'
-    ) {
-      return new StorageUnavailableError();
-    }
-    return new StorageUnavailableError();
-  }
-  if (typeof err === 'object' && err !== null) {
-    const name = 'name' in err ? String((err as { name: unknown }).name) : '';
-    const message = 'message' in err ? String((err as { message: unknown }).message) : '';
-    if (name === 'QuotaExceededError' || message.includes('Quota')) {
-      return new QuotaExceededError();
-    }
-    if (name === 'InvalidStateError' || name === 'SecurityError') {
-      return new StorageUnavailableError();
-    }
-  }
-  return new StorageUnavailableError();
+export async function initializeDatabaseMetadata(db: IDBDatabase): Promise<void> {
+  const compatibility = await checkSchemaCompatibility(db);
+  if (!compatibility.compatible) throw new SchemaVersionError();
+  await setMeta(db, 'schemaVersion', SCHEMA_VERSION);
+  await setMeta(db, 'normalizerVersion', NORMALIZER_VERSION);
 }
