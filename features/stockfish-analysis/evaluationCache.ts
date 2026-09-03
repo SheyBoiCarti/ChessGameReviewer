@@ -1,5 +1,7 @@
 import type { EvaluationRecord } from '@/lib/db/schema';
-import { getEvaluation, putEvaluation } from '@/lib/db/repositories';
+import { getEvaluation, putEvaluationWithRetention, touchEvaluation } from '@/lib/db/repositories';
+import { evictEvaluations } from '@/lib/db/retention';
+import { QuotaExceededError } from '@/lib/db/openDatabase';
 import type { EvaluationLimit, EvaluationResult } from '@/lib/engine/stockfishAdapter';
 
 /**
@@ -20,13 +22,28 @@ export interface EvaluationKey {
 
 export interface EvaluationCacheRepository {
   get(key: string): Promise<EvaluationRecord | null>;
-  put(record: EvaluationRecord): Promise<void>;
+  touch(key: string, lastUsedAt: number): Promise<boolean>;
+  putWithRetention(record: EvaluationRecord, maxCount: number): Promise<void>;
+  recoverQuota(): Promise<void>;
 }
+
+export interface AnalysisWarning {
+  code: 'EVALUATION_CACHE_READ_FAILED' | 'EVALUATION_CACHE_WRITE_FAILED' | 'EVALUATION_CACHE_QUOTA';
+  message: string;
+}
+
+const CACHE_READ_MESSAGE = 'Some saved analysis could not be read and will be recalculated.';
+const CACHE_WRITE_MESSAGE = 'Some analysis results could not be saved locally.';
+const CACHE_QUOTA_MESSAGE = 'Local analysis storage is full; some results were not saved.';
 
 export function createIndexedDbEvaluationRepository(db: IDBDatabase): EvaluationCacheRepository {
   return {
     get: (key) => getEvaluation(db, key),
-    put: (record) => putEvaluation(db, record),
+    touch: (key, lastUsedAt) => touchEvaluation(db, key, lastUsedAt),
+    putWithRetention: (record, maxCount) => putEvaluationWithRetention(db, record, maxCount),
+    recoverQuota: async () => {
+      await evictEvaluations(db, { maxCount: 900 });
+    },
   };
 }
 
@@ -47,27 +64,65 @@ export function serializeEvaluationKey(key: EvaluationKey): string {
 }
 
 export class EvaluationCache {
+  private readonly warningByCode = new Map<AnalysisWarning['code'], AnalysisWarning>();
+
   constructor(
     private readonly repository: EvaluationCacheRepository,
     private readonly now: () => number = Date.now
   ) {}
 
   async get(key: EvaluationKey): Promise<EvaluationResult | null> {
-    const record = await this.repository.get(serializeEvaluationKey(key));
-    return record && isEvaluationResult(record.evaluation) ? record.evaluation : null;
+    const serializedKey = serializeEvaluationKey(key);
+    let record: EvaluationRecord | null;
+    try {
+      record = await this.repository.get(serializedKey);
+    } catch {
+      this.warn('EVALUATION_CACHE_READ_FAILED', CACHE_READ_MESSAGE);
+      return null;
+    }
+    if (!record || !isEvaluationResult(record.evaluation)) return null;
+    try {
+      await this.repository.touch(serializedKey, this.now());
+    } catch {
+      this.warn('EVALUATION_CACHE_READ_FAILED', CACHE_READ_MESSAGE);
+    }
+    return record.evaluation;
   }
 
   async put(key: EvaluationKey, evaluation: EvaluationResult): Promise<void> {
     if (!isEvaluationResult(evaluation))
       throw new Error('Cannot cache an invalid engine evaluation.');
-    await this.repository.put({
+    const record: EvaluationRecord = {
       key: serializeEvaluationKey(key),
       // This legacy field remains populated with the complete position identity.
       positionHash: key.fen,
       engineBuild: key.engineBuild,
       lastUsedAt: this.now(),
       evaluation,
-    });
+    };
+    try {
+      await this.repository.putWithRetention(record, 1000);
+    } catch (error) {
+      if (error instanceof QuotaExceededError) {
+        try {
+          await this.repository.recoverQuota();
+          await this.repository.putWithRetention(record, 1000);
+          return;
+        } catch {
+          this.warn('EVALUATION_CACHE_QUOTA', CACHE_QUOTA_MESSAGE);
+          return;
+        }
+      }
+      this.warn('EVALUATION_CACHE_WRITE_FAILED', CACHE_WRITE_MESSAGE);
+    }
+  }
+
+  warnings(): readonly AnalysisWarning[] {
+    return [...this.warningByCode.values()].map((warning) => ({ ...warning }));
+  }
+
+  private warn(code: AnalysisWarning['code'], message: string): void {
+    if (!this.warningByCode.has(code)) this.warningByCode.set(code, { code, message });
   }
 }
 
