@@ -52,6 +52,7 @@ test.describe('workspace visual regression', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
     await loadFixtureGames(page);
+    await expect(page.locator('[data-utility-rail-result]')).toBeVisible();
     await page.getByRole('button', { name: 'Close Game query and progress' }).click();
     await expect(page.getByRole('dialog', { name: 'Game query and progress' })).toBeHidden();
     await expect(page.getByRole('button', { name: 'Filters' })).toBeFocused();
