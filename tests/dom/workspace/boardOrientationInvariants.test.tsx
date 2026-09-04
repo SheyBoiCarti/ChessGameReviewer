@@ -95,7 +95,7 @@ describe('Board orientation and player metadata invariants', () => {
     await user.click(screen.getByRole('button', { name: /load games/i }));
 
     // Select the game
-    await user.click(screen.getByRole('button', { name: /select game versus cmzulu/i }));
+    await user.click(screen.getByRole('button', { name: /cmzulu/i }));
 
     // Verify initial White orientation: Black on top, White on bottom
     const topRowInitial = screen.getByLabelText(/black: iamsheyboicarti \(1150\)/i);
@@ -122,7 +122,7 @@ describe('Board orientation and player metadata invariants', () => {
 
     // Change Settings selector back to 'white' and switch to Games tab
     await user.selectOptions(orientationSelect, 'white');
-    const gamesTab = screen.getByRole('tab', { name: /games and board/i });
+    const gamesTab = screen.getByRole('tab', { name: /^games$/i });
     await user.click(gamesTab);
 
     // Verify board orientation updated back to White
@@ -142,7 +142,7 @@ describe('Board orientation and player metadata invariants', () => {
     const usernameInput = screen.getByLabelText(/^username$/i);
     await user.type(usernameInput, 'iamSheyBoiCarti');
     await user.click(screen.getByRole('button', { name: /load games/i }));
-    await user.click(screen.getByRole('button', { name: /select game versus cmzulu/i }));
+    await user.click(screen.getByRole('button', { name: /cmzulu/i }));
 
     // Navigate history to ply 2 (1...e5)
     const board = screen.getByRole('grid', { name: /chess board/i });

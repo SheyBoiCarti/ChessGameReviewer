@@ -157,15 +157,19 @@ input:not([type='checkbox']) {
 button {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  background: var(--accent-gold);
-  color: var(--text-on-accent);
+  background: var(--surface-raised);
+  color: var(--text-primary);
   padding: 0.55rem 0.8rem;
   cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
 }
 
 button:hover:not(:disabled) {
-  background: var(--accent-gold-strong);
-  color: var(--text-on-accent);
+  background: var(--surface-hover);
+  border-color: var(--accent-gold-text);
 }
 
 button:disabled {
@@ -196,8 +200,8 @@ button:disabled {
 }
 
 .app-topbar__content {
-  min-height: 5.5rem;
-  padding-block: var(--space-4);
+  min-height: 4.75rem;
+  padding-block: var(--space-3);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -224,7 +228,7 @@ button:disabled {
 }
 
 .workspace-canvas {
-  padding-block: var(--space-5);
+  padding-block: var(--space-4);
 }
 
 .workspace-topbar {
@@ -277,6 +281,12 @@ button:disabled {
   color: var(--text-on-accent);
 }
 
+.button-primary:hover:not(:disabled) {
+  background: var(--accent-gold-strong);
+  border-color: var(--accent-gold-strong);
+  color: var(--text-on-accent);
+}
+
 .button-secondary {
   background: var(--surface-raised);
   border-color: var(--border-strong);
@@ -287,6 +297,24 @@ button:disabled {
   background: transparent;
   border-color: transparent;
   color: var(--text-primary);
+}
+
+.button-ghost:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: transparent;
+  color: var(--text-primary);
+}
+
+.button-danger {
+  background: var(--accent-red);
+  border-color: var(--accent-red);
+  color: #fff;
+}
+
+.button-danger:hover:not(:disabled) {
+  background: #e11d48;
+  border-color: #e11d48;
+  color: #fff;
 }
 
 .header {
@@ -394,7 +422,7 @@ button:disabled {
 }
 
 .workspace-shell {
-  --workspace-chrome-height: 14rem;
+  --workspace-chrome-height: 11rem;
   min-width: 0;
 }
 
@@ -539,6 +567,15 @@ button:disabled {
   gap: var(--space-3);
   border-top: 1px solid var(--border-subtle);
   padding-top: var(--space-3);
+}
+
+.query-filter-fields[hidden] {
+  display: none;
+}
+
+.query-resume {
+  width: 100%;
+  font-size: 0.9rem;
 }
 
 .date-fields,
@@ -737,7 +774,7 @@ progress {
   align-items: center;
   justify-content: space-between;
   padding: 0.35rem 0.6rem;
-  background: var(--surface-panel);
+  background: var(--surface-elevated);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   min-width: 0;
@@ -772,7 +809,7 @@ progress {
 .player-row__name {
   font-weight: 600;
   font-size: 0.9rem;
-  color: var(--text-base);
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -848,13 +885,15 @@ li[data-selected='true'] {
   box-shadow: inset 0.25rem 0 0 var(--accent-gold);
 }
 
-.compact-game-list {
+.compact-game-list,
+.game-card-list {
   display: grid;
   gap: 0.65rem;
   list-style: none;
 }
 
-.compact-game-list li {
+.compact-game-list li,
+.game-card-list li {
   display: grid;
   gap: 0.45rem;
   border: 1px solid var(--border-color);
@@ -880,6 +919,70 @@ li[data-selected='true'] {
 
 .compact-game-card button {
   width: 100%;
+}
+
+.game-card-list {
+  gap: var(--space-2);
+}
+
+.game-card-list li {
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+
+.game-card-list li[data-selected='true'] {
+  border-color: var(--accent-gold);
+  box-shadow: inset 0.25rem 0 0 var(--accent-gold);
+}
+
+.game-card {
+  width: 100%;
+  display: grid;
+  gap: var(--space-2);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  padding: 0.8rem;
+  text-align: left;
+}
+
+.game-card:hover:not(:disabled),
+.game-card[aria-pressed='true'] {
+  background: var(--surface-hover);
+  border-color: transparent;
+}
+
+.game-card__heading,
+.game-card__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.game-card__heading strong {
+  font-size: 1rem;
+}
+
+.game-card__heading > span,
+.game-card__meta--subtle {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.game-card__meta {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.game-card__meta span:not(:last-child)::after {
+  content: '•';
+  margin-left: var(--space-2);
+  color: var(--text-subtle);
 }
 
 .board-region {
@@ -1356,7 +1459,15 @@ li[data-selected='true'] {
 }
 
 .local-data-confirmation {
+  width: min(100%, 30rem);
   box-shadow: var(--shadow-surface);
+}
+
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
 }
 
 .modal-backdrop {
@@ -1380,6 +1491,49 @@ li[data-selected='true'] {
   background: var(--bg-surface);
   color: var(--text-primary);
   padding: 1rem;
+}
+
+.analysis-engine-details {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-3);
+}
+
+.analysis-engine-details summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.workspace-loading {
+  min-height: 16rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--surface-elevated), var(--surface-raised));
+  box-shadow: var(--shadow-surface);
+  padding: var(--space-5);
+}
+
+.workspace-loading__mark {
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  border: 0.35rem solid var(--border-strong);
+  border-top-color: var(--accent-gold);
+  border-radius: 50%;
+  animation: workspace-loading-spin 900ms linear infinite;
+}
+
+.workspace-loading p {
+  color: var(--text-muted);
+}
+
+@keyframes workspace-loading-spin {
+  to {
+    transform: rotate(1turn);
+  }
 }
 
 .engine-status,
@@ -1754,7 +1908,7 @@ li[data-selected='true'] {
   }
 
   .workspace-shell {
-    --workspace-chrome-height: 12rem;
+    --workspace-chrome-height: 10rem;
   }
 
   .workspace-layout__utility {
@@ -1807,6 +1961,10 @@ li[data-selected='true'] {
     padding: 1rem 0.65rem;
   }
 
+  .utility-rail__drawer {
+    width: 100%;
+  }
+
   .header h1 {
     font-size: 1.65rem;
   }
@@ -1821,7 +1979,7 @@ li[data-selected='true'] {
   }
 
   .workspace-shell {
-    --workspace-chrome-height: 10rem;
+    --workspace-chrome-height: 8rem;
   }
 
   .board-stage--with-evaluation {

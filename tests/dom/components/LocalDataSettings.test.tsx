@@ -20,7 +20,7 @@ describe('LocalDataSettings', () => {
     await user.click(screen.getByRole('button', { name: /delete player-one data/i }));
     expect(onDeleteUsername).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog', { name: /delete local data/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /confirm delete/i }));
+    await user.click(screen.getByRole('button', { name: /^delete local data$/i }));
 
     expect(onDeleteUsername).toHaveBeenCalledWith('player-one');
     expect(await screen.findByRole('status')).toHaveTextContent(/deleted 12 games/i);
@@ -40,7 +40,7 @@ describe('LocalDataSettings', () => {
     );
 
     await user.click(screen.getByRole('button', { name: /clear all local data/i }));
-    await user.click(screen.getByRole('button', { name: /confirm clear all/i }));
+    await user.click(screen.getByRole('button', { name: /delete everything/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/storage is unavailable/i);
   });

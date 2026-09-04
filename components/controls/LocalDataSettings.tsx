@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { WorkspaceState } from '@/features/workspace/types';
+import { makeBackgroundInert, trapFocus } from '@/components/workspace/ProductInformation';
 
 interface StoredUserSummary {
   username: string;
@@ -24,10 +25,13 @@ export function LocalDataSettings({
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [message, setMessage] = useState<{ kind: 'status' | 'alert'; text: string } | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
 
-  useEffect(() => {
-    if (confirmation) dialogRef.current?.focus();
+  useLayoutEffect(() => {
+    if (!confirmation || !dialogRef.current || !backdropRef.current) return;
+    dialogRef.current.focus();
+    return makeBackgroundInert(backdropRef.current);
   }, [confirmation]);
 
   useEffect(() => {
@@ -48,17 +52,7 @@ export function LocalDataSettings({
       return;
     }
     if (event.key !== 'Tab' || !dialogRef.current) return;
-    const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>('button')];
-    const first = focusable[0];
-    const last = focusable.at(-1);
-    if (!first || !last) return;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    trapFocus(event, dialogRef.current);
   };
 
   const confirm = async () => {
@@ -100,6 +94,7 @@ export function LocalDataSettings({
               </span>
               <button
                 type="button"
+                className="button-danger"
                 disabled={maintenanceActive}
                 onClick={(event) => {
                   triggerRef.current = event.currentTarget;
@@ -116,6 +111,7 @@ export function LocalDataSettings({
       )}
       <button
         type="button"
+        className="button-danger"
         disabled={maintenanceActive}
         onClick={(event) => {
           triggerRef.current = event.currentTarget;
@@ -130,22 +126,37 @@ export function LocalDataSettings({
       {message ? <p role={message.kind}>{message.text}</p> : null}
       {confirmation ? (
         <div
-          className="modal local-data-confirmation"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-data-title"
-          ref={dialogRef}
-          tabIndex={-1}
-          onKeyDown={dialogKeyDown}
+          className="modal-backdrop"
+          ref={backdropRef}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeConfirmation();
+          }}
         >
-          <h4 id="delete-data-title">Delete local data?</h4>
-          <p>This removes games and analysis from this device and cannot be undone.</p>
-          <button type="button" disabled={maintenanceActive} onClick={() => void confirm()}>
-            {confirmation.kind === 'all' ? 'Confirm clear all' : 'Confirm delete'}
-          </button>
-          <button type="button" onClick={closeConfirmation}>
-            Keep data
-          </button>
+          <div
+            className="modal local-data-confirmation"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-data-title"
+            ref={dialogRef}
+            tabIndex={-1}
+            onKeyDown={dialogKeyDown}
+          >
+            <h4 id="delete-data-title">Delete local data?</h4>
+            <p>This removes games and analysis from this device and cannot be undone.</p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="button-danger"
+                disabled={maintenanceActive}
+                onClick={() => void confirm()}
+              >
+                {confirmation.kind === 'all' ? 'Delete everything' : 'Delete local data'}
+              </button>
+              <button type="button" className="button-secondary" onClick={closeConfirmation}>
+                Keep data
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </section>

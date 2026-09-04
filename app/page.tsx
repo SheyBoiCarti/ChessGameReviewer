@@ -10,8 +10,8 @@ export default function Home() {
             <h1>Local Chess Game Reviewer</h1>
           </div>
           <p className="subtitle">
-            Browser-based direct Chess.com game ingestion, opening tree explorer, and local
-            Stockfish analysis.
+            Review Chess.com games, explore your openings, and analyse key moments with Stockfish —
+            entirely in your browser.
           </p>
         </div>
       </header>

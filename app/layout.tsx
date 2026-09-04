@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Local Chess Game Reviewer',
-  description: 'Browser-based direct Chess.com game analysis and opening tree builder',
+  title: 'Chess Game Reviewer',
+  description: 'Private, browser-based Chess.com game review, opening exploration, and analysis.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

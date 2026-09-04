@@ -192,4 +192,31 @@ describe('GameQueryForm', () => {
 
     expect(onOpeningHorizonChange).toHaveBeenLastCalledWith(40);
   });
+
+  it('loads a saved search into the form before resuming it', async () => {
+    const user = userEvent.setup();
+    const onResume = vi.fn();
+    render(
+      <GameQueryForm
+        onSubmit={vi.fn()}
+        recentQuery={{
+          username: 'alice',
+          dateFrom: '2025-01-01',
+          dateTo: '2025-02-01',
+          maxGames: 25,
+          timeClasses: ['rapid'],
+          colors: ['black'],
+          rated: true,
+        }}
+        onResume={onResume}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /load saved search for alice/i }));
+
+    expect(screen.getByLabelText(/username/i)).toHaveValue('alice');
+    expect(screen.getByLabelText(/from date/i)).toHaveValue('2025-01-01');
+    expect(screen.getByLabelText(/to date/i)).toHaveValue('2025-02-01');
+    expect(onResume).toHaveBeenCalledWith(expect.objectContaining({ username: 'alice' }));
+  });
 });

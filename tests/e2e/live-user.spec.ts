@@ -27,7 +27,10 @@ test('loads live games for user iamsheyboicarti and checks graph build', async (
   await loadButton.click();
 
   // Wait for games to load
-  const firstGameButton = page.getByRole('button', { name: /select game versus/i }).first();
+  const firstGameButton = page
+    .getByRole('region', { name: 'Game results' })
+    .getByRole('button')
+    .first();
   await expect(firstGameButton).toBeVisible({ timeout: 60_000 });
 
   // Click the first game

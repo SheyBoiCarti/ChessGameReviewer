@@ -70,17 +70,29 @@ export function AnalyzerWorkspace({
         Analysis status: {analyzerStatusLabel(status)}
       </span>
       <h3 id="analyzer-heading">Local Stockfish analysis</h3>
-      <p>
-        Engine results and Analyzer accuracy estimates are project-specific and stay on this device.
-      </p>
-      <EngineStatus
-        capability={capability}
-        engineBuild={engineBuild}
-        limitLabel={limitLabel}
-        multiPv={preset.multiPv}
-        heuristicVersion={ACCURACY_HEURISTIC_VERSION}
-        jobStatus={status}
-      />
+      <p>Review key moments with Stockfish. Results stay on this device.</p>
+      {unavailable || !capability ? (
+        <EngineStatus
+          capability={capability}
+          engineBuild={engineBuild}
+          limitLabel={limitLabel}
+          multiPv={preset.multiPv}
+          heuristicVersion={ACCURACY_HEURISTIC_VERSION}
+          jobStatus={status}
+        />
+      ) : (
+        <details className="analysis-engine-details">
+          <summary>Engine details</summary>
+          <EngineStatus
+            capability={capability}
+            engineBuild={engineBuild}
+            limitLabel={limitLabel}
+            multiPv={preset.multiPv}
+            heuristicVersion={ACCURACY_HEURISTIC_VERSION}
+            jobStatus={status}
+          />
+        </details>
+      )}
       {!unavailable ? (
         <>
           <AnalysisSettings
@@ -89,15 +101,15 @@ export function AnalyzerWorkspace({
             onChange={onStrengthChange}
           />
           {status === 'running' ? (
-            <button type="button" onClick={onCancel}>
+            <button type="button" className="button-secondary" onClick={onCancel}>
               Cancel analysis
             </button>
           ) : status === 'partial' || status === 'cancelled' ? (
-            <button type="button" onClick={onResume}>
+            <button type="button" className="button-primary" onClick={onResume}>
               Resume analysis
             </button>
           ) : (
-            <button type="button" onClick={() => onStart(strength)}>
+            <button type="button" className="button-primary" onClick={() => onStart(strength)}>
               Start analysis
             </button>
           )}

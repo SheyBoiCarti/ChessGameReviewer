@@ -19,7 +19,7 @@ test.describe('workspace visual regression', () => {
   test('loaded board', async ({ page }) => {
     await page.goto('/');
     await loadFixtureGames(page);
-    await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+    await page.getByRole('button', { name: /opponent-two/i }).click();
     await expect(page.getByRole('grid', { name: 'Chess board' })).toBeVisible();
     await waitForStableLayout(page);
 
@@ -29,7 +29,7 @@ test.describe('workspace visual regression', () => {
   test('opening tree', async ({ page }) => {
     await page.goto('/');
     await loadFixtureGames(page);
-    await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+    await page.getByRole('button', { name: /opponent-two/i }).click();
     await page.getByRole('tab', { name: 'Opening tree' }).click();
     await expect(page.getByRole('heading', { name: 'Opening candidates' })).toBeVisible();
     await waitForStableLayout(page);
@@ -40,7 +40,7 @@ test.describe('workspace visual regression', () => {
   test('analyzer unavailable', async ({ page }) => {
     await page.goto('/?engine=unavailable');
     await loadFixtureGames(page);
-    await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+    await page.getByRole('button', { name: /opponent-two/i }).click();
     await page.getByRole('tab', { name: 'Analysis' }).click();
     await expect(page.getByText(/Engine unavailable/i)).toBeVisible();
     await waitForStableLayout(page);
@@ -57,7 +57,7 @@ test.describe('workspace visual regression', () => {
     await expect(page.getByRole('dialog', { name: 'Game query and progress' })).toBeHidden();
     await expect(page.getByRole('button', { name: 'Filters' })).toBeFocused();
     await expect(page.locator('.workspace-layout__utility')).toBeEmpty();
-    await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+    await page.getByRole('button', { name: /opponent-two/i }).click();
     await expect(page.getByRole('grid', { name: 'Chess board' })).toBeVisible();
     await waitForStableLayout(page);
 
@@ -74,7 +74,7 @@ function screenshotOptions(page?: Page) {
 }
 
 function dynamicDateCells(page: Page): Locator[] {
-  return [page.locator('.game-table tbody td:nth-child(5)')];
+  return [page.locator('.game-card__heading > span')];
 }
 
 async function waitForStableLayout(page: Page) {
