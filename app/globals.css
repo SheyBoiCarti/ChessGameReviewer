@@ -161,10 +161,7 @@ button {
   color: var(--text-primary);
   padding: 0.55rem 0.8rem;
   cursor: pointer;
-  transition:
-    background 140ms ease,
-    border-color 140ms ease,
-    transform 140ms ease;
+  transition: transform 140ms ease;
 }
 
 button:hover:not(:disabled) {
@@ -718,6 +715,12 @@ progress {
 }
 
 .workspace-tabs [aria-selected='true'] {
+  background: var(--accent-gold-strong);
+  border-color: var(--accent-gold);
+  color: var(--text-on-accent);
+}
+
+.workspace-tabs [aria-selected='true']:hover:not(:disabled) {
   background: var(--accent-gold-strong);
   border-color: var(--accent-gold);
   color: var(--text-on-accent);

@@ -86,7 +86,12 @@ test('uses the compact workspace before a three-column desktop layout crowds the
   const maximumBoardSize = await page.evaluate(
     () =>
       window.innerHeight -
-      14 * Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+      Number.parseFloat(
+        getComputedStyle(document.querySelector('.workspace-shell')!).getPropertyValue(
+          '--workspace-chrome-height'
+        )
+      ) *
+        Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
   );
   expect(board).not.toBeNull();
   expect(board!.width).toBeLessThanOrEqual(maximumBoardSize + 1);
@@ -324,7 +329,12 @@ test('desktop analyzer layout stays bounded within usable viewport height for lo
   const maxContextHeight = await page.evaluate(
     () =>
       window.innerHeight -
-      14 * Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+      Number.parseFloat(
+        getComputedStyle(document.querySelector('.workspace-shell')!).getPropertyValue(
+          '--workspace-chrome-height'
+        )
+      ) *
+        Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
   );
   expect(contextMetrics.clientHeight).toBeLessThanOrEqual(maxContextHeight + 5);
   expect(contextMetrics.scrollHeight).toBeGreaterThan(contextMetrics.clientHeight);

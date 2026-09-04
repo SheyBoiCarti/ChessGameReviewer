@@ -440,7 +440,19 @@ export function ChessWorkspace({
                 <GameSelector
                   games={state.ingestion.result?.games ?? []}
                   selectedGameId={state.selection.gameId}
-                  onSelect={(gameId) => controller.selectGame(gameId)}
+                  onSelect={(gameId) => {
+                    controller.selectGame(gameId);
+                    if (
+                      typeof window.matchMedia === 'function' &&
+                      window.matchMedia('(max-width: 64rem)').matches
+                    ) {
+                      requestAnimationFrame(() =>
+                        document.querySelector<HTMLElement>('.board-region')?.scrollIntoView({
+                          block: 'start',
+                        })
+                      );
+                    }
+                  }}
                   onAnalyze={(gameId) => {
                     controller.selectGame(gameId);
                     selectTab('analysis');
