@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import type { GameRecord } from '@/lib/db/schema';
 import { extractPgnPlayers } from '@/lib/chess/pgnHeaders';
@@ -11,17 +11,17 @@ export function GameSelector({
   onSelect,
   onAnalyze,
   analysisStatus = {},
+  hasLoaded = false,
 }: {
   games: readonly GameRecord[];
   selectedGameId: string | null;
   onSelect(gameId: string): void;
   onAnalyze?(gameId: string): void;
   analysisStatus?: Readonly<Record<string, string>>;
+  hasLoaded?: boolean;
 }) {
-  const container = useRef<HTMLElement>(null);
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<'newest' | 'oldest' | 'rating'>('newest');
-  const compact = useCompactLayout(container);
   const rows = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     return games
@@ -36,11 +36,7 @@ export function GameSelector({
   }, [filter, games, sort]);
 
   return (
-    <section
-      ref={container}
-      className="game-selector surface-panel"
-      aria-labelledby="game-selector-heading"
-    >
+    <section className="game-selector surface-panel" aria-labelledby="game-selector-heading">
       <h3 id="game-selector-heading">Games</h3>
       <div className="game-selector-controls">
         <label>
@@ -71,7 +67,11 @@ export function GameSelector({
         </div>
       ) : null}
       {rows.length === 0 ? (
-        <p>No games match the current filter.</p>
+        <p className="empty-copy">
+          {hasLoaded || games.length > 0
+            ? 'No games match this filter. Try another opponent name.'
+            : 'Load a player’s games to choose a game and begin reviewing.'}
+        </p>
       ) : (
         <div
           className="result-viewport game-results"
@@ -79,57 +79,19 @@ export function GameSelector({
           aria-label="Game results"
           tabIndex={0}
         >
-          {compact ? (
-            <ul className="compact-game-list" aria-label="Compact games">
-              {rows.map(({ game, opponent }) => (
-                <li
-                  key={game.id}
-                  className="compact-game-card"
-                  data-selected={game.id === selectedGameId}
-                >
-                  <GameButton game={game} opponent={opponent} onSelect={onSelect} />
-                  <span>{metadata(game, analysisStatus[game.id])}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <table className="context-table game-table" aria-label="Games">
-              <thead>
-                <tr>
-                  <th>Opponent</th>
-                  <th>Colour</th>
-                  <th>Result</th>
-                  <th>Ratings</th>
-                  <th>Ended</th>
-                  <th>Time</th>
-                  <th>Rated</th>
-                  <th>Analysis</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(({ game, opponent }) => (
-                  <tr
-                    key={game.id}
-                    className={game.id === selectedGameId ? 'is-selected' : undefined}
-                    aria-selected={game.id === selectedGameId}
-                  >
-                    <td>
-                      <GameButton game={game} opponent={opponent} onSelect={onSelect} />
-                    </td>
-                    <td>{game.userColor}</td>
-                    <td>{game.result}</td>
-                    <td>
-                      {game.userRating ?? '—'} / {game.opponentRating ?? '—'}
-                    </td>
-                    <td>{new Date(game.endedAt * 1000).toLocaleDateString()}</td>
-                    <td>{game.timeClass}</td>
-                    <td>{game.rated ? 'Rated' : 'Unrated'}</td>
-                    <td>{analysisStatus[game.id] ?? 'Not analysed'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <ul className="game-card-list" aria-label="Games">
+            {rows.map(({ game, opponent }) => (
+              <li key={game.id} data-selected={game.id === selectedGameId}>
+                <GameButton
+                  game={game}
+                  opponent={opponent}
+                  selected={game.id === selectedGameId}
+                  status={analysisStatus[game.id]}
+                  onSelect={onSelect}
+                />
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </section>
@@ -139,15 +101,39 @@ export function GameSelector({
 function GameButton({
   game,
   opponent,
+  selected,
+  status,
   onSelect,
 }: {
   game: GameRecord;
   opponent: string;
+  selected: boolean;
+  status: string | undefined;
   onSelect(gameId: string): void;
 }) {
   return (
-    <button type="button" onClick={() => onSelect(game.id)}>
-      Select game versus {opponent}
+    <button
+      type="button"
+      className="game-card"
+      aria-pressed={selected}
+      onClick={() => onSelect(game.id)}
+    >
+      <span className="game-card__heading">
+        <strong>{opponent}</strong>
+        <span>{formatDate(game.endedAt)}</span>
+      </span>
+      <span className="game-card__meta">
+        <span>{titleCase(game.result)}</span>
+        <span>{titleCase(game.userColor)}</span>
+        <span>
+          {game.userRating ?? '—'} vs {game.opponentRating ?? '—'}
+        </span>
+      </span>
+      <span className="game-card__meta game-card__meta--subtle">
+        <span>{titleCase(game.timeClass)}</span>
+        <span>{game.rated ? 'Rated' : 'Unrated'}</span>
+        <span>{status ?? 'Not analysed'}</span>
+      </span>
     </button>
   );
 }
@@ -168,24 +154,14 @@ function opponentName(game: GameRecord): string {
   return 'Unknown opponent';
 }
 
-function metadata(game: GameRecord, status: string | undefined): string {
-  return `${game.userColor}, ${game.result}, ${game.timeClass}, ${game.rated ? 'rated' : 'unrated'}, ${status ?? 'not analysed'}`;
+function formatDate(endedAt: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(endedAt * 1000));
 }
 
-function useCompactLayout(container: React.RefObject<HTMLElement | null>): boolean {
-  const maximumTableWidth = 42 * 16;
-  const [compact, setCompact] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth <= maximumTableWidth : false
-  );
-  useEffect(() => {
-    const element = container.current;
-    if (!element) return;
-    const update = () => setCompact(element.clientWidth <= maximumTableWidth);
-    update();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [container]);
-  return compact;
+function titleCase(value: string): string {
+  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
 }

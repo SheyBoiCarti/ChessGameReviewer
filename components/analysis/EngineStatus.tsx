@@ -27,11 +27,11 @@ export function EngineStatus({
   return (
     <dl className="engine-status">
       <div>
-        <dt>Engine build</dt>
+        <dt>Engine version</dt>
         <dd>{engineBuild}</dd>
       </div>
       <div>
-        <dt>Mode</dt>
+        <dt>Performance mode</dt>
         <dd>{capability.mode}</dd>
       </div>
       <div>
@@ -39,19 +39,19 @@ export function EngineStatus({
         <dd>{capability.threads}</dd>
       </div>
       <div>
-        <dt>Analysis limit</dt>
+        <dt>Review limit</dt>
         <dd>{limitLabel}</dd>
       </div>
       <div>
-        <dt>Multi-PV</dt>
+        <dt>Lines compared</dt>
         <dd>{multiPv}</dd>
       </div>
       <div>
-        <dt>Heuristic</dt>
+        <dt>Scoring model</dt>
         <dd>{heuristicVersion}</dd>
       </div>
       <div>
-        <dt>Job</dt>
+        <dt>Current job</dt>
         <dd>{jobStatus}</dd>
       </div>
     </dl>

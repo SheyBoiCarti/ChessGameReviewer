@@ -17,9 +17,7 @@ test('has no serious or critical axe findings after the initial query and loaded
   await waitForWorkspaceReady(page);
   await assertAccessible(page);
   await loadFixtureGames(page);
-  await expect(
-    page.getByRole('button', { name: /select game versus opponent-two/i })
-  ).toBeVisible();
+  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
   await assertAccessible(page);
 });
 
@@ -31,7 +29,7 @@ test('has no serious or critical axe findings in opening-tree, analysis-unavaila
   await waitForWorkspaceReady(page);
   await loadFixtureGames(page);
   await closeUtilityDrawer(page);
-  await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+  await page.getByRole('button', { name: /opponent-two/i }).click();
   await page.getByRole('tab', { name: 'Opening tree' }).click();
   await assertAccessible(page);
 
@@ -90,7 +88,7 @@ test('has no serious or critical axe findings with completed analysis and bounde
   await waitForWorkspaceReady(page);
   await loadFixtureGames(page);
   await closeUtilityDrawer(page);
-  await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+  await page.getByRole('button', { name: /opponent-two/i }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
     timeout: 30_000,

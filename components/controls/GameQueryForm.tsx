@@ -18,6 +18,8 @@ export interface GameQueryFormProps {
   onOpeningHorizonChange?(value: number): void;
   initialQuery?: Partial<GameQuery>;
   onDraftChange?(query: Partial<GameQuery>): void;
+  recentQuery?: GameQuery | null;
+  onResume?(query: GameQuery): void | Promise<void>;
 }
 
 export function GameQueryForm({
@@ -27,6 +29,8 @@ export function GameQueryForm({
   onOpeningHorizonChange,
   initialQuery,
   onDraftChange,
+  recentQuery = null,
+  onResume,
 }: GameQueryFormProps) {
   const [username, setUsername] = useState(initialQuery?.username ?? '');
   const [dateFrom, setDateFrom] = useState(initialQuery?.dateFrom ?? '');
@@ -44,10 +48,23 @@ export function GameQueryForm({
   const [horizonDraft, setHorizonDraft] = useState(String(openingHorizon));
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [horizonError, setHorizonError] = useState<string | null>(null);
 
   useEffect(() => {
     setHorizonDraft(String(openingHorizon));
   }, [openingHorizon]);
+
+  const loadDraft = (query: GameQuery) => {
+    setUsername(query.username);
+    setDateFrom(query.dateFrom ?? '');
+    setDateTo(query.dateTo ?? '');
+    setMaxGames(String(query.maxGames));
+    setTimeClasses([...query.timeClasses]);
+    setColors([...query.colors]);
+    setRated(query.rated === true ? 'rated' : query.rated === false ? 'unrated' : 'any');
+    setDiagnostics([]);
+    setHorizonError(null);
+  };
 
   const updateDraft = (changes: Partial<GameQuery>) => {
     onDraftChange?.({
@@ -81,7 +98,15 @@ export function GameQueryForm({
       }
       return;
     }
+    const horizon = Number(horizonDraft);
+    if (!Number.isInteger(horizon) || horizon < 2 || horizon > 40) {
+      setHorizonError('Choose a whole number from 2 to 40 plies.');
+      setFiltersOpen(true);
+      return;
+    }
     setDiagnostics([]);
+    setHorizonError(null);
+    onOpeningHorizonChange?.(horizon);
     void onSubmit(validation.data);
   };
 
@@ -90,6 +115,10 @@ export function GameQueryForm({
   const timeClassError = diagnostic('INVALID_TIME_CLASSES');
   const colorError = diagnostic('INVALID_COLORS');
   const ratedStatusError = diagnostic('INVALID_RATED_STATUS');
+  const dateError =
+    diagnostic('INVALID_DATE_FROM') ??
+    diagnostic('INVALID_DATE_TO') ??
+    diagnostic('INVERTED_DATE_RANGE');
 
   return (
     <form className="query-form" onSubmit={submit} noValidate>
@@ -127,7 +156,7 @@ export function GameQueryForm({
               setDateFrom(next);
               updateDraft({ dateFrom: next });
             }}
-            aria-describedby="date-help"
+            aria-describedby={dateError ? 'date-error' : 'date-help'}
             disabled={disabled}
           />
         </div>
@@ -142,7 +171,7 @@ export function GameQueryForm({
               setDateTo(next);
               updateDraft({ dateTo: next });
             }}
-            aria-describedby="date-help"
+            aria-describedby={dateError ? 'date-error' : 'date-help'}
             disabled={disabled}
           />
         </div>
@@ -150,9 +179,14 @@ export function GameQueryForm({
       <p id="date-help" className="field-help">
         Dates are inclusive in UTC.
       </p>
+      {dateError ? (
+        <p id="date-error" className="field-error" role="alert">
+          {dateError.message}
+        </p>
+      ) : null}
 
       <div className="query-filter-summary" aria-live="polite">
-        {filterSummary(timeClasses, colors, rated, maxGames, horizonDraft)}
+        {filterSummary(timeClasses, colors, rated, maxGames, openingHorizon)}
       </div>
       <button
         className="button-secondary query-filter-toggle"
@@ -200,11 +234,18 @@ export function GameQueryForm({
                 setHorizonDraft(event.currentTarget.value);
                 const value = event.currentTarget.valueAsNumber;
                 if (Number.isInteger(value) && value >= 2 && value <= 40) {
+                  setHorizonError(null);
                   onOpeningHorizonChange?.(value);
                 }
               }}
+              aria-describedby={horizonError ? 'opening-horizon-error' : undefined}
               disabled={disabled}
             />
+            {horizonError ? (
+              <p id="opening-horizon-error" className="field-error">
+                {horizonError}
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -285,9 +326,22 @@ export function GameQueryForm({
         </div>
       </div>
 
-      <button type="submit" disabled={disabled}>
+      <button type="submit" className="button-primary" disabled={disabled}>
         Load games
       </button>
+      {recentQuery && onResume ? (
+        <button
+          type="button"
+          className="button-secondary query-resume"
+          disabled={disabled}
+          onClick={() => {
+            loadDraft(recentQuery);
+            void onResume(recentQuery);
+          }}
+        >
+          Load saved search for {recentQuery.username}
+        </button>
+      ) : null}
     </form>
   );
 }
@@ -297,7 +351,7 @@ function filterSummary(
   colors: readonly PlayerColor[],
   rated: 'any' | 'rated' | 'unrated',
   maxGames: string,
-  horizon: string
+  horizon: number
 ): string {
   const timeLabel =
     timeClasses.length === timeClassOptions.length
@@ -307,7 +361,7 @@ function filterSummary(
     colors.length === colorOptions.length ? 'both colours' : colors.join(', ') || 'no colours';
   const ratedLabel =
     rated === 'any' ? 'rated and unrated' : rated === 'rated' ? 'rated only' : 'unrated only';
-  return `${timeLabel}; ${colorLabel}; ${ratedLabel}; up to ${maxGames || '0'} games; ${horizon || '—'} ply horizon.`;
+  return `${timeLabel}; ${colorLabel}; ${ratedLabel}; up to ${maxGames || '0'} games; ${horizon} ply horizon.`;
 }
 
 function toggle<T>(values: readonly T[], value: T): T[] {

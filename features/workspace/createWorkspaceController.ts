@@ -10,7 +10,7 @@ import type { AnalysisStrength } from './types';
 import type { GraphBuildWorkerResult } from '../opening-tree/graphWorkerClient';
 import type { IngestionProgress, IngestionResult } from '../ingestion/types';
 import { initialWorkspaceState, reduceWorkspace } from './reducer';
-import type { WorkspaceAction, WorkspaceState } from './types';
+import type { WorkspaceAction, WorkspacePreferences, WorkspaceState } from './types';
 
 interface IngestionStartOptions {
   manualRefresh?: boolean;
@@ -79,8 +79,14 @@ class DataMaintenanceActiveError extends Error {
   }
 }
 
-export function createWorkspaceController(services: WorkspaceServices): WorkspaceController {
-  let state = initialWorkspaceState;
+export function createWorkspaceController(
+  services: WorkspaceServices,
+  initialPreferences: Partial<WorkspacePreferences> = {}
+): WorkspaceController {
+  let state: WorkspaceState = {
+    ...initialWorkspaceState,
+    preferences: { ...initialWorkspaceState.preferences, ...initialPreferences },
+  };
   let nextToken = 0;
   let disposed = false;
   let analysisSequence = 0;

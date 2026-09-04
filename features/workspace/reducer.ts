@@ -79,6 +79,15 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           result: action.result,
           error: null,
         },
+        selection:
+          action.result.games.length > 0
+            ? {
+                ...emptySelection,
+                gameId: action.result.games.reduce((newest, game) =>
+                  game.endedAt > newest.endedAt ? game : newest
+                ).id,
+              }
+            : emptySelection,
       };
     }
     case 'ingestion/failed':

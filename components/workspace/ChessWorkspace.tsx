@@ -56,7 +56,7 @@ export function ChessWorkspace({
 }: {
   createServices?: (() => WorkspaceServices) | undefined;
 } = {}) {
-  const { controller, state } = useWorkspace(createServices);
+  const { controller, state, recentQuery } = useWorkspace(createServices);
   const [tab, setTab] = useState<WorkspaceTab>('games');
   const [navigation, setNavigation] = useState<GraphNavigationState | null>(null);
   const [moveOrdersOpen, setMoveOrdersOpen] = useState(false);
@@ -368,7 +368,7 @@ export function ChessWorkspace({
       filterControlsId="game-query-rail"
       filterTriggerRef={filtersTrigger}
     >
-      <main className={`workspace-shell${filtersOpen ? ' workspace-shell--rail-open' : ''}`}>
+      <div className={`workspace-shell${filtersOpen ? ' workspace-shell--rail-open' : ''}`}>
         <WorkspaceLayout
           utility={
             <UtilityRail
@@ -396,6 +396,8 @@ export function ChessWorkspace({
                   })
                 }
                 onSubmit={(query) => controller.submitQuery(query)}
+                recentQuery={recentQuery}
+                onResume={(query) => controller.submitQuery(query)}
               />
               {state.ingestion.progress && state.ingestion.status === 'loading' ? (
                 <IngestionProgress
@@ -444,6 +446,7 @@ export function ChessWorkspace({
                     selectTab('analysis');
                   }}
                   analysisStatus={analysisStatusMap}
+                  hasLoaded={state.ingestion.result !== null}
                 />
               ) : null}
 
@@ -605,7 +608,7 @@ export function ChessWorkspace({
             </div>
           }
         />
-      </main>
+      </div>
     </AppTopBar>
   );
 }

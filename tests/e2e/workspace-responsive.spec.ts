@@ -57,7 +57,7 @@ test('keeps the board and its move controls visible without document overflow ac
       await expect(drawer).toBeHidden();
       await expect(page.getByRole('button', { name: 'Filters' })).toBeFocused();
     }
-    await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+    await page.getByRole('button', { name: /opponent-two/i }).click();
 
     await expect(page.getByRole('grid', { name: 'Chess board' })).toBeInViewport();
     await expect(page.getByRole('button', { name: 'Next move' })).toBeVisible();
@@ -77,12 +77,10 @@ test('uses the compact workspace before a three-column desktop layout crowds the
   await loadFixtureGames(page);
   await page.getByRole('button', { name: 'Close Game query and progress' }).click();
 
-  await expect(
-    page.getByRole('button', { name: /select game versus opponent-two/i })
-  ).toBeVisible();
-  await expect(page.getByRole('list', { name: 'Compact games' })).toBeVisible();
-  await expect(page.getByRole('table', { name: 'Games' })).toBeHidden();
-  await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Games' })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Games' })).toHaveCount(0);
+  await page.getByRole('button', { name: /opponent-two/i }).click();
 
   const board = await page.getByRole('grid', { name: 'Chess board' }).boundingBox();
   const maximumBoardSize = await page.evaluate(
@@ -125,7 +123,7 @@ test('uses a visually separated, classic board grid without obscuring move highl
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+  await page.getByRole('button', { name: /opponent-two/i }).click();
 
   const board = page.getByRole('grid', { name: 'Chess board' });
   await expect(board).toBeVisible();
@@ -144,7 +142,7 @@ test('keeps every board square equal before and after piece occupancy changes', 
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+  await page.getByRole('button', { name: /opponent-two/i }).click();
 
   await expectUniformBoardSquares(page);
   await page.getByRole('button', { name: 'Next move' }).click();
@@ -159,7 +157,7 @@ test('aligns the evaluation meter to the framed board and uses its full track', 
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+  await page.getByRole('button', { name: /opponent-two/i }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
     timeout: 30_000,
@@ -233,7 +231,7 @@ test('contains games and opening candidates in fixed-height scroll viewports', a
   await loadFixtureGames(page, 20);
 
   const gameResults = page.getByRole('region', { name: 'Game results' });
-  await expect(gameResults.getByRole('button', { name: /select game versus/i })).toHaveCount(20);
+  await expect(gameResults.getByRole('button')).toHaveCount(20);
   const gameMetrics = await scrollMetrics(gameResults);
   expect(gameMetrics.clientHeight).toBeGreaterThanOrEqual(16 * 16 - 1);
   expect(gameMetrics.clientHeight).toBeLessThanOrEqual(28 * 16 + 1);
@@ -307,7 +305,7 @@ test('desktop analyzer layout stays bounded within usable viewport height for lo
   await installLongGameWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page, 1);
-  await page.getByRole('button', { name: /select game versus opponent-long/i }).click();
+  await page.getByRole('button', { name: /opponent-long/i }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
     timeout: 30_000,
@@ -359,7 +357,7 @@ test('mobile analyzer layout uses natural document flow with bounded move list',
   await page.getByRole('button', { name: 'Close Game query and progress' }).click();
   await expect(drawer).toBeHidden();
 
-  await page.getByRole('button', { name: /select game versus opponent-long/i }).click();
+  await page.getByRole('button', { name: /opponent-long/i }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
     timeout: 30_000,

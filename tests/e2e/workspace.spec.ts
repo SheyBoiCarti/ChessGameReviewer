@@ -14,12 +14,10 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
   test.setTimeout(90_000);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await expect(
-    page.getByRole('button', { name: /select game versus opponent-two/i })
-  ).toBeVisible();
+  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
   await expect(page.locator('#game-query-rail')).toHaveCount(0);
 
-  await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+  await page.getByRole('button', { name: /opponent-two/i }).click();
   const board = page.getByRole('grid', { name: 'Chess board' });
   await expect(board).toBeVisible();
   const boardHandle = await board.elementHandle();
@@ -61,7 +59,7 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
 
   await page.getByRole('tab', { name: 'Settings' }).click();
   await page.getByRole('button', { name: /delete fixture-user data/i }).click();
-  await page.getByRole('button', { name: 'Confirm delete' }).click();
+  await page.getByRole('button', { name: 'Delete local data' }).click();
   await expect(page.getByRole('status')).toContainText(/Deleted 2 games/i);
   await expect(page.getByText('No stored usernames were found.')).toBeVisible();
 });
@@ -72,7 +70,7 @@ test('supports interactive board moves, variation sandbox, and unobserved openin
   test.setTimeout(60_000);
   await page.goto('/?engine=unavailable');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+  await page.getByRole('button', { name: /opponent-two/i }).click();
 
   // Switch to Opening Tree tab and play an unobserved novelty directly on board
   await page.getByRole('tab', { name: 'Opening tree' }).click();
@@ -112,7 +110,7 @@ test('keeps opening data usable when Stockfish is unavailable', async ({ page })
   await page.goto('/?engine=unavailable');
   await loadFixtureGames(page);
   await expect(page.locator('#game-query-rail')).toHaveCount(0);
-  await page.getByRole('button', { name: /select game versus opponent-two/i }).click();
+  await page.getByRole('button', { name: /opponent-two/i }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByText(/Engine unavailable/i)).toBeVisible({ timeout: 15_000 });
   await page.getByRole('tab', { name: 'Opening tree' }).click();

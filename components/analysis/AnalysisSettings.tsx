@@ -17,9 +17,9 @@ export function AnalysisSettings({
         onChange={(event) => onChange(event.currentTarget.value as AnalysisStrength)}
         disabled={disabled}
       >
-        <option value="quick">Quick — depth 10, one PV</option>
-        <option value="balanced">Balanced — depth 14, two PVs</option>
-        <option value="deep">Deep — 3 seconds, three PVs</option>
+        <option value="quick">Quick — a fast overview</option>
+        <option value="balanced">Balanced — recommended</option>
+        <option value="deep">Deep — more thorough</option>
       </select>
     </label>
   );
