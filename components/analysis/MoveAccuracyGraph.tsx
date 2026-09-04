@@ -29,7 +29,7 @@ export function MoveAccuracyGraph({
       <svg
         className="accuracy-graph"
         viewBox="0 0 100 48"
-        role="img"
+        role="group"
         aria-label="Evaluation graph"
         aria-describedby="analysis-move-list"
       >

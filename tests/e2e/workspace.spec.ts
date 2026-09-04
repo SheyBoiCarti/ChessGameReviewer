@@ -43,6 +43,7 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
     await expect(board).toBeVisible();
     expect(await boardHandle?.evaluate((grid) => grid.isConnected)).toBe(true);
     await expect(page.getByRole('heading', { name: 'Local Stockfish analysis' })).toBeVisible();
+    await page.getByText('Engine details', { exact: true }).click();
     await expect(page.getByText('single-thread', { exact: true })).toBeVisible({ timeout: 30_000 });
     await page.getByRole('button', { name: 'Start analysis' }).click();
     await expect(page.getByRole('button', { name: 'Cancel analysis' })).toBeVisible();
