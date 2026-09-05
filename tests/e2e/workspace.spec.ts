@@ -22,9 +22,9 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
   await expect(board).toBeVisible();
   const boardHandle = await board.elementHandle();
   await board.press('ArrowRight');
-  await expect(page.getByText('Ply 1 of 8')).toBeVisible();
+  await expect(page.getByLabel('Position 1 of 8')).toBeVisible();
 
-  await page.getByRole('tab', { name: 'Opening tree' }).click();
+  await page.getByRole('button', { name: 'Openings' }).click();
   await expect(board).toBeVisible();
   expect(await boardHandle?.evaluate((grid) => grid.isConnected)).toBe(true);
   await expect(page.getByRole('heading', { name: 'Opening candidates' })).toBeVisible();
@@ -39,6 +39,7 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
   await page.keyboard.press('Escape');
 
   if (browserName === 'chromium') {
+    await page.getByRole('button', { name: 'Review' }).click();
     await page.getByRole('tab', { name: 'Analysis' }).click();
     await expect(board).toBeVisible();
     expect(await boardHandle?.evaluate((grid) => grid.isConnected)).toBe(true);
@@ -58,7 +59,7 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
     await expect(page.getByRole('meter', { name: /white-perspective evaluation/i })).toBeVisible();
   }
 
-  await page.getByRole('tab', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: /delete fixture-user data/i }).click();
   await page.getByRole('button', { name: 'Delete local data' }).click();
   await expect(page.getByRole('status')).toContainText(/Deleted 2 games/i);
@@ -74,7 +75,7 @@ test('supports interactive board moves, variation sandbox, and unobserved openin
   await page.getByRole('button', { name: /opponent-two/i }).click();
 
   // Switch to Opening Tree tab and play an unobserved novelty directly on board
-  await page.getByRole('tab', { name: 'Opening tree' }).click();
+  await page.getByRole('button', { name: 'Openings' }).click();
   const board = page.getByRole('grid', { name: 'Chess board' });
   await expect(board).toBeVisible();
 
@@ -93,6 +94,7 @@ test('supports interactive board moves, variation sandbox, and unobserved openin
   await expect(page.getByRole('heading', { name: 'Opening candidates' })).toBeVisible();
 
   // Switch to Analysis tab and play alternative moves to enter sandbox
+  await page.getByRole('button', { name: 'Review' }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await page.locator('[data-square="e2"]').click();
   await page.locator('[data-square="e4"]').click();
@@ -112,8 +114,9 @@ test('keeps opening data usable when Stockfish is unavailable', async ({ page })
   await loadFixtureGames(page);
   await expect(page.locator('#game-query-rail')).toHaveCount(0);
   await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review' }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByText(/Engine unavailable/i)).toBeVisible({ timeout: 15_000 });
-  await page.getByRole('tab', { name: 'Opening tree' }).click();
+  await page.getByRole('button', { name: 'Openings' }).click();
   await expect(page.getByRole('heading', { name: 'Opening candidates' })).toBeVisible();
 });

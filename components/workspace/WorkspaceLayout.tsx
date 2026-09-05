@@ -1,19 +1,14 @@
-import type { ReactNode } from 'react';
+import type { JSX, ReactNode } from 'react';
 
-export function WorkspaceLayout({
-  utility,
-  board,
-  tabs,
-  panel,
-}: {
-  utility: ReactNode;
-  board: ReactNode;
-  tabs: ReactNode;
+export interface WorkspaceLayoutProps {
+  board?: ReactNode;
+  tabs?: ReactNode;
   panel: ReactNode;
-}) {
+}
+
+export function WorkspaceLayout({ board, tabs, panel }: WorkspaceLayoutProps): JSX.Element {
   return (
     <div className={`workspace-layout${!board ? ' workspace-layout--no-board' : ''}`}>
-      <div className="workspace-layout__utility">{utility}</div>
       {board ? (
         <section className="workspace-layout__board" aria-label="Board focal region">
           {board}

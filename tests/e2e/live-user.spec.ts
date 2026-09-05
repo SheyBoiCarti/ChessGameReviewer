@@ -36,8 +36,8 @@ test('loads live games for user iamsheyboicarti and checks graph build', async (
   // Click the first game
   await firstGameButton.click();
 
-  // Switch to opening tree tab
-  await page.getByRole('tab', { name: 'Opening tree' }).click();
+  // Switch to openings
+  await page.getByRole('button', { name: 'Openings' }).click();
 
   // Poll for opening tree panel content every 1s for 15s
   for (let i = 0; i < 15; i++) {

@@ -30,14 +30,15 @@ test('has no serious or critical axe findings in opening-tree, analysis-unavaila
   await loadFixtureGames(page);
   await closeUtilityDrawer(page);
   await page.getByRole('button', { name: /opponent-two/i }).click();
-  await page.getByRole('tab', { name: 'Opening tree' }).click();
+  await page.getByRole('button', { name: 'Openings' }).click();
   await assertAccessible(page);
 
+  await page.getByRole('button', { name: 'Review' }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByText(/Engine unavailable/i)).toBeVisible();
   await assertAccessible(page);
 
-  await page.getByRole('tab', { name: 'Opening tree' }).click();
+  await page.getByRole('button', { name: 'Openings' }).click();
   await page.getByRole('button', { name: 'Play Nf3' }).click();
   await page.getByRole('button', { name: 'Play d5' }).click();
   await page.getByRole('button', { name: 'Play d4' }).click();
@@ -53,11 +54,13 @@ test('has no serious or critical axe findings in the utility drawer and product-
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await waitForWorkspaceReady(page);
-  await waitForModalReady(page, 'Game query and progress', 'Close Game query and progress');
+  await page.getByRole('button', { name: 'Import games' }).click();
+  await waitForModalReady(page, 'Import games', 'Close import games');
   await assertAccessible(page);
 
-  await page.getByRole('button', { name: 'Close Game query and progress' }).click();
-  await page.getByRole('button', { name: 'About local data and affiliation' }).click();
+  await page.getByRole('button', { name: 'Close import games' }).click();
+  await page.getByRole('button', { name: /open menu/i }).click();
+  await page.getByRole('button', { name: 'About' }).click();
   await waitForModalReady(page, 'About this app', 'Close product information');
   await assertAccessible(page);
 });
@@ -89,6 +92,7 @@ test('has no serious or critical axe findings with completed analysis and bounde
   await loadFixtureGames(page);
   await closeUtilityDrawer(page);
   await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review' }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
     timeout: 30_000,
@@ -115,12 +119,11 @@ async function assertAccessible(page: import('@playwright/test').Page) {
 }
 
 async function closeUtilityDrawer(page: import('@playwright/test').Page) {
-  const usesDrawer = await page.evaluate(() => window.matchMedia('(max-width: 80rem)').matches);
-  if (!usesDrawer) return;
-  const drawer = page.getByRole('dialog', { name: 'Game query and progress' });
-  await expect(drawer).toBeVisible();
-  await page.getByRole('button', { name: 'Close Game query and progress' }).click();
-  await expect(drawer).toBeHidden();
+  const drawer = page.getByRole('dialog', { name: 'Import games' });
+  if (await drawer.isVisible()) {
+    await page.getByRole('button', { name: 'Close import games' }).click();
+    await expect(drawer).toBeHidden();
+  }
 }
 
 async function waitForWorkspaceReady(page: import('@playwright/test').Page) {

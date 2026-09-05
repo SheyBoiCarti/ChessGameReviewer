@@ -24,6 +24,7 @@ import {
 
 import { EvaluationBar } from './EvaluationBar';
 import { MoveHistoryControls } from './MoveHistoryControls';
+import { PlayerStrip } from './PlayerStrip';
 
 export interface MoveHistoryModel {
   currentPly: number;
@@ -295,19 +296,13 @@ export function ChessboardView({
 
   return (
     <div className="board-shell">
-      {onFlipOrientation ? (
-        <div className="board-toolbar">
-          <button
-            type="button"
-            className="board-toolbar__flip-button"
-            onClick={onFlipOrientation}
-            aria-label="Flip board orientation"
-          >
-            Flip board
-          </button>
-        </div>
+      {players ? (
+        <PlayerStrip
+          color={topColor}
+          player={topPlayer ?? { username: null, rating: null }}
+          position="top"
+        />
       ) : null}
-      {players ? <PlayerRow color={topColor} player={topPlayer} position="top" /> : null}
       <div className="board-region">
         <div className={`board-stage${evaluationScore ? ' board-stage--with-evaluation' : ''}`}>
           {evaluationScore ? (
@@ -403,53 +398,28 @@ export function ChessboardView({
           a piece and choose a legal destination. Press Escape to clear selection. Press Alt+Arrow
           keys or Home/End to navigate history.
         </p>
-        {historyModel ? (
-          <>
-            <p id="board-keyboard-help" className="sr-only">
-              Use Left and Right Arrow to move through history. Home returns to the first position
-              and End moves to the last.
-            </p>
-            <MoveHistoryControls
-              currentPly={historyModel.currentPly}
-              totalPlies={historyModel.totalPlies}
-              onPlyChange={historyModel.onPlyChange}
-            />
-          </>
-        ) : null}
       </div>
-      {players ? <PlayerRow color={bottomColor} player={bottomPlayer} position="bottom" /> : null}
-    </div>
-  );
-}
-
-function PlayerRow({
-  color,
-  player,
-  position,
-}: {
-  color: 'white' | 'black';
-  player: PlayerMetadata | undefined;
-  position: 'top' | 'bottom';
-}) {
-  const colorLabel = color === 'white' ? 'White' : 'Black';
-  const defaultName = `${colorLabel} player`;
-  const name = player?.username?.trim() || defaultName;
-  const rating =
-    player?.rating !== null && player?.rating !== undefined ? `(${player.rating})` : null;
-
-  return (
-    <div
-      className={`player-row player-row--${position} player-row--${color}`}
-      aria-label={`${colorLabel}: ${name}${rating ? ` ${rating}` : ''}`}
-    >
-      <div className="player-row__info">
-        <span
-          className={`player-row__color-indicator player-row__color-indicator--${color}`}
-          aria-hidden="true"
+      {players ? (
+        <PlayerStrip
+          color={bottomColor}
+          player={bottomPlayer ?? { username: null, rating: null }}
+          position="bottom"
         />
-        <span className="player-row__name">{name}</span>
-        {rating ? <span className="player-row__rating">{rating}</span> : null}
-      </div>
+      ) : null}
+      {historyModel || onFlipOrientation ? (
+        <div className="board-playback-row">
+          <p id="board-keyboard-help" className="sr-only">
+            Use Left and Right Arrow to move through history. Home returns to the first position and
+            End moves to the last.
+          </p>
+          <MoveHistoryControls
+            currentPly={historyModel?.currentPly ?? 0}
+            totalPlies={historyModel?.totalPlies ?? 0}
+            onPlyChange={historyModel?.onPlyChange ?? (() => {})}
+            onFlipOrientation={onFlipOrientation}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

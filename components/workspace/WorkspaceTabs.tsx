@@ -1,54 +1,58 @@
 'use client';
 
-import type { KeyboardEvent } from 'react';
+import type { JSX, KeyboardEvent } from 'react';
 
+export type ReviewMode = 'review' | 'analysis';
 export type WorkspaceTab = 'games' | 'opening' | 'analysis' | 'settings';
 
-const tabs: ReadonlyArray<{ id: WorkspaceTab; label: string }> = [
-  { id: 'games', label: 'Games' },
-  { id: 'opening', label: 'Opening tree' },
+const reviewTabs: ReadonlyArray<{ id: ReviewMode; label: string }> = [
+  { id: 'review', label: 'Review' },
   { id: 'analysis', label: 'Analysis' },
-  { id: 'settings', label: 'Settings' },
 ];
 
-export function WorkspaceTabs({
-  selected,
-  onSelect,
-}: {
-  selected: WorkspaceTab;
-  onSelect(value: WorkspaceTab): void;
-}) {
+export interface WorkspaceTabsProps {
+  selected: ReviewMode;
+  onSelect(mode: ReviewMode): void;
+}
+
+export function WorkspaceTabs({ selected, onSelect }: WorkspaceTabsProps): JSX.Element {
   const keyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let next = index;
-    if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
-    else if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+    if (event.key === 'ArrowRight') next = (index + 1) % reviewTabs.length;
+    else if (event.key === 'ArrowLeft') next = (index - 1 + reviewTabs.length) % reviewTabs.length;
     else if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = tabs.length - 1;
+    else if (event.key === 'End') next = reviewTabs.length - 1;
     else return;
+
     event.preventDefault();
-    onSelect(tabs[next]!.id);
-    requestAnimationFrame(() =>
-      document.getElementById(`workspace-tab-${tabs[next]!.id}`)?.focus()
-    );
+    const nextTab = reviewTabs[next]!;
+    onSelect(nextTab.id);
+    requestAnimationFrame(() => {
+      document.getElementById(`review-tab-${nextTab.id}`)?.focus();
+    });
   };
 
   return (
-    <div className="workspace-tabs" role="tablist" aria-label="Analysis workspaces">
-      {tabs.map((tab, index) => (
-        <button
-          key={tab.id}
-          id={`workspace-tab-${tab.id}`}
-          type="button"
-          role="tab"
-          aria-selected={selected === tab.id}
-          aria-controls={`workspace-panel-${tab.id}`}
-          tabIndex={selected === tab.id ? 0 : -1}
-          onClick={() => onSelect(tab.id)}
-          onKeyDown={(event) => keyDown(event, index)}
-        >
-          {tab.label}
-        </button>
-      ))}
+    <div className="workspace-tabs" role="tablist" aria-label="Review modes">
+      {reviewTabs.map((tab, index) => {
+        const isSelected = selected === tab.id;
+        return (
+          <button
+            key={tab.id}
+            id={`review-tab-${tab.id}`}
+            type="button"
+            role="tab"
+            className={`workspace-tab ${isSelected ? 'workspace-tab--active' : ''}`}
+            aria-selected={isSelected}
+            aria-controls={`review-panel-${tab.id}`}
+            tabIndex={isSelected ? 0 : -1}
+            onClick={() => onSelect(tab.id)}
+            onKeyDown={(event) => keyDown(event, index)}
+          >
+            {tab.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -30,7 +30,7 @@ test.describe('workspace visual regression', () => {
     await page.goto('/');
     await loadFixtureGames(page);
     await page.getByRole('button', { name: /opponent-two/i }).click();
-    await page.getByRole('tab', { name: 'Opening tree' }).click();
+    await page.getByRole('button', { name: 'Openings' }).click();
     await expect(page.getByRole('heading', { name: 'Opening candidates' })).toBeVisible();
     await waitForStableLayout(page);
 
@@ -41,6 +41,7 @@ test.describe('workspace visual regression', () => {
     await page.goto('/?engine=unavailable');
     await loadFixtureGames(page);
     await page.getByRole('button', { name: /opponent-two/i }).click();
+    await page.getByRole('button', { name: 'Review' }).click();
     await page.getByRole('tab', { name: 'Analysis' }).click();
     await expect(page.getByText(/Engine unavailable/i)).toBeVisible();
     await waitForStableLayout(page);
@@ -52,11 +53,6 @@ test.describe('workspace visual regression', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
     await loadFixtureGames(page);
-    await expect(page.locator('[data-utility-rail-result]')).toBeVisible();
-    await page.getByRole('button', { name: 'Close Game query and progress' }).click();
-    await expect(page.getByRole('dialog', { name: 'Game query and progress' })).toBeHidden();
-    await expect(page.getByRole('button', { name: 'Filters' })).toBeFocused();
-    await expect(page.locator('.workspace-layout__utility')).toBeEmpty();
     await page.getByRole('button', { name: /opponent-two/i }).click();
     await expect(page.getByRole('grid', { name: 'Chess board' })).toBeVisible();
     await waitForStableLayout(page);
