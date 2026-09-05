@@ -31,7 +31,7 @@ test.describe('workspace visual regression', () => {
     await loadFixtureGames(page);
     await page.getByRole('button', { name: /opponent-two/i }).click();
     await page.getByRole('button', { name: 'Openings' }).click();
-    await expect(page.getByRole('heading', { name: 'Opening candidates' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Openings', level: 3 })).toBeVisible();
     await waitForStableLayout(page);
 
     await expect(page).toHaveScreenshot('opening-tree.png', screenshotOptions());
@@ -41,7 +41,7 @@ test.describe('workspace visual regression', () => {
     await page.goto('/?engine=unavailable');
     await loadFixtureGames(page);
     await page.getByRole('button', { name: /opponent-two/i }).click();
-    await page.getByRole('button', { name: 'Review' }).click();
+    await page.getByRole('button', { name: 'Review', exact: true }).click();
     await page.getByRole('tab', { name: 'Analysis' }).click();
     await expect(page.getByText(/Engine unavailable/i)).toBeVisible();
     await waitForStableLayout(page);

@@ -11,11 +11,14 @@ const games: GameRecord[] = [
 ];
 
 describe('GameSelector', () => {
-  it('sorts a copy, displays required metadata, and selects by stable game id', async () => {
+  it('sorts a copy, displays required metadata, and selects by stable game id without starting analysis', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
+    const onAnalyze = vi.fn();
     const originalOrder = games.map(({ id }) => id);
-    render(<GameSelector games={games} selectedGameId={null} onSelect={onSelect} />);
+    render(
+      <GameSelector games={games} selectedGameId={null} onSelect={onSelect} onAnalyze={onAnalyze} />
+    );
 
     const gameResults = screen.getByRole('region', { name: 'Game results' });
     expect(gameResults).toHaveAttribute('tabindex', '0');
@@ -24,12 +27,17 @@ describe('GameSelector', () => {
     expect(gameResults).not.toContainElement(screen.getByLabelText(/filter games/i));
     const buttons = screen.getAllByRole('button');
     expect(buttons[0]).toHaveAccessibleName(/judit polgar/i);
+    expect(buttons[0]).toHaveAccessibleName(/white/i);
+    expect(buttons[0]).toHaveAccessibleName(/1800/i);
+    expect(buttons[0]).toHaveAccessibleName(/1850/i);
     expect(screen.getAllByText(/rapid/i)).toHaveLength(2);
     expect(screen.getAllByText(/rated/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/not analysed/i).length).toBeGreaterThan(0);
-    await user.click(screen.getByRole('button', { name: /magnus carlsen/i }));
+    expect(screen.getAllByText(/not reviewed/i).length).toBeGreaterThan(0);
 
+    // Clicking row calls onSelect but NOT onAnalyze
+    await user.click(screen.getByRole('button', { name: /magnus carlsen/i }));
     expect(onSelect).toHaveBeenCalledWith('older');
+    expect(onAnalyze).not.toHaveBeenCalled();
     expect(games.map(({ id }) => id)).toEqual(originalOrder);
   });
 
@@ -60,9 +68,12 @@ describe('GameSelector', () => {
 
     await user.type(screen.getByLabelText(/filter games/i), 'No such opponent');
 
-    expect(screen.getByText(/no games match this filter/i)).toBeInTheDocument();
+    expect(
+      screen.getByText('No games match this filter. Try another opponent name.')
+    ).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Game results' })).not.toBeInTheDocument();
   });
+
   it('displays opponent name from explicit blackPlayer/whitePlayer metadata even without PGN headers', () => {
     const customGame: GameRecord = {
       id: 'no-pgn-header',
@@ -83,6 +94,75 @@ describe('GameSelector', () => {
 
     render(<GameSelector games={[customGame]} selectedGameId={null} onSelect={vi.fn()} />);
     expect(screen.getByRole('button', { name: /displaycasedopponent/i })).toBeInTheDocument();
+  });
+
+  it('displays matchup detail line and calls onAnalyze exactly once on Review game click', async () => {
+    const user = userEvent.setup();
+    const onAnalyze = vi.fn();
+    render(
+      <GameSelector games={games} selectedGameId="newer" onSelect={vi.fn()} onAnalyze={onAnalyze} />
+    );
+
+    expect(screen.getByText('player-one (1800) vs Judit Polgar (1850)')).toBeInTheDocument();
+    const reviewButton = screen.getByRole('button', { name: 'Review game' });
+    expect(reviewButton).toBeEnabled();
+
+    await user.click(reviewButton);
+    expect(onAnalyze).toHaveBeenCalledTimes(1);
+    expect(onAnalyze).toHaveBeenCalledWith('newer');
+  });
+
+  it('disables Review game and shows warning when reviewDisabledReason is provided', async () => {
+    const user = userEvent.setup();
+    const onAnalyze = vi.fn();
+    render(
+      <GameSelector
+        games={games}
+        selectedGameId="newer"
+        onSelect={vi.fn()}
+        onAnalyze={onAnalyze}
+        reviewDisabledReason="This game has no reviewable moves."
+      />
+    );
+
+    const reviewButton = screen.getByRole('button', { name: 'Review game' });
+    expect(reviewButton).toBeDisabled();
+    expect(screen.getByText('This game has no reviewable moves.')).toBeInTheDocument();
+
+    await user.click(reviewButton);
+    expect(onAnalyze).not.toHaveBeenCalled();
+  });
+
+  it('distinguishes analysis result statuses: Reviewed, Partial review, Review failed, Analysing…', () => {
+    const { rerender } = render(
+      <GameSelector
+        games={games}
+        selectedGameId="newer"
+        onSelect={vi.fn()}
+        analysisStatus={{
+          older: 'Reviewed',
+          newer: 'Partial review',
+        }}
+      />
+    );
+
+    expect(screen.getByText('Reviewed')).toBeInTheDocument();
+    expect(screen.getByText('Partial review')).toBeInTheDocument();
+
+    rerender(
+      <GameSelector
+        games={games}
+        selectedGameId="newer"
+        onSelect={vi.fn()}
+        analysisStatus={{
+          older: 'Review failed',
+          newer: 'Analysing…',
+        }}
+      />
+    );
+
+    expect(screen.getByText('Review failed')).toBeInTheDocument();
+    expect(screen.getByText('Analysing…')).toBeInTheDocument();
   });
 });
 

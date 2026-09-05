@@ -147,4 +147,49 @@ describe('ingestion feedback', () => {
       screen.getByText('2 games from completed archive months were retained and remain available.')
     ).toBeVisible();
   });
+
+  it('displays empty results copy when zero games match query filters', () => {
+    render(
+      <DiagnosticSummary
+        result={{
+          jobId: 'job-1',
+          fingerprint: 'query-1',
+          status: 'complete',
+          games: [],
+          failedMonths: [],
+          diagnostics: [],
+          offlineCacheOnly: false,
+        }}
+        onRetry={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('No games found for these filters.')).toBeVisible();
+    expect(screen.getByText('No games found')).toBeVisible();
+  });
+
+  it('renders a View games button when cancelled with retained games', async () => {
+    const user = userEvent.setup();
+    const onViewGames = vi.fn();
+    render(
+      <DiagnosticSummary
+        result={{
+          jobId: 'job-1',
+          fingerprint: 'query-1',
+          status: 'cancelled',
+          games: [{ id: 'one' }] as never,
+          failedMonths: [],
+          diagnostics: [],
+          offlineCacheOnly: false,
+        }}
+        onRetry={vi.fn()}
+        onViewGames={onViewGames}
+      />
+    );
+
+    const viewButton = screen.getByRole('button', { name: /view games/i });
+    expect(viewButton).toBeVisible();
+    await user.click(viewButton);
+    expect(onViewGames).toHaveBeenCalledTimes(1);
+  });
 });

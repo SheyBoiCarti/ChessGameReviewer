@@ -3,13 +3,19 @@ import { useMemo } from 'react';
 import type { GameAnnotation } from '@/features/stockfish-analysis/analyzeGame';
 import { toGraphPoints } from '@/features/stockfish-analysis/presentation';
 
+export interface MoveAccuracyGraphProps {
+  annotations: readonly GameAnnotation[];
+  onSelectPly?: ((ply: number) => void) | undefined;
+  title?: string | undefined;
+  className?: string | undefined;
+}
+
 export function MoveAccuracyGraph({
   annotations,
   onSelectPly,
-}: {
-  annotations: readonly GameAnnotation[];
-  onSelectPly?: ((ply: number) => void) | undefined;
-}) {
+  title = 'Evaluation',
+  className,
+}: MoveAccuracyGraphProps) {
   const points = useMemo(
     () =>
       toGraphPoints(
@@ -24,8 +30,8 @@ export function MoveAccuracyGraph({
   const coords = useMemo(() => pointCoordinates(points), [points]);
 
   return (
-    <section aria-labelledby="accuracy-graph-title">
-      <h4 id="accuracy-graph-title">White-perspective evaluation by move</h4>
+    <section className={className} aria-labelledby="accuracy-graph-title">
+      <h4 id="accuracy-graph-title">{title}</h4>
       <svg
         className="accuracy-graph"
         viewBox="0 0 100 48"

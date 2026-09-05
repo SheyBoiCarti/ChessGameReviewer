@@ -74,6 +74,7 @@ export function ChessWorkspace({
     returnPositionKey: string;
     returnPathId: number;
   } | null>(null);
+  const [loadedAnnouncement, setLoadedAnnouncement] = useState<string | null>(null);
 
   const moveOrdersButton = useRef<HTMLButtonElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
@@ -102,8 +103,14 @@ export function ChessWorkspace({
   const analysisStatusMap = useMemo(() => {
     const map: Record<string, string> = {};
     if (state.analysis.resultsByGameId) {
-      for (const id of Object.keys(state.analysis.resultsByGameId)) {
-        map[id] = 'Analysed';
+      for (const [id, result] of Object.entries(state.analysis.resultsByGameId)) {
+        if (result.status === 'complete') {
+          map[id] = 'Reviewed';
+        } else if (result.status === 'partial' || result.status === 'cancelled') {
+          map[id] = 'Partial review';
+        } else if (result.status === 'failed') {
+          map[id] = 'Review failed';
+        }
       }
     }
     if (state.analysis.status === 'running' && state.selection.gameId) {
@@ -155,6 +162,7 @@ export function ChessWorkspace({
       if (['complete', 'partial'].includes(state.ingestion.status) && hasGames) {
         setImportOpen(false);
         selectTab('games');
+        setLoadedAnnouncement(`${state.ingestion.result?.games.length} games loaded`);
         requestAnimationFrame(() => titleHeadingRef.current?.focus());
       } else {
         setResultFocusVersion((v) => v + 1);
@@ -448,6 +456,13 @@ export function ChessWorkspace({
     />
   );
 
+  const handleReviewModeChange = (mode: ReviewMode) => {
+    if (mode === 'review') {
+      setVariation(null);
+    }
+    setReviewMode(mode);
+  };
+
   return (
     <div className="workspace-shell" data-modal-root>
       {/* Desktop Left Rail Navigation (hidden < 960px via CSS) */}
@@ -481,6 +496,11 @@ export function ChessWorkspace({
         />
 
         <main className="workspace-content">
+          {tab === 'games' && loadedAnnouncement ? (
+            <div className="sr-only" role="status" aria-live="polite">
+              {loadedAnnouncement}
+            </div>
+          ) : null}
           {tab === 'settings' ? (
             <div className="settings-surface">
               <section className="settings-card">
@@ -560,7 +580,7 @@ export function ChessWorkspace({
               board={shouldRenderBoard ? board : null}
               tabs={
                 tab === 'analysis' ? (
-                  <WorkspaceTabs selected={reviewMode} onSelect={setReviewMode} />
+                  <WorkspaceTabs selected={reviewMode} onSelect={handleReviewModeChange} />
                 ) : null
               }
               panel={
@@ -574,22 +594,46 @@ export function ChessWorkspace({
                 >
                   {tab === 'games' ? (
                     hasGamesLoaded ? (
-                      <GameSelector
-                        games={state.ingestion.result?.games ?? []}
-                        selectedGameId={state.selection.gameId}
-                        onSelect={(gameId) => {
-                          controller.selectGame(gameId);
-                          setVariation(null);
-                        }}
-                        onAnalyze={(gameId) => {
-                          controller.selectGame(gameId);
-                          setVariation(null);
-                          setReviewMode('review');
-                          selectTab('analysis');
-                        }}
-                        analysisStatus={analysisStatusMap}
-                        hasLoaded={hasGamesLoaded}
-                      />
+                      <>
+                        {state.ingestion.result?.offlineCacheOnly ? <OfflineCacheNotice /> : null}
+                        {state.ingestion.result?.status === 'partial' ? (
+                          <div className="partial-import-notice" role="status">
+                            <p>Some games could not be imported.</p>
+                            <details className="diagnostic-details">
+                              <summary>Diagnostics</summary>
+                              <DiagnosticSummary
+                                result={state.ingestion.result}
+                                onRetry={() => {
+                                  const active = state.query.active;
+                                  if (active)
+                                    void controller.submitQuery(active, { manualRefresh: true });
+                                }}
+                              />
+                            </details>
+                          </div>
+                        ) : null}
+                        <GameSelector
+                          games={state.ingestion.result?.games ?? []}
+                          selectedGameId={state.selection.gameId}
+                          onSelect={(gameId) => {
+                            controller.selectGame(gameId);
+                            setVariation(null);
+                          }}
+                          onAnalyze={(gameId) => {
+                            controller.selectGame(gameId);
+                            setVariation(null);
+                            setReviewMode('review');
+                            selectTab('analysis');
+                          }}
+                          analysisStatus={analysisStatusMap}
+                          hasLoaded={hasGamesLoaded}
+                          reviewDisabledReason={
+                            isSelectedGameWithoutMoves
+                              ? 'This game has no reviewable moves.'
+                              : undefined
+                          }
+                        />
+                      </>
                     ) : (
                       <div className="onboarding-panel">
                         <div className="onboarding-heading">
@@ -626,6 +670,12 @@ export function ChessWorkspace({
                                 if (active)
                                   void controller.submitQuery(active, { manualRefresh: true });
                               }}
+                              onViewGames={() => {
+                                const firstGame = state.ingestion.result?.games[0];
+                                if (firstGame) {
+                                  controller.selectGame(firstGame.id);
+                                }
+                              }}
                             />
                           </div>
                         ) : null}
@@ -648,18 +698,21 @@ export function ChessWorkspace({
                             setNavigation(next);
                             controller.navigateGraph(next.positionKey, next.pathId);
                           }}
-                        />
-                        <button
-                          ref={moveOrdersButton}
-                          type="button"
-                          onClick={() => setMoveOrdersOpen(true)}
-                          disabled={
-                            Boolean(unobservedMove) ||
-                            !graph.positions.get(navigation.positionKey)?.arrivalsByPath.size
+                          moveOrdersAction={
+                            <button
+                              ref={moveOrdersButton}
+                              type="button"
+                              className="button-secondary"
+                              onClick={() => setMoveOrdersOpen(true)}
+                              disabled={
+                                Boolean(unobservedMove) ||
+                                !graph.positions.get(navigation.positionKey)?.arrivalsByPath.size
+                              }
+                            >
+                              View move orders
+                            </button>
                           }
-                        >
-                          View move orders
-                        </button>
+                        />
                         {moveOrdersOpen ? (
                           <MoveOrderDialog
                             node={graph.positions.get(navigation.positionKey)!}
@@ -687,44 +740,46 @@ export function ChessWorkspace({
 
                   {tab === 'analysis' ? (
                     selectedRecord && parsedGame ? (
-                      <>
-                        {/* Temporary shared analyzer header for Phase 1 (split in Phase 4) */}
-                        <div className="analyzer-mode-header">
-                          <h2>{reviewMode === 'review' ? 'Review mode' : 'Analysis mode'}</h2>
-                        </div>
-                        <LazyAnalyzerWorkspace
-                          capability={state.analysis.capability}
-                          status={state.analysis.status}
-                          result={state.analysis.result}
-                          progress={state.analysis.progress}
-                          strength={state.preferences.analysisStrength}
-                          upstreamAccuracies={selectedRecord.accuracies}
-                          onStrengthChange={(analysisStrength) =>
-                            controller.dispatch({
-                              type: 'preferences/changed',
-                              preferences: { analysisStrength },
-                            })
+                      <LazyAnalyzerWorkspace
+                        mode={reviewMode}
+                        game={parsedGame}
+                        players={{
+                          white: parsedGame.whitePlayer,
+                          black: parsedGame.blackPlayer,
+                        }}
+                        isVariationActive={Boolean(variation)}
+                        onReturnToGame={() => setVariation(null)}
+                        capability={state.analysis.capability}
+                        status={state.analysis.status}
+                        result={state.analysis.result}
+                        progress={state.analysis.progress}
+                        strength={state.preferences.analysisStrength}
+                        upstreamAccuracies={selectedRecord.accuracies}
+                        onStrengthChange={(analysisStrength) =>
+                          controller.dispatch({
+                            type: 'preferences/changed',
+                            preferences: { analysisStrength },
+                          })
+                        }
+                        onStart={(strength) => void controller.startAnalysis(strength)}
+                        onCancel={controller.cancelAnalysis}
+                        onResume={() => void controller.startAnalysis()}
+                        onSelectPly={handlePlyChange}
+                        selectedPly={state.selection.ply}
+                        fenByPly={Object.fromEntries(
+                          parsedGame.plies.map((move) => [move.ply, move.fenBefore])
+                        )}
+                        onExplorePv={(pvFen, uciMoves) => {
+                          const variationState = createVariationFromUciSequence(
+                            state.selection.ply,
+                            pvFen,
+                            uciMoves
+                          );
+                          if (variationState) {
+                            setVariation(variationState);
                           }
-                          onStart={(strength) => void controller.startAnalysis(strength)}
-                          onCancel={controller.cancelAnalysis}
-                          onResume={() => void controller.startAnalysis()}
-                          onSelectPly={handlePlyChange}
-                          selectedPly={state.selection.ply}
-                          fenByPly={Object.fromEntries(
-                            parsedGame.plies.map((move) => [move.ply, move.fenBefore])
-                          )}
-                          onExplorePv={(pvFen, uciMoves) => {
-                            const variationState = createVariationFromUciSequence(
-                              state.selection.ply,
-                              pvFen,
-                              uciMoves
-                            );
-                            if (variationState) {
-                              setVariation(variationState);
-                            }
-                          }}
-                        />
-                      </>
+                        }}
+                      />
                     ) : (
                       <div className="workspace-empty">
                         <h2>Choose a game to review</h2>

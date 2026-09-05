@@ -72,7 +72,7 @@ test('uses the compact workspace before a three-column desktop layout crowds the
   await expect(page.getByRole('list', { name: 'Games' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Games' })).toHaveCount(0);
   await page.getByRole('button', { name: /opponent-two/i }).click();
-  await page.getByRole('button', { name: 'Review' }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
 
   const board = await page.getByRole('grid', { name: 'Chess board' }).boundingBox();
   const maximumBoardSize = await page.evaluate(
@@ -107,7 +107,7 @@ test('keeps the product identity and workspace tabs readable on a phone', async 
   expect(title!.width).toBeGreaterThan(50);
 
   await page.getByRole('button', { name: /open menu/i }).click();
-  await page.getByRole('button', { name: 'Review' }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
 
   expect(
     await page
@@ -159,11 +159,12 @@ test('aligns the evaluation meter to the framed board and uses its full track', 
   await page.goto('/');
   await loadFixtureGames(page);
   await page.getByRole('button', { name: /opponent-two/i }).click();
-  await page.getByRole('button', { name: 'Review' }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
     timeout: 30_000,
   });
+  await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
   await page.getByRole('button', { name: 'Start analysis' }).click();
   await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
@@ -267,7 +268,7 @@ test('keeps tab, hover-button, and eyebrow text at AA contrast in every theme', 
   if (await menuButton.isVisible()) {
     await menuButton.click();
   }
-  await page.getByRole('button', { name: 'Review' }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
 
   for (const theme of ['dark', 'light']) {
     await page
@@ -314,11 +315,12 @@ test('desktop analyzer layout stays bounded within usable viewport height for lo
   await page.goto('/');
   await loadFixtureGames(page, 1);
   await page.getByRole('button', { name: /opponent-long/i }).click();
-  await page.getByRole('button', { name: 'Review' }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
     timeout: 30_000,
   });
+  await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
   await page.getByRole('button', { name: 'Start analysis' }).click();
   await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
@@ -369,11 +371,12 @@ test('mobile analyzer layout uses natural document flow with bounded move list',
 
   await page.getByRole('button', { name: /opponent-long/i }).click();
   await page.getByRole('button', { name: /open menu/i }).click();
-  await page.getByRole('button', { name: 'Review' }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
     timeout: 30_000,
   });
+  await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
   await page.getByRole('button', { name: 'Start analysis' }).click();
   await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({

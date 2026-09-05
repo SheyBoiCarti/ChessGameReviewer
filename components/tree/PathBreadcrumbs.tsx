@@ -18,8 +18,12 @@ export function PathBreadcrumbs({
   const moves = navigationBreadcrumbs(graph, navigation);
   return (
     <nav className="path-breadcrumbs" aria-label="Selected move path">
-      <button type="button" onClick={() => onNavigate(navigateToHistoryIndex(navigation, 0))}>
-        Root
+      <button
+        type="button"
+        className="breadcrumb-btn"
+        onClick={() => onNavigate(navigateToHistoryIndex(navigation, 0))}
+      >
+        Starting position
       </button>
       {moves.map((move, index) => (
         <span key={`${move}-${index}`}>

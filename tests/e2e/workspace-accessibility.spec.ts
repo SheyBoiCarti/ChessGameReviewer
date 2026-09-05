@@ -33,7 +33,7 @@ test('has no serious or critical axe findings in opening-tree, analysis-unavaila
   await page.getByRole('button', { name: 'Openings' }).click();
   await assertAccessible(page);
 
-  await page.getByRole('button', { name: 'Review' }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByText(/Engine unavailable/i)).toBeVisible();
   await assertAccessible(page);
@@ -92,11 +92,12 @@ test('has no serious or critical axe findings with completed analysis and bounde
   await loadFixtureGames(page);
   await closeUtilityDrawer(page);
   await page.getByRole('button', { name: /opponent-two/i }).click();
-  await page.getByRole('button', { name: 'Review' }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
     timeout: 30_000,
   });
+  await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
   await page.getByRole('button', { name: 'Start analysis' }).click();
   await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({

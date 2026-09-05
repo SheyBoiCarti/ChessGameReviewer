@@ -24,7 +24,9 @@ describe('OpeningTreeTable', () => {
       name: 'Opening candidate results',
     });
     expect(candidateResults).toHaveAttribute('tabindex', '0');
-    expect(candidateResults).toContainElement(screen.getByRole('table'));
+    expect(candidateResults).toContainElement(
+      screen.getByRole('table', { name: 'Opening candidates' })
+    );
     expect(candidateResults).not.toContainElement(screen.getByLabelText(/sort candidate moves/i));
     expect(screen.getByRole('columnheader', { name: /sample size/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /play e4/i }));
