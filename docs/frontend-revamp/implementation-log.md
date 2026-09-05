@@ -350,3 +350,26 @@ Visual regression snapshots inspected:
 
 - Prettier verification: `npx prettier --check .` and `npx prettier --check docs/frontend-revamp` both passed with 0 errors.
 - Full release verification suite: `npm run verify` passed with exit code 0.
+
+### Board Dimension and Sizing Defect Resolution
+
+- **Problem & Root Cause**:
+  - In visual regression tests and Playwright runs, the chessboard rendered at ~258px width instead of filling the full 800px column space allocated by the design contract.
+  - Root cause was `.workspace-layout__board` having `align-items: center` without `width: 100%`, and `.workspace-board` having no explicit width. This caused `.workspace-board` and `.board-shell` to shrink-wrap horizontally to the smallest intrinsic-width child (`MoveHistoryControls` ~288px), causing `.board-region`'s `calc(100% - 28px)` to resolve to 260px (board size 258px × 258px).
+  - Additionally, when `evaluationScore` was null/empty, `.board-stage` omitted the evaluation bar slot, shifting the board horizontally when analysis started.
+- **Remediation**:
+  - `app/globals.css`:
+    - Updated `.workspace-layout__board` to `width: 100%; min-width: 0; display: flex; flex-direction: column; align-items: center;`.
+    - Updated `.workspace-board` to `min-width: 0; width: 100%; display: flex; flex-direction: column; align-items: center;`.
+    - Sized `.board-shell` directly using `width: min(100%, calc(100dvh - 216px), 788px); margin-inline: auto;` (with responsive breakpoints for compact desktop, stacked mobile, and short viewports).
+    - Set `.board-region` to `width: 100%; min-width: 0; margin-inline: auto;`.
+    - Updated `.board-stage, .board-stage--with-evaluation` to a two-column grid (`20px minmax(0, 1fr)` with `gap: 8px; width: 100%`).
+    - Added `.evaluation-bar-placeholder` (`width: 20px; visibility: hidden; pointer-events: none;`) to permanently preserve the evaluation track column and prevent layout shifts.
+    - Set `.evaluation-bar` to fixed `width: 20px`.
+  - `components/board/ChessboardView.tsx`:
+    - Rendered `<div className="evaluation-bar-placeholder" aria-hidden="true" />` when `!evaluationScore`.
+- **Verification**:
+  - At 1440×900 viewport: board bounding box verified at 654px × 654px inside a 684px shell, centered with 60px margins in the 804px board column.
+  - Visual regression snapshots updated and inspected across Chromium, Firefox, WebKit (`loaded-board`, `opening-tree`, `analyzer-unavailable`, `mobile-workspace`).
+  - Vitest coverage: 100% thresholds maintained (81 test suites, 657 tests passing).
+  - Full `npm run verify` passed with exit code 0.

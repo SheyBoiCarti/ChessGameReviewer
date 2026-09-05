@@ -307,7 +307,9 @@ export function ChessboardView({
         <div className={`board-stage${evaluationScore ? ' board-stage--with-evaluation' : ''}`}>
           {evaluationScore ? (
             <EvaluationBar score={evaluationScore} orientation={orientation} />
-          ) : null}
+          ) : (
+            <div className="evaluation-bar-placeholder" aria-hidden="true" />
+          )}
           <div className="chessboard-frame">
             <div
               ref={boardRef}

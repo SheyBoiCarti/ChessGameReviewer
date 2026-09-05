@@ -667,6 +667,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   align-items: center;
+  width: 100%;
 }
 
 .workspace-layout__context {
@@ -1088,17 +1089,20 @@ progress {
   margin-top: 0.75rem;
 }
 
-.workspace-board,
-.board-shell,
-.board-stage {
+.workspace-board {
   min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .board-shell {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  width: 100%;
+  width: min(100%, calc(100dvh - 216px), 788px);
+  margin-inline: auto;
 }
 
 .board-toolbar {
@@ -1206,12 +1210,20 @@ progress {
   flex-shrink: 0;
 }
 
+.board-stage,
 .board-stage--with-evaluation {
   display: grid;
-  grid-template-columns: 2.25rem minmax(0, 1fr);
-  gap: 0.5rem;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
   align-items: stretch;
   min-width: 0;
+  width: 100%;
+}
+
+.evaluation-bar-placeholder {
+  width: 20px;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .game-selector,
@@ -1671,7 +1683,7 @@ li[data-selected='true'] {
 }
 
 .board-region {
-  width: min(calc(100% - 28px), calc(100dvh - 244px), 760px);
+  width: 100%;
   min-width: 0;
   margin-inline: auto;
   container-type: inline-size;
@@ -1904,6 +1916,7 @@ li[data-selected='true'] {
 .evaluation-bar {
   position: relative;
   min-height: 0;
+  width: 20px;
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
@@ -2950,8 +2963,8 @@ li[data-selected='true'] {
     height: calc(100dvh - 88px);
   }
 
-  .board-region {
-    width: min(calc(100% - 28px), calc(100dvh - 228px), 760px);
+  .board-shell {
+    width: min(100%, calc(100dvh - 200px), 788px);
   }
 }
 
@@ -2990,8 +3003,8 @@ li[data-selected='true'] {
     overflow-y: visible;
   }
 
-  .board-region {
-    width: min(calc(100% - 28px), 532px);
+  .board-shell {
+    width: min(100%, 560px);
   }
 }
 
@@ -3066,8 +3079,8 @@ li[data-selected='true'] {
     overflow-y: visible;
   }
 
-  .board-region {
-    width: min(calc(100% - 28px), 480px);
+  .board-shell {
+    width: min(100%, 508px);
   }
 }
 
