@@ -3,9 +3,11 @@ import type { IngestionResult } from '@/features/ingestion/types';
 export function DiagnosticSummary({
   result,
   onRetry,
+  onViewGames,
 }: {
   result: IngestionResult;
   onRetry(): void;
+  onViewGames?(): void;
 }) {
   const urgent = result.status === 'partial' || result.status === 'failed';
   return (
@@ -13,8 +15,13 @@ export function DiagnosticSummary({
       <span className={`status-label status-label--${result.status}`}>
         {statusLabel(result.status)}
       </span>
-      <h3>{heading(result.status)}</h3>
+      <h3>{heading(result)}</h3>
       <p>{guidance(result)}</p>
+      {result.status === 'cancelled' && result.games.length > 0 && onViewGames ? (
+        <button type="button" onClick={onViewGames}>
+          View games
+        </button>
+      ) : null}
       {result.failedMonths.length > 0 ? (
         <>
           <h4>Failed archive months</h4>
@@ -50,7 +57,7 @@ function statusLabel(status: IngestionResult['status']): string {
     case 'partial':
       return 'Partial data';
     case 'cancelled':
-      return 'Loading stopped';
+      return 'Import cancelled.';
     case 'failed':
       return 'Load failed';
     case 'complete':
@@ -58,16 +65,16 @@ function statusLabel(status: IngestionResult['status']): string {
   }
 }
 
-function heading(status: IngestionResult['status']): string {
-  switch (status) {
+function heading(result: IngestionResult): string {
+  switch (result.status) {
     case 'partial':
       return 'Partial results';
     case 'cancelled':
-      return 'Loading cancelled';
+      return 'Import cancelled.';
     case 'failed':
       return 'Games could not be loaded';
     case 'complete':
-      return 'Games loaded';
+      return result.games.length === 0 ? 'No games found' : 'Games loaded';
   }
 }
 
@@ -82,6 +89,9 @@ function guidance(result: IngestionResult): string {
     case 'failed':
       return 'No complete result is available. Review the guidance below and try again.';
     case 'complete':
+      if (result.games.length === 0) {
+        return 'No games found for these filters.';
+      }
       return `${result.games.length} games are available${result.offlineCacheOnly ? ' from local cache' : ''}.`;
   }
 }

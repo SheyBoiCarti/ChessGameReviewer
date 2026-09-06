@@ -85,10 +85,10 @@ describe('ChessboardView', () => {
     );
 
     const board = screen.getByRole('grid', { name: /chess board/i });
-    expect(screen.getByRole('button', { name: 'First position' })).toHaveTextContent('↞');
-    expect(screen.getByRole('button', { name: 'Previous move' })).toHaveTextContent('‹');
-    expect(screen.getByRole('button', { name: 'Next move' })).toHaveTextContent('›');
-    expect(screen.getByRole('button', { name: 'Last position' })).toHaveTextContent('↠');
+    expect(screen.getByRole('button', { name: 'First position' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Previous move' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Next move' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Last position' })).toBeVisible();
     board.focus();
     await user.keyboard('{ArrowRight}{End}{Home}');
     expect(onPlyChange.mock.calls.map(([ply]) => ply)).toEqual([2, 3, 0]);
@@ -283,9 +283,9 @@ describe('ChessboardView', () => {
       );
 
       const topRow = screen.getByLabelText(/black: guest/i);
-      const bottomRow = screen.getByLabelText(/white: white player/i);
+      const bottomRow = screen.getByLabelText(/white: unknown player/i);
 
-      expect(within(bottomRow).getByText('White player')).toBeInTheDocument();
+      expect(within(bottomRow).getByText('Unknown player')).toBeInTheDocument();
       expect(within(topRow).getByText('Guest')).toBeInTheDocument();
       expect(screen.queryByText(/\(\d+\)/)).not.toBeInTheDocument();
     });

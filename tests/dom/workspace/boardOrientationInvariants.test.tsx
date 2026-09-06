@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChessWorkspace } from '@/components/workspace/ChessWorkspace';
 import type { WorkspaceServices } from '@/features/workspace/createWorkspaceController';
@@ -83,6 +83,10 @@ function makeMockServices(games: GameRecord[] = [sampleGame]): WorkspaceServices
 }
 
 describe('Board orientation and player metadata invariants', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it('toggles board orientation via Flip board button and synchronizes with Settings', async () => {
     const user = userEvent.setup();
     const services = makeMockServices([sampleGame]);
@@ -113,17 +117,17 @@ describe('Board orientation and player metadata invariants', () => {
     expect(topRowFlipped).toHaveClass('player-row--top');
     expect(bottomRowFlipped).toHaveClass('player-row--bottom');
 
-    // Switch to Settings tab and verify Settings board orientation selector reflects 'black'
-    const settingsTab = screen.getByRole('tab', { name: /settings/i });
-    await user.click(settingsTab);
+    // Switch to Settings and verify Settings board orientation selector reflects 'black'
+    const settingsBtn = screen.getByRole('button', { name: /^settings$/i });
+    await user.click(settingsBtn);
 
     const orientationSelect = screen.getByRole('combobox', { name: /^board orientation$/i });
     expect(orientationSelect).toHaveValue('black');
 
-    // Change Settings selector back to 'white' and switch to Games tab
+    // Change Settings selector back to 'white' and switch to Games
     await user.selectOptions(orientationSelect, 'white');
-    const gamesTab = screen.getByRole('tab', { name: /^games$/i });
-    await user.click(gamesTab);
+    const gamesBtn = screen.getByRole('button', { name: /^games$/i });
+    await user.click(gamesBtn);
 
     // Verify board orientation updated back to White
     const topRowRestored = screen.getByLabelText(/black: iamsheyboicarti \(1150\)/i);

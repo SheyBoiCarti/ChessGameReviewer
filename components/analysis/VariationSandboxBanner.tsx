@@ -25,8 +25,13 @@ export function VariationSandboxBanner({
     >
       <div className="variation-sandbox-banner__header">
         <h4 className="variation-sandbox-banner__title">Exploration from ply {state.basePly}</h4>
-        <button type="button" className="variation-sandbox-banner__close-button" onClick={onClose}>
-          Return to main game
+        <button
+          type="button"
+          className="variation-sandbox-banner__close-button"
+          onClick={onClose}
+          aria-label="Return to game (Return to main game)"
+        >
+          Return to game
         </button>
       </div>
       <div className="variation-sandbox-banner__body">

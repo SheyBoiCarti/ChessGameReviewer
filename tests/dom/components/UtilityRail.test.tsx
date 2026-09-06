@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useRef, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -38,7 +38,7 @@ function RailHarness() {
 describe('UtilityRail', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('opens as a mobile filter dialog and restores the invoking trigger after Escape', async () => {
+  it('opens as a modal dialog and restores the invoking trigger after Escape', async () => {
     const user = userEvent.setup();
     render(<RailHarness />);
 
@@ -57,7 +57,7 @@ describe('UtilityRail', () => {
     expect(screen.getByRole('main')).not.toHaveAttribute('inert');
   });
 
-  it('keeps focus inside the mobile rail when tabbing from its close control', async () => {
+  it('keeps focus inside the rail when tabbing from its close control', async () => {
     const user = userEvent.setup();
     render(<RailHarness />);
 
@@ -69,7 +69,7 @@ describe('UtilityRail', () => {
     expect(screen.getByLabelText(/username/i)).toHaveFocus();
   });
 
-  it('moves focus to an updated ingestion result inside the open mobile drawer', async () => {
+  it('moves focus to an updated ingestion result inside the open drawer', async () => {
     const user = userEvent.setup();
     render(<CompletionRailHarness />);
 
@@ -78,7 +78,7 @@ describe('UtilityRail', () => {
     expect(screen.getByRole('status', { name: /games loaded/i })).toHaveFocus();
   });
 
-  it('does not refocus the result when an unrelated mobile rail control rerenders', async () => {
+  it('does not refocus the result when an unrelated rail control rerenders', async () => {
     const user = userEvent.setup();
     render(<CompletionRailHarness />);
 
@@ -91,18 +91,20 @@ describe('UtilityRail', () => {
     expect(retry).toHaveFocus();
   });
 
-  it('does not render a closed desktop rail, then lets the trigger reopen it', async () => {
-    stubDesktopViewport();
-    const user = userEvent.setup();
+  it('closes on backdrop click when the backdrop is the direct event target', async () => {
     render(<RailHarness />);
 
-    expect(document.getElementById('game-query-rail')).not.toBeInTheDocument();
+    const trigger = screen.getByRole('button', { name: /open filters/i });
+    fireEvent.click(trigger);
 
-    await user.click(screen.getByRole('button', { name: /open filters/i }));
-    expect(screen.getByRole('complementary', { name: /game filters/i })).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: /game filters/i });
+    expect(dialog).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /close game filters/i }));
-    expect(document.getElementById('game-query-rail')).not.toBeInTheDocument();
+    const backdrop = document.querySelector('.utility-rail__backdrop');
+    expect(backdrop).not.toBeNull();
+    fireEvent.click(backdrop!);
+
+    expect(screen.queryByRole('dialog', { name: /game filters/i })).toBeNull();
   });
 });
 
@@ -132,21 +134,5 @@ function CompletionRailHarness() {
         )}
       </UtilityRail>
     </div>
-  );
-}
-
-function stubDesktopViewport() {
-  vi.stubGlobal(
-    'matchMedia',
-    vi.fn((query: string) => ({
-      matches: query.includes('min-width'),
-      media: query,
-      onchange: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    }))
   );
 }

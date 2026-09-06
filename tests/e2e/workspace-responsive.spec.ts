@@ -40,24 +40,18 @@ test('keeps the board and its move controls visible without document overflow ac
     await page.goto('/');
 
     if (viewport.usesDrawer) {
-      const drawer = page.getByRole('dialog', { name: 'Game query and progress' });
+      const importButton = page.getByRole('button', { name: 'Import games' }).first();
+      await importButton.click();
+      const drawer = page.getByRole('dialog', { name: 'Import games' });
       await expect(drawer).toBeVisible();
-      await page.getByRole('button', { name: 'Close Game query and progress' }).click();
+      await page.getByRole('button', { name: 'Close import games' }).click();
       await expect(drawer).toBeHidden();
-      await expect(page.getByRole('button', { name: 'Filters' })).toBeFocused();
-      await page.getByRole('button', { name: 'Filters' }).click();
-      await expect(drawer).toBeVisible();
+      await expect(importButton).toBeFocused();
     }
 
     await loadFixtureGames(page);
-    if (viewport.usesDrawer) {
-      const drawer = page.getByRole('dialog', { name: 'Game query and progress' });
-      await expect(drawer).toBeVisible();
-      await page.getByRole('button', { name: 'Close Game query and progress' }).click();
-      await expect(drawer).toBeHidden();
-      await expect(page.getByRole('button', { name: 'Filters' })).toBeFocused();
-    }
     await page.getByRole('button', { name: /opponent-two/i }).click();
+    await page.getByRole('grid', { name: 'Chess board' }).scrollIntoViewIfNeeded();
 
     await expect(page.getByRole('grid', { name: 'Chess board' })).toBeInViewport();
     await expect(page.getByRole('button', { name: 'Next move' })).toBeVisible();
@@ -72,15 +66,13 @@ test('uses the compact workspace before a three-column desktop layout crowds the
   await installWorkspaceFixtures(page);
   await page.goto('/');
 
-  const drawer = page.getByRole('dialog', { name: 'Game query and progress' });
-  await expect(drawer).toBeVisible();
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: 'Close Game query and progress' }).click();
 
   await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
   await expect(page.getByRole('list', { name: 'Games' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Games' })).toHaveCount(0);
   await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
 
   const board = await page.getByRole('grid', { name: 'Chess board' }).boundingBox();
   const maximumBoardSize = await page.evaluate(
@@ -108,11 +100,15 @@ test('keeps the product identity and workspace tabs readable on a phone', async 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
 
-  const title = await page
-    .getByRole('heading', { name: 'Local Chess Game Reviewer' })
-    .boundingBox();
+  const banner = page.getByRole('banner', { name: 'Local Chess Game Reviewer' });
+  await expect(banner).toBeVisible();
+  const title = await page.getByRole('heading', { level: 1, name: 'Games' }).boundingBox();
   expect(title).not.toBeNull();
-  expect(title!.width).toBeGreaterThan(200);
+  expect(title!.width).toBeGreaterThan(50);
+
+  await page.getByRole('button', { name: /open menu/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+
   expect(
     await page
       .locator('.workspace-tabs')
@@ -163,10 +159,12 @@ test('aligns the evaluation meter to the framed board and uses its full track', 
   await page.goto('/');
   await loadFixtureGames(page);
   await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
     timeout: 30_000,
   });
+  await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
   await page.getByRole('button', { name: 'Start analysis' }).click();
   await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
@@ -244,7 +242,7 @@ test('contains games and opening candidates in fixed-height scroll viewports', a
   await gameResults.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
   expect((await scrollMetrics(gameResults)).scrollTop).toBeGreaterThan(0);
 
-  await page.getByRole('tab', { name: 'Opening tree' }).click();
+  await page.getByRole('button', { name: 'Openings' }).click();
   const candidates = page.getByRole('region', { name: 'Opening candidate results' });
   await expect(candidates.getByRole('button', { name: /^Play / })).toHaveCount(20);
   const candidateMetrics = await scrollMetrics(candidates);
@@ -266,6 +264,12 @@ test('keeps tab, hover-button, and eyebrow text at AA contrast in every theme', 
   await waitForWorkspaceReady(page);
   await closeUtilityDrawer(page);
 
+  const menuButton = page.getByRole('button', { name: /open menu/i });
+  if (await menuButton.isVisible()) {
+    await menuButton.click();
+  }
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+
   for (const theme of ['dark', 'light']) {
     await page
       .locator('html')
@@ -274,7 +278,7 @@ test('keeps tab, hover-button, and eyebrow text at AA contrast in every theme', 
     const selectedTab = page.getByRole('tab', { selected: true });
     const unselectedTab = page.getByRole('tab', { selected: false }).first();
     const button = page.getByRole('button').first();
-    const eyebrow = page.locator('.app-topbar__eyebrow');
+    const title = page.locator('.app-topbar__view-title');
 
     await expect(selectedTab).toBeVisible();
     await expect(unselectedTab).toBeVisible();
@@ -285,7 +289,7 @@ test('keeps tab, hover-button, and eyebrow text at AA contrast in every theme', 
 
     await button.hover();
     expect(await contrastAgainstBackground(button)).toBeGreaterThanOrEqual(4.5);
-    expect(await contrastAgainstBackground(eyebrow, '.app-topbar')).toBeGreaterThanOrEqual(4.5);
+    expect(await contrastAgainstBackground(title, '.app-topbar')).toBeGreaterThanOrEqual(4.5);
   }
 
   expect(
@@ -311,10 +315,12 @@ test('desktop analyzer layout stays bounded within usable viewport height for lo
   await page.goto('/');
   await loadFixtureGames(page, 1);
   await page.getByRole('button', { name: /opponent-long/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
     timeout: 30_000,
   });
+  await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
   await page.getByRole('button', { name: 'Start analysis' }).click();
   await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
@@ -361,17 +367,16 @@ test('mobile analyzer layout uses natural document flow with bounded move list',
   await installLongGameWorkspaceFixtures(page);
   await page.goto('/');
 
-  const drawer = page.getByRole('dialog', { name: 'Game query and progress' });
-  await expect(drawer).toBeVisible();
   await loadFixtureGames(page, 1);
-  await page.getByRole('button', { name: 'Close Game query and progress' }).click();
-  await expect(drawer).toBeHidden();
 
   await page.getByRole('button', { name: /opponent-long/i }).click();
+  await page.getByRole('button', { name: /open menu/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
     timeout: 30_000,
   });
+  await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
   await page.getByRole('button', { name: 'Start analysis' }).click();
   await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
@@ -425,12 +430,11 @@ async function scrollMetrics(locator: import('@playwright/test').Locator) {
 }
 
 async function closeUtilityDrawer(page: import('@playwright/test').Page) {
-  const usesDrawer = await page.evaluate(() => window.matchMedia('(max-width: 80rem)').matches);
-  if (!usesDrawer) return;
-  const drawer = page.getByRole('dialog', { name: 'Game query and progress' });
-  await expect(drawer).toBeVisible();
-  await page.getByRole('button', { name: 'Close Game query and progress' }).click();
-  await expect(drawer).toBeHidden();
+  const drawer = page.getByRole('dialog', { name: 'Import games' });
+  if (await drawer.isVisible()) {
+    await page.getByRole('button', { name: 'Close import games' }).click();
+    await expect(drawer).toBeHidden();
+  }
 }
 
 async function waitForWorkspaceReady(page: import('@playwright/test').Page) {
@@ -460,8 +464,17 @@ async function contrastAgainstBackground(
       return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
     };
     const textColor = window.getComputedStyle(element).color;
-    const backgroundElement = selector ? element.closest(selector) : element;
-    const backgroundColor = window.getComputedStyle(backgroundElement ?? element).backgroundColor;
+    let backgroundElement: Element | null = selector ? element.closest(selector) : element;
+    let backgroundColor = window.getComputedStyle(backgroundElement ?? element).backgroundColor;
+    while (
+      backgroundElement &&
+      (backgroundColor === 'rgba(0, 0, 0, 0)' || backgroundColor === 'transparent')
+    ) {
+      backgroundElement = backgroundElement.parentElement;
+      if (backgroundElement) {
+        backgroundColor = window.getComputedStyle(backgroundElement).backgroundColor;
+      }
+    }
     const [lighter, darker] = [
       relativeLuminance(textColor),
       relativeLuminance(backgroundColor),

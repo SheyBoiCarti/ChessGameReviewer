@@ -42,7 +42,10 @@ describe('GameQueryForm', () => {
     render(<GameQueryForm onSubmit={onSubmit} />);
 
     await user.type(screen.getByLabelText(/username/i), '  Hikaru  ');
+    await user.click(screen.getByRole('radio', { name: /custom/i }));
+    await user.clear(screen.getByLabelText(/from date/i));
     await user.type(screen.getByLabelText(/from date/i), '2026-01-01');
+    await user.clear(screen.getByLabelText(/to date/i));
     await user.type(screen.getByLabelText(/to date/i), '2026-07-31');
     await user.click(screen.getByRole('button', { name: /game filters/i }));
     await user.clear(screen.getByLabelText(/maximum games/i));
@@ -218,5 +221,108 @@ describe('GameQueryForm', () => {
     expect(screen.getByLabelText(/from date/i)).toHaveValue('2025-01-01');
     expect(screen.getByLabelText(/to date/i)).toHaveValue('2025-02-01');
     expect(onResume).toHaveBeenCalledWith(expect.objectContaining({ username: 'alice' }));
+  });
+
+  it('defaults to Last 30 days preset on a fresh form without recent query', () => {
+    render(<GameQueryForm onSubmit={vi.fn()} />);
+
+    expect(screen.getByRole('radio', { name: /last 30 days/i })).toBeChecked();
+    expect(screen.queryByLabelText(/from date/i)).not.toBeInTheDocument();
+  });
+
+  it('selecting presets updates draft without submitting', async () => {
+    const user = userEvent.setup();
+    const onDraftChange = vi.fn();
+    const onSubmit = vi.fn();
+    render(<GameQueryForm onSubmit={onSubmit} onDraftChange={onDraftChange} />);
+
+    await user.click(screen.getByRole('radio', { name: /this month/i }));
+    expect(screen.getByRole('radio', { name: /this month/i })).toBeChecked();
+    expect(onDraftChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dateFrom: expect.stringMatching(/^\d{4}-\d{2}-01$/),
+        dateTo: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      })
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('radio', { name: /all available/i }));
+    expect(screen.getByRole('radio', { name: /all available/i })).toBeChecked();
+    expect(onDraftChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dateFrom: '',
+        dateTo: '',
+      })
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('shows custom date inputs and UTC helper text only when Custom is chosen', async () => {
+    const user = userEvent.setup();
+    render(<GameQueryForm onSubmit={vi.fn()} />);
+
+    expect(screen.queryByLabelText(/from date/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/dates are inclusive in utc/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: /custom/i }));
+
+    expect(screen.getByLabelText(/from date/i)).toBeVisible();
+    expect(screen.getByLabelText(/to date/i)).toBeVisible();
+    expect(screen.getByText(/dates are inclusive in utc/i)).toBeVisible();
+  });
+
+  it('preserves recent query dates and sets Custom or All preset on initial render', () => {
+    const { unmount } = render(
+      <GameQueryForm
+        onSubmit={vi.fn()}
+        recentQuery={{
+          username: 'bob',
+          dateFrom: '2026-02-01',
+          dateTo: '2026-02-28',
+          maxGames: 100,
+          timeClasses: ['blitz'],
+          colors: ['white'],
+        }}
+      />
+    );
+
+    expect(screen.getByRole('radio', { name: /custom/i })).toBeChecked();
+    expect(screen.getByLabelText(/from date/i)).toHaveValue('2026-02-01');
+    expect(screen.getByLabelText(/to date/i)).toHaveValue('2026-02-28');
+
+    unmount();
+
+    render(
+      <GameQueryForm
+        onSubmit={vi.fn()}
+        recentQuery={{
+          username: 'charlie',
+          maxGames: 100,
+          timeClasses: ['rapid'],
+          colors: ['black'],
+        }}
+      />
+    );
+
+    expect(screen.getByRole('radio', { name: /all available/i })).toBeChecked();
+    expect(screen.queryByLabelText(/from date/i)).not.toBeInTheDocument();
+  });
+
+  it('shows date error and opens custom inputs on invalid or inverted date submission', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(<GameQueryForm onSubmit={onSubmit} />);
+
+    await user.type(screen.getByLabelText(/username/i), 'tester');
+    await user.click(screen.getByRole('radio', { name: /custom/i }));
+    await user.clear(screen.getByLabelText(/from date/i));
+    await user.type(screen.getByLabelText(/from date/i), '2026-08-10');
+    await user.clear(screen.getByLabelText(/to date/i));
+    await user.type(screen.getByLabelText(/to date/i), '2026-08-01');
+    await user.click(screen.getByRole('button', { name: /load games/i }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/cannot be after dateTo/i);
+    expect(screen.getByLabelText(/from date/i)).toBeVisible();
   });
 });

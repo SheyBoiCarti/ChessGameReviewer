@@ -100,6 +100,7 @@ async function installRoutes(page: Page, fixtureGames: readonly ReturnType<typeo
 
 export async function loadFixtureGames(page: Page, maximumGames = 2) {
   await page.getByLabel('Username').fill('fixture-user');
+  await page.getByRole('radio', { name: 'Custom' }).click();
   await page.getByLabel('From date').fill('2024-01-01');
   await page.getByLabel('To date').fill('2024-01-31');
   await page.getByRole('button', { name: 'Game filters' }).click();

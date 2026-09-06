@@ -219,6 +219,7 @@ describe('AnalyzerWorkspace', () => {
 
     rerender(
       <AnalyzerWorkspace
+        mode="analysis"
         capability={capability('threaded')}
         status="partial"
         result={analysisResult()}
@@ -281,6 +282,7 @@ describe('AnalyzerWorkspace', () => {
 
     const { rerender } = render(
       <AnalyzerWorkspace
+        mode="analysis"
         capability={capability('threaded')}
         status="complete"
         result={longResult}
@@ -304,6 +306,7 @@ describe('AnalyzerWorkspace', () => {
     // Rerender with selectedPly = 15
     rerender(
       <AnalyzerWorkspace
+        mode="analysis"
         capability={capability('threaded')}
         status="complete"
         result={longResult}

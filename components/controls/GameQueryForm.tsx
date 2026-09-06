@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useState } from 'react';
 
+import { DatePreset, resolveDatePreset } from '@/features/ingestion/datePresets';
 import type { Diagnostic, GameQuery, PlayerColor, TimeClass } from '@/lib/api/contracts';
 import { validateGameQuery } from '@/lib/validation/gameQuery';
 
@@ -33,8 +34,41 @@ export function GameQueryForm({
   onResume,
 }: GameQueryFormProps) {
   const [username, setUsername] = useState(initialQuery?.username ?? '');
-  const [dateFrom, setDateFrom] = useState(initialQuery?.dateFrom ?? '');
-  const [dateTo, setDateTo] = useState(initialQuery?.dateTo ?? '');
+  const [datePreset, setDatePreset] = useState<DatePreset>(() => {
+    const now = new Date();
+    const last30 = resolveDatePreset('last30', now);
+    const thisMonth = resolveDatePreset('thisMonth', now);
+    if (recentQuery && initialQuery?.dateFrom === undefined && initialQuery?.dateTo === undefined) {
+      return recentQuery.dateFrom || recentQuery.dateTo ? 'custom' : 'all';
+    }
+    if (initialQuery?.dateFrom !== undefined || initialQuery?.dateTo !== undefined) {
+      const df = initialQuery.dateFrom ?? '';
+      const dt = initialQuery.dateTo ?? '';
+      if (df === last30.dateFrom && dt === last30.dateTo) return 'last30';
+      if (df === thisMonth.dateFrom && dt === thisMonth.dateTo) return 'thisMonth';
+      if (df === '' && dt === '') return 'all';
+      return 'custom';
+    }
+    return 'last30';
+  });
+  const [dateFrom, setDateFrom] = useState(() => {
+    if (recentQuery && initialQuery?.dateFrom === undefined && initialQuery?.dateTo === undefined) {
+      return recentQuery.dateFrom ?? '';
+    }
+    if (initialQuery?.dateFrom !== undefined || initialQuery?.dateTo !== undefined) {
+      return initialQuery.dateFrom ?? '';
+    }
+    return resolveDatePreset('last30', new Date()).dateFrom;
+  });
+  const [dateTo, setDateTo] = useState(() => {
+    if (recentQuery && initialQuery?.dateFrom === undefined && initialQuery?.dateTo === undefined) {
+      return recentQuery.dateTo ?? '';
+    }
+    if (initialQuery?.dateFrom !== undefined || initialQuery?.dateTo !== undefined) {
+      return initialQuery.dateTo ?? '';
+    }
+    return resolveDatePreset('last30', new Date()).dateTo;
+  });
   const [maxGames, setMaxGames] = useState(String(initialQuery?.maxGames ?? 500));
   const [timeClasses, setTimeClasses] = useState<TimeClass[]>(
     initialQuery?.timeClasses ? [...initialQuery.timeClasses] : [...timeClassOptions]
@@ -54,10 +88,32 @@ export function GameQueryForm({
     setHorizonDraft(String(openingHorizon));
   }, [openingHorizon]);
 
+  const handleSelectPreset = (preset: DatePreset) => {
+    setDatePreset(preset);
+    if (preset === 'custom') {
+      return;
+    }
+    const resolved = resolveDatePreset(preset, new Date());
+    setDateFrom(resolved.dateFrom);
+    setDateTo(resolved.dateTo);
+    onDraftChange?.({
+      username,
+      dateFrom: resolved.dateFrom,
+      dateTo: resolved.dateTo,
+      maxGames: Number(maxGames) || 500,
+      timeClasses,
+      colors,
+      rated: rated === 'any' ? undefined : rated === 'rated',
+    });
+  };
+
   const loadDraft = (query: GameQuery) => {
     setUsername(query.username);
-    setDateFrom(query.dateFrom ?? '');
-    setDateTo(query.dateTo ?? '');
+    const df = query.dateFrom ?? '';
+    const dt = query.dateTo ?? '';
+    setDateFrom(df);
+    setDateTo(dt);
+    setDatePreset(df || dt ? 'custom' : 'all');
     setMaxGames(String(query.maxGames));
     setTimeClasses([...query.timeClasses]);
     setColors([...query.colors]);
@@ -95,6 +151,12 @@ export function GameQueryForm({
       setDiagnostics(validation.diagnostics);
       if (validation.diagnostics.some(isAdvancedFilterDiagnostic)) {
         setFiltersOpen(true);
+      }
+      const hasDateDiag = validation.diagnostics.some((d) =>
+        ['INVALID_DATE_FROM', 'INVALID_DATE_TO', 'INVERTED_DATE_RANGE'].includes(d.code)
+      );
+      if (hasDateDiag) {
+        setDatePreset('custom');
       }
       return;
     }
@@ -144,41 +206,96 @@ export function GameQueryForm({
         ) : null}
       </div>
 
-      <div className="date-fields">
-        <div className="field">
-          <label htmlFor="game-query-from">From date</label>
-          <input
-            id="game-query-from"
-            type="date"
-            value={dateFrom}
-            onChange={(event) => {
-              const next = event.currentTarget.value;
-              setDateFrom(next);
-              updateDraft({ dateFrom: next });
-            }}
-            aria-describedby={dateError ? 'date-error' : 'date-help'}
-            disabled={disabled}
-          />
+      <fieldset className="field date-range-fieldset">
+        <legend>Date range</legend>
+        <div className="date-preset-grid">
+          <label className="choice-chip">
+            <input
+              type="radio"
+              name="date-preset"
+              value="last30"
+              checked={datePreset === 'last30'}
+              onChange={() => handleSelectPreset('last30')}
+              disabled={disabled}
+            />
+            Last 30 days
+          </label>
+          <label className="choice-chip">
+            <input
+              type="radio"
+              name="date-preset"
+              value="thisMonth"
+              checked={datePreset === 'thisMonth'}
+              onChange={() => handleSelectPreset('thisMonth')}
+              disabled={disabled}
+            />
+            This month
+          </label>
+          <label className="choice-chip">
+            <input
+              type="radio"
+              name="date-preset"
+              value="all"
+              checked={datePreset === 'all'}
+              onChange={() => handleSelectPreset('all')}
+              disabled={disabled}
+            />
+            All available
+          </label>
+          <label className="choice-chip">
+            <input
+              type="radio"
+              name="date-preset"
+              value="custom"
+              checked={datePreset === 'custom'}
+              onChange={() => handleSelectPreset('custom')}
+              disabled={disabled}
+            />
+            Custom
+          </label>
         </div>
-        <div className="field">
-          <label htmlFor="game-query-to">To date</label>
-          <input
-            id="game-query-to"
-            type="date"
-            value={dateTo}
-            onChange={(event) => {
-              const next = event.currentTarget.value;
-              setDateTo(next);
-              updateDraft({ dateTo: next });
-            }}
-            aria-describedby={dateError ? 'date-error' : 'date-help'}
-            disabled={disabled}
-          />
+      </fieldset>
+
+      {datePreset === 'custom' ? (
+        <div className="date-fields">
+          <div className="field">
+            <label htmlFor="game-query-from">From date</label>
+            <input
+              id="game-query-from"
+              type="date"
+              value={dateFrom}
+              onChange={(event) => {
+                const next = event.currentTarget.value;
+                setDatePreset('custom');
+                setDateFrom(next);
+                updateDraft({ dateFrom: next });
+              }}
+              aria-describedby={dateError ? 'date-error' : 'date-help'}
+              disabled={disabled}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="game-query-to">To date</label>
+            <input
+              id="game-query-to"
+              type="date"
+              value={dateTo}
+              onChange={(event) => {
+                const next = event.currentTarget.value;
+                setDatePreset('custom');
+                setDateTo(next);
+                updateDraft({ dateTo: next });
+              }}
+              aria-describedby={dateError ? 'date-error' : 'date-help'}
+              disabled={disabled}
+            />
+          </div>
+          <p id="date-help" className="field-help">
+            Dates are inclusive in UTC.
+          </p>
         </div>
-      </div>
-      <p id="date-help" className="field-help">
-        Dates are inclusive in UTC.
-      </p>
+      ) : null}
+
       {dateError ? (
         <p id="date-error" className="field-error" role="alert">
           {dateError.message}

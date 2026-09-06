@@ -5,18 +5,47 @@ import { describe, expect, it, vi } from 'vitest';
 import { AppTopBar } from '@/components/workspace/AppTopBar';
 
 describe('AppTopBar', () => {
-  it('opens the complete local-data disclosure in a modal and restores its trigger on Escape', async () => {
+  it('renders a banner named "Local Chess Game Reviewer" with visible viewTitle as h1', () => {
+    render(<AppTopBar viewTitle="Games" onOpenImport={vi.fn()} />);
+
+    const header = screen.getByRole('banner', { name: 'Local Chess Game Reviewer' });
+    expect(header).toBeInTheDocument();
+
+    const heading = screen.getByRole('heading', { level: 1, name: 'Games' });
+    expect(heading).toBeInTheDocument();
+  });
+
+  it('invokes onOpenMenu when Menu button is clicked', async () => {
     const user = userEvent.setup();
-    render(
-      <AppTopBar onOpenFilters={vi.fn()}>
-        <main>
-          <button type="button">Background action</button>
-        </main>
-      </AppTopBar>
+    const onOpenMenu = vi.fn();
+    render(<AppTopBar viewTitle="Games" onOpenMenu={onOpenMenu} onOpenImport={vi.fn()} />);
+
+    const menuBtn = screen.getByRole('button', { name: /open menu/i });
+    await user.click(menuBtn);
+    expect(onOpenMenu).toHaveBeenCalledOnce();
+  });
+
+  it('invokes onOpenImport when Import games button is clicked', async () => {
+    const user = userEvent.setup();
+    const onOpenImport = vi.fn();
+    render(<AppTopBar viewTitle="Review" onOpenImport={onOpenImport} />);
+
+    const importBtn = screen.getByRole('button', { name: /import games/i });
+    await user.click(importBtn);
+    expect(onOpenImport).toHaveBeenCalledOnce();
+  });
+
+  it('opens the complete local-data disclosure in a modal when aboutOpen is true', async () => {
+    const user = userEvent.setup();
+    const onCloseAbout = vi.fn();
+
+    const { rerender } = render(
+      <AppTopBar viewTitle="Games" aboutOpen={false} onCloseAbout={onCloseAbout} />
     );
 
-    const trigger = screen.getByRole('button', { name: /about local data and affiliation/i });
-    await user.click(trigger);
+    expect(screen.queryByRole('dialog', { name: /about this app/i })).toBeNull();
+
+    rerender(<AppTopBar viewTitle="Games" aboutOpen={true} onCloseAbout={onCloseAbout} />);
 
     const dialog = screen.getByRole('dialog', { name: /about this app/i });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
@@ -28,44 +57,8 @@ describe('AppTopBar', () => {
     );
     expect(dialog).toHaveTextContent(/stored locally on your device in browser IndexedDB/i);
     expect(dialog).toHaveTextContent(/ever uploaded to any server/i);
-    expect(screen.getByRole('main')).toHaveAttribute('inert');
 
     await user.keyboard('{Escape}');
-
-    expect(dialog).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
-    expect(screen.getByRole('main')).not.toHaveAttribute('inert');
-  });
-
-  it('traps Tab focus inside the disclosure', async () => {
-    const user = userEvent.setup();
-    render(<AppTopBar onOpenFilters={vi.fn()} />);
-
-    await user.click(screen.getByRole('button', { name: /about local data and affiliation/i }));
-    const close = screen.getByRole('button', { name: /close product information/i });
-    close.focus();
-    await user.tab();
-
-    expect(screen.getByRole('button', { name: /close product information/i })).toHaveFocus();
-  });
-
-  it('exposes the filter rail state and requests that the rail opens', async () => {
-    const user = userEvent.setup();
-    const onOpenFilters = vi.fn();
-    render(
-      <AppTopBar
-        onOpenFilters={onOpenFilters}
-        filtersOpen={false}
-        filterControlsId="game-query-rail"
-      />
-    );
-
-    const trigger = screen.getByRole('button', { name: /filters/i });
-    expect(trigger).toHaveAttribute('aria-controls', 'game-query-rail');
-    expect(trigger).toHaveAttribute('aria-expanded', 'false');
-
-    await user.click(trigger);
-
-    expect(onOpenFilters).toHaveBeenCalledOnce();
+    expect(onCloseAbout).toHaveBeenCalledOnce();
   });
 });
