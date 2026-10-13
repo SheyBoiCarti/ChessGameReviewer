@@ -15,8 +15,8 @@
   --accent-text: #a8d875;
   --selected-bg: #3b4930;
   --focus-ring: #b9e58b;
-  --board-light: #eeeed2;
-  --board-dark: #769656;
+  --board-light: #ebecd0;
+  --board-dark: #779556;
 
   /* Legacy aliases for compatibility during phase 1 */
   --accent-gold: var(--action-bg);
@@ -73,8 +73,8 @@
   --accent-text: #386219;
   --selected-bg: #e3efd8;
   --focus-ring: #386219;
-  --board-light: #eeeed2;
-  --board-dark: #769656;
+  --board-light: #ebecd0;
+  --board-dark: #779556;
 
   /* Legacy aliases for compatibility during phase 1 */
   --accent-gold: var(--action-bg);
@@ -124,8 +124,8 @@
     --accent-text: #386219;
     --selected-bg: #e3efd8;
     --focus-ring: #386219;
-    --board-light: #eeeed2;
-    --board-dark: #769656;
+    --board-light: #ebecd0;
+    --board-dark: #779556;
 
     /* Legacy aliases for compatibility during phase 1 */
     --accent-gold: var(--action-bg);
@@ -1358,7 +1358,7 @@ progress {
 }
 
 .outcome-bar--board .outcome-bar__segment--win {
-  background-color: #eeeed2;
+  background-color: #ebecd0;
 }
 
 .outcome-bar--board .outcome-bar__segment--loss {
@@ -1999,11 +1999,11 @@ li[data-selected='true'] {
 }
 
 .square-light {
-  background: var(--board-light, #eeeed2);
+  background: var(--board-light, #ebecd0);
 }
 
 .square-dark {
-  background: var(--board-dark, #769656);
+  background: var(--board-dark, #779556);
 }
 
 .square-highlighted {
@@ -2019,12 +2019,9 @@ li[data-selected='true'] {
 .chess-piece {
   z-index: 1;
   display: block;
-  width: 74%;
-  height: 74%;
-  max-width: 4.25rem;
-  max-height: 4.25rem;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
-  filter: drop-shadow(0 0.08rem 0.06rem rgb(15 23 42 / 24%));
   user-select: none;
 }
 
@@ -2032,7 +2029,7 @@ li[data-selected='true'] {
 .board-file-label {
   position: absolute;
   z-index: 2;
-  color: rgb(42 56 32 / 82%);
+  color: var(--board-dark);
   font-size: clamp(0.55rem, 1.3vw, 0.72rem);
   font-weight: 800;
   line-height: 1;
@@ -2052,7 +2049,7 @@ li[data-selected='true'] {
 
 .square-dark .board-rank-label,
 .square-dark .board-file-label {
-  color: rgb(243 232 203 / 88%);
+  color: var(--board-light);
 }
 
 .move-history-controls {

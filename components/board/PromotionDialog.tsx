@@ -99,7 +99,7 @@ export function PromotionDialog({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={`/chess-pieces/${prefix}${opt.codeSuffix}.svg`}
+                src={`/chess-pieces/neo/${prefix}${opt.codeSuffix}.png`}
                 alt=""
                 className="promotion-dialog__piece-icon"
                 draggable={false}

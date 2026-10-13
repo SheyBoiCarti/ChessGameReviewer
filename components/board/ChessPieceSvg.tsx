@@ -12,7 +12,7 @@ export function ChessPieceSvg({ piece, square }: { piece: BoardPiece; square: st
     // eslint-disable-next-line @next/next/no-img-element -- local board art needs one native-image accessible name.
     <img
       className={`chess-piece piece-${piece.color}`}
-      src={`/chess-pieces/${pieceCodes[piece.color][piece.type]}.svg`}
+      src={`/chess-pieces/neo/${pieceCodes[piece.color][piece.type]}.png`}
       alt=""
       aria-label={label}
       draggable={false}

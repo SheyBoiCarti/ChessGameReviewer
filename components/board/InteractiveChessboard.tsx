@@ -39,40 +39,100 @@ export interface InteractiveChessboardProps {
 /* eslint-disable @next/next/no-img-element */
 const localPieceRenderers: PieceRenderObject = {
   wP: () => (
-    <img className="chess-piece piece-white" src="/chess-pieces/wp.svg" alt="" draggable={false} />
+    <img
+      className="chess-piece piece-white"
+      src="/chess-pieces/neo/wp.png"
+      alt=""
+      draggable={false}
+    />
   ),
   wN: () => (
-    <img className="chess-piece piece-white" src="/chess-pieces/wn.svg" alt="" draggable={false} />
+    <img
+      className="chess-piece piece-white"
+      src="/chess-pieces/neo/wn.png"
+      alt=""
+      draggable={false}
+    />
   ),
   wB: () => (
-    <img className="chess-piece piece-white" src="/chess-pieces/wb.svg" alt="" draggable={false} />
+    <img
+      className="chess-piece piece-white"
+      src="/chess-pieces/neo/wb.png"
+      alt=""
+      draggable={false}
+    />
   ),
   wR: () => (
-    <img className="chess-piece piece-white" src="/chess-pieces/wr.svg" alt="" draggable={false} />
+    <img
+      className="chess-piece piece-white"
+      src="/chess-pieces/neo/wr.png"
+      alt=""
+      draggable={false}
+    />
   ),
   wQ: () => (
-    <img className="chess-piece piece-white" src="/chess-pieces/wq.svg" alt="" draggable={false} />
+    <img
+      className="chess-piece piece-white"
+      src="/chess-pieces/neo/wq.png"
+      alt=""
+      draggable={false}
+    />
   ),
   wK: () => (
-    <img className="chess-piece piece-white" src="/chess-pieces/wk.svg" alt="" draggable={false} />
+    <img
+      className="chess-piece piece-white"
+      src="/chess-pieces/neo/wk.png"
+      alt=""
+      draggable={false}
+    />
   ),
   bP: () => (
-    <img className="chess-piece piece-black" src="/chess-pieces/bp.svg" alt="" draggable={false} />
+    <img
+      className="chess-piece piece-black"
+      src="/chess-pieces/neo/bp.png"
+      alt=""
+      draggable={false}
+    />
   ),
   bN: () => (
-    <img className="chess-piece piece-black" src="/chess-pieces/bn.svg" alt="" draggable={false} />
+    <img
+      className="chess-piece piece-black"
+      src="/chess-pieces/neo/bn.png"
+      alt=""
+      draggable={false}
+    />
   ),
   bB: () => (
-    <img className="chess-piece piece-black" src="/chess-pieces/bb.svg" alt="" draggable={false} />
+    <img
+      className="chess-piece piece-black"
+      src="/chess-pieces/neo/bb.png"
+      alt=""
+      draggable={false}
+    />
   ),
   bR: () => (
-    <img className="chess-piece piece-black" src="/chess-pieces/br.svg" alt="" draggable={false} />
+    <img
+      className="chess-piece piece-black"
+      src="/chess-pieces/neo/br.png"
+      alt=""
+      draggable={false}
+    />
   ),
   bQ: () => (
-    <img className="chess-piece piece-black" src="/chess-pieces/bq.svg" alt="" draggable={false} />
+    <img
+      className="chess-piece piece-black"
+      src="/chess-pieces/neo/bq.png"
+      alt=""
+      draggable={false}
+    />
   ),
   bK: () => (
-    <img className="chess-piece piece-black" src="/chess-pieces/bk.svg" alt="" draggable={false} />
+    <img
+      className="chess-piece piece-black"
+      src="/chess-pieces/neo/bk.png"
+      alt=""
+      draggable={false}
+    />
   ),
 };
 /* eslint-enable @next/next/no-img-element */
@@ -262,6 +322,8 @@ export function InteractiveChessboard({
             position: fen,
             boardOrientation: orientation,
             pieces: localPieceRenderers,
+            lightSquareStyle: { backgroundColor: 'var(--board-light)' },
+            darkSquareStyle: { backgroundColor: 'var(--board-dark)' },
             squareStyles,
             arrows: pvArrow
               ? [

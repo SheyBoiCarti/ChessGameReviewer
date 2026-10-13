@@ -77,7 +77,9 @@ Chess.com usernames and public game records are sent to Chess.com's API when the
 
 The application source code is licensed under the [MIT License](LICENSE).
 
-The repository also distributes Stockfish.js WebAssembly artifacts under GPL-3.0-or-later. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [public/stockfish/COPYING.txt](public/stockfish/COPYING.txt), and [docs/stockfish-source-offer.md](docs/stockfish-source-offer.md) for attribution, source correspondence, and rebuild instructions. The chess-piece SVG assets are dedicated to the public domain under CC0; see [public/chess-pieces/LICENSE.md](public/chess-pieces/LICENSE.md).
+The repository also distributes Stockfish.js WebAssembly artifacts under GPL-3.0-or-later. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [public/stockfish/COPYING.txt](public/stockfish/COPYING.txt), and [docs/stockfish-source-offer.md](docs/stockfish-source-offer.md) for attribution, source correspondence, and rebuild instructions.
+
+The board uses Chess.com Neo PNG artwork; see [asset provenance](public/chess-pieces/neo/README.md).
 
 ## Security
 

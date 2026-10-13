@@ -22,7 +22,7 @@ describe('ChessboardView', () => {
     );
     expect(screen.getByLabelText(/white pawn on a7/i)).toHaveAttribute(
       'src',
-      '/chess-pieces/wp.svg'
+      '/chess-pieces/neo/wp.png'
     );
     expect(screen.getAllByRole('gridcell')).toHaveLength(64);
 
