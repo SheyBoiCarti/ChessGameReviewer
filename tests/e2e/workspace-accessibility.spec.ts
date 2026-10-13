@@ -111,6 +111,17 @@ test('has no serious or critical axe findings with completed analysis and bounde
 });
 
 async function assertAccessible(page: import('@playwright/test').Page) {
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    // Hydration can change the theme just before axe reads the page's colors.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation instanceof CSSTransition)
+        .map((animation) => animation.finished.catch(() => undefined))
+    );
+  });
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag22aa'])
     .analyze();

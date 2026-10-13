@@ -284,10 +284,14 @@ test('keeps tab, hover-button, and eyebrow text at AA contrast in every theme', 
     await expect(unselectedTab).toBeVisible();
     await expect(button).toBeVisible();
 
+    await waitForColorTransitions(selectedTab);
+    await waitForColorTransitions(unselectedTab);
     expect(await contrastAgainstBackground(selectedTab)).toBeGreaterThanOrEqual(4.5);
     expect(await contrastAgainstBackground(unselectedTab)).toBeGreaterThanOrEqual(4.5);
 
     await button.hover();
+    await waitForColorTransitions(button);
+    await waitForColorTransitions(title);
     expect(await contrastAgainstBackground(button)).toBeGreaterThanOrEqual(4.5);
     expect(await contrastAgainstBackground(title, '.app-topbar')).toBeGreaterThanOrEqual(4.5);
   }
@@ -439,6 +443,14 @@ async function closeUtilityDrawer(page: import('@playwright/test').Page) {
 
 async function waitForWorkspaceReady(page: import('@playwright/test').Page) {
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'system');
+}
+
+async function waitForColorTransitions(locator: import('@playwright/test').Locator) {
+  await locator.evaluate(async (element) => {
+    // Flush style changes so theme and hover transitions have been created.
+    window.getComputedStyle(element).color;
+    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+  });
 }
 
 async function contrastAgainstBackground(

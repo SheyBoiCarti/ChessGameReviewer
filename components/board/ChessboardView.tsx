@@ -414,12 +414,18 @@ export function ChessboardView({
             Use Left and Right Arrow to move through history. Home returns to the first position and
             End moves to the last.
           </p>
-          <MoveHistoryControls
-            currentPly={historyModel?.currentPly ?? 0}
-            totalPlies={historyModel?.totalPlies ?? 0}
-            onPlyChange={historyModel?.onPlyChange ?? (() => {})}
-            onFlipOrientation={onFlipOrientation}
-          />
+          {historyModel ? (
+            <MoveHistoryControls
+              currentPly={historyModel?.currentPly ?? 0}
+              totalPlies={historyModel?.totalPlies ?? 0}
+              onPlyChange={historyModel?.onPlyChange ?? (() => {})}
+              onFlipOrientation={onFlipOrientation}
+            />
+          ) : (
+            <button type="button" className="button-secondary" onClick={onFlipOrientation}>
+              Flip board
+            </button>
+          )}
         </div>
       ) : null}
     </div>

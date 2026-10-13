@@ -15,6 +15,7 @@ import { OfflineCacheNotice } from '@/components/feedback/OfflineCacheNotice';
 import { MoveOrderDialog } from '@/components/tree/MoveOrderDialog';
 import { OpeningTreeTable } from '@/components/tree/OpeningTreeTable';
 import { UnobservedMoveNotice } from '@/components/opening/UnobservedMoveNotice';
+import { OpeningPositionAnalysis } from '@/components/opening/OpeningPositionAnalysis';
 import { AppIcon } from '@/components/ui/AppIcon';
 import type { AppliedBoardMove } from '@/features/board/moves';
 import {
@@ -28,6 +29,7 @@ import {
 import {
   createGraphNavigation,
   navigateCandidate,
+  navigateBack,
   resolveBoardMoveInGraph,
   type GraphNavigationState,
 } from '@/features/opening-tree/navigation';
@@ -99,6 +101,17 @@ export function ChessWorkspace({
     state.ingestion.result?.games.find(({ id }) => id === state.selection.gameId) ?? null;
   const parsedGame = useMemo(() => parseSelectedGame(selectedRecord), [selectedRecord]);
   const displayedFen = boardFen(tab, graph, navigation, parsedGame, state.selection.ply);
+  const openingGames = useMemo(
+    () =>
+      (state.ingestion.result?.games ?? [])
+        .map((record) => ({ record, game: parseSelectedGame(record) }))
+        .filter(({ game }) => game !== null),
+    [state.ingestion.result?.games]
+  );
+  const openingSequence = graph && navigation ? graph.paths.sequence(navigation.pathId) : [];
+  const matchingOpeningGames = openingGames.filter(({ game }) =>
+    openingSequence.every((move, index) => game?.plies[index]?.uci === move.uci)
+  );
 
   const analysisStatusMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -359,59 +372,82 @@ export function ChessWorkspace({
     selectedRecord && (!parsedGame || parsedGame.plies.length === 0)
   );
 
-  const board = isSelectedGameWithoutMoves ? (
-    <div className="workspace-board workspace-board--no-moves">
-      <p role="status">This game has no reviewable moves.</p>
-    </div>
-  ) : (
-    <div ref={boardRef} className="workspace-board">
-      {tab === 'analysis' && variation ? (
-        <VariationSandboxBanner
-          state={variation}
-          onCursorChange={(cursor) =>
-            setVariation((prev) => (prev ? moveVariationCursor(prev, cursor) : null))
-          }
-          onClose={() => setVariation(null)}
-        />
-      ) : null}
-      {tab === 'opening' && unobservedMove ? (
-        <UnobservedMoveNotice
-          san={unobservedMove.move.san}
-          onReturn={() => {
-            controller.navigateGraph(unobservedMove.returnPositionKey, unobservedMove.returnPathId);
-            setUnobservedMove(null);
-          }}
-        />
-      ) : null}
-      <BoardPanel
-        fen={displayedBoardFen}
-        orientation={state.preferences.boardOrientation}
-        isInteractive={isInteractive}
-        onMove={handleBoardMove}
-        onFlipOrientation={() =>
-          controller.dispatch({
-            type: 'preferences/changed',
-            preferences: {
-              boardOrientation: state.preferences.boardOrientation === 'white' ? 'black' : 'white',
-            },
-          })
-        }
-        {...(tab !== 'opening' && parsedGame
-          ? {
-              players: {
-                white: parsedGame.whitePlayer,
-                black: parsedGame.blackPlayer,
-              },
+  const board =
+    !isOpeningBoard && isSelectedGameWithoutMoves ? (
+      <div className="workspace-board workspace-board--no-moves">
+        <p role="status">This game has no reviewable moves.</p>
+      </div>
+    ) : (
+      <div ref={boardRef} className="workspace-board">
+        {tab === 'analysis' && variation ? (
+          <VariationSandboxBanner
+            state={variation}
+            onCursorChange={(cursor) =>
+              setVariation((prev) => (prev ? moveVariationCursor(prev, cursor) : null))
             }
-          : {})}
-        {...(lastMoveValue !== undefined ? { lastMove: lastMoveValue } : {})}
-        {...(selectedBadge !== undefined ? { lastMoveBadge: selectedBadge } : {})}
-        {...(historyValue !== undefined ? { history: historyValue } : {})}
-        {...(selectedAnnotation ? { evaluationScore: selectedAnnotation.after.score } : {})}
-        {...(tab === 'analysis' && selectedArrow ? { pvArrow: selectedArrow } : {})}
-      />
-    </div>
-  );
+            onClose={() => setVariation(null)}
+          />
+        ) : null}
+        {tab === 'opening' && unobservedMove ? (
+          <UnobservedMoveNotice
+            san={unobservedMove.move.san}
+            onReturn={() => {
+              controller.navigateGraph(
+                unobservedMove.returnPositionKey,
+                unobservedMove.returnPathId
+              );
+              setUnobservedMove(null);
+            }}
+          />
+        ) : null}
+        <BoardPanel
+          fen={displayedBoardFen}
+          orientation={state.preferences.boardOrientation}
+          isInteractive={isInteractive}
+          onMove={handleBoardMove}
+          onFlipOrientation={() =>
+            controller.dispatch({
+              type: 'preferences/changed',
+              preferences: {
+                boardOrientation:
+                  state.preferences.boardOrientation === 'white' ? 'black' : 'white',
+              },
+            })
+          }
+          {...(tab !== 'opening' && parsedGame
+            ? {
+                players: {
+                  white: parsedGame.whitePlayer,
+                  black: parsedGame.blackPlayer,
+                },
+              }
+            : {})}
+          {...(lastMoveValue !== undefined ? { lastMove: lastMoveValue } : {})}
+          {...(selectedBadge !== undefined ? { lastMoveBadge: selectedBadge } : {})}
+          {...(historyValue !== undefined ? { history: historyValue } : {})}
+          {...(selectedAnnotation ? { evaluationScore: selectedAnnotation.after.score } : {})}
+          {...(tab === 'analysis' && selectedArrow ? { pvArrow: selectedArrow } : {})}
+        />
+        {isOpeningBoard && navigation ? (
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={!unobservedMove && navigation.history.length <= 1}
+            onClick={() => {
+              if (unobservedMove) {
+                setUnobservedMove(null);
+                return;
+              }
+              const next = navigateBack(navigation);
+              setNavigation(next);
+              controller.navigateGraph(next.positionKey, next.pathId);
+            }}
+          >
+            Back
+          </button>
+        ) : null}
+      </div>
+    );
 
   // Determine whether board should be rendered:
   // - Settings: no board
@@ -687,6 +723,54 @@ export function ChessWorkspace({
                   {tab === 'opening' ? (
                     graph && navigation ? (
                       <>
+                        {displayedBoardFen ? (
+                          <OpeningPositionAnalysis fen={displayedBoardFen} />
+                        ) : null}
+                        <section className="surface-panel" aria-label="Games in this opening">
+                          <h3>Your games in this line</h3>
+                          <p>
+                            {
+                              matchingOpeningGames.filter(
+                                ({ record }) => record.userColor === 'white'
+                              ).length
+                            }{' '}
+                            as White ·{' '}
+                            {
+                              matchingOpeningGames.filter(
+                                ({ record }) => record.userColor === 'black'
+                              ).length
+                            }{' '}
+                            as Black
+                          </p>
+                          <p className="field-help">
+                            This tree combines your imported games. Your playing color is shown for
+                            each game below.
+                          </p>
+                          <details>
+                            <summary>Show matching games ({matchingOpeningGames.length})</summary>
+                            <div className="result-viewport">
+                              <ul>
+                                {matchingOpeningGames.map(({ record }) => (
+                                  <li key={record.id}>
+                                    <button
+                                      type="button"
+                                      className="button-secondary"
+                                      onClick={() => {
+                                        controller.selectGame(record.id);
+                                        selectTab('analysis');
+                                      }}
+                                    >
+                                      {record.whitePlayer.username ?? 'White'} vs{' '}
+                                      {record.blackPlayer.username ?? 'Black'} · You played{' '}
+                                      {record.userColor === 'white' ? 'White' : 'Black'} ·{' '}
+                                      {new Date(record.endedAt * 1000).toLocaleDateString()}
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </details>
+                        </section>
                         <OpeningTreeTable
                           graph={graph}
                           navigation={navigation}

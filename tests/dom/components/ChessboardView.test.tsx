@@ -5,6 +5,21 @@ import { describe, expect, it, vi } from 'vitest';
 import { ChessboardView } from '@/components/board/ChessboardView';
 
 describe('ChessboardView', () => {
+  it('shows board flipping without disabled playback arrows when no history is supplied', async () => {
+    const flip = vi.fn();
+    render(
+      <ChessboardView
+        fen="7k/P7/8/8/8/8/8/K7 w - - 0 1"
+        orientation="white"
+        onFlipOrientation={flip}
+      />
+    );
+    expect(screen.queryByRole('button', { name: 'Previous move' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Next move' })).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Flip board' }));
+    expect(flip).toHaveBeenCalledOnce();
+  });
+
   it('renders accessible local piece assets and orientation-aware coordinates', () => {
     const { rerender } = render(
       <ChessboardView
