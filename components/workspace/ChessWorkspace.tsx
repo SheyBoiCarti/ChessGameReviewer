@@ -49,6 +49,7 @@ import { UtilityRail } from './UtilityRail';
 import { WorkspaceLayout } from './WorkspaceLayout';
 import { WorkspaceNavigation } from './WorkspaceNavigation';
 import { WorkspaceTabs, type ReviewMode, type WorkspaceTab } from './WorkspaceTabs';
+import { ProfileInsightsDashboard } from '@/components/profile-insights/ProfileInsightsDashboard';
 
 const LazyAnalyzerWorkspace = dynamic(
   () =>
@@ -456,6 +457,7 @@ export function ChessWorkspace({
   // - Games with no game selected (initial visit or loaded list without selection): no board
   const shouldRenderBoard =
     tab !== 'settings' &&
+    tab !== 'insights' &&
     !(tab === 'analysis' && !selectedRecord) &&
     !(tab === 'opening' && !graph) &&
     !(tab === 'games' && !selectedRecord);
@@ -467,7 +469,9 @@ export function ChessWorkspace({
         ? 'Review'
         : tab === 'opening'
           ? 'Openings'
-          : 'Settings';
+          : tab === 'insights'
+            ? 'Insights'
+            : 'Settings';
 
   const queryForm = (
     <GameQueryForm
@@ -609,6 +613,23 @@ export function ChessWorkspace({
                   setStoredUsernames([]);
                   return res;
                 }}
+              />
+            </div>
+          ) : tab === 'insights' ? (
+            <div
+              className="workspace-panel workspace-panel--insights"
+              id="workspace-panel-insights"
+              role="region"
+              aria-label={viewTitle}
+              tabIndex={-1}
+            >
+              <ProfileInsightsDashboard
+                username={
+                  state.query.active?.username ?? state.ingestion.result?.games[0]?.username ?? null
+                }
+                games={state.ingestion.result?.games ?? []}
+                analysisMap={state.analysis.resultsByGameId ?? {}}
+                onNavigateToGames={() => selectTab('games')}
               />
             </div>
           ) : (

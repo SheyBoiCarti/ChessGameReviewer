@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { WorkspaceNavigation } from '@/components/workspace/WorkspaceNavigation';
 
 describe('WorkspaceNavigation', () => {
-  it('maps all four view labels to existing tab values and sets aria-current on active view', async () => {
+  it('maps all five view labels to existing tab values and sets aria-current on active view', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     const onOpenAbout = vi.fn();
@@ -17,6 +17,7 @@ describe('WorkspaceNavigation', () => {
     const gamesBtn = screen.getByRole('button', { name: /^games/i });
     const reviewBtn = screen.getByRole('button', { name: /^review/i });
     const openingsBtn = screen.getByRole('button', { name: /^openings/i });
+    const insightsBtn = screen.getByRole('button', { name: /^insights/i });
     const settingsBtn = screen.getByRole('button', { name: /^settings/i });
     const aboutBtn = screen.getByRole('button', { name: /^about/i });
 
@@ -26,12 +27,16 @@ describe('WorkspaceNavigation', () => {
     // Active item has aria-current="page"
     expect(gamesBtn).toHaveAttribute('aria-current', 'page');
     expect(reviewBtn).not.toHaveAttribute('aria-current');
+    expect(insightsBtn).not.toHaveAttribute('aria-current');
 
     await user.click(reviewBtn);
     expect(onSelect).toHaveBeenCalledWith('analysis');
 
     await user.click(openingsBtn);
     expect(onSelect).toHaveBeenCalledWith('opening');
+
+    await user.click(insightsBtn);
+    expect(onSelect).toHaveBeenCalledWith('insights');
 
     await user.click(settingsBtn);
     expect(onSelect).toHaveBeenCalledWith('settings');
@@ -47,6 +52,14 @@ describe('WorkspaceNavigation', () => {
       'page'
     );
     expect(screen.getByRole('button', { name: /^games/i })).not.toHaveAttribute('aria-current');
+
+    rerender(
+      <WorkspaceNavigation selected="insights" onSelect={onSelect} onOpenAbout={onOpenAbout} />
+    );
+    expect(screen.getByRole('button', { name: /^insights/i })).toHaveAttribute(
+      'aria-current',
+      'page'
+    );
   });
 
   it('closes drawer and invokes onSelect when in drawer mode', async () => {

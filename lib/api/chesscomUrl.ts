@@ -62,9 +62,19 @@ export function buildMonthlyUrl(
   );
 }
 
+export function buildProfileUrl(username: string): URL {
+  const cleanUser = normalizeUsername(username);
+  return new URL(`/pub/player/${encodeURIComponent(cleanUser)}`, 'https://api.chess.com');
+}
+
+export function buildStatsUrl(username: string): URL {
+  const cleanUser = normalizeUsername(username);
+  return new URL(`/pub/player/${encodeURIComponent(cleanUser)}/stats`, 'https://api.chess.com');
+}
+
 export function isValidRedirectUrl(
   urlStr: string,
-  expectedType: 'archives' | 'monthly',
+  expectedType: 'archives' | 'monthly' | 'profile' | 'stats',
   username: string,
   year?: string | number,
   month?: string | number
@@ -80,6 +90,10 @@ export function isValidRedirectUrl(
 
     if (expectedType === 'archives') {
       expectedPath = `/pub/player/${encodeURIComponent(cleanUser)}/games/archives`;
+    } else if (expectedType === 'profile') {
+      expectedPath = `/pub/player/${encodeURIComponent(cleanUser)}`;
+    } else if (expectedType === 'stats') {
+      expectedPath = `/pub/player/${encodeURIComponent(cleanUser)}/stats`;
     } else {
       if (year === undefined || month === undefined) {
         return false;

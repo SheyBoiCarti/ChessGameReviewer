@@ -158,3 +158,13 @@ export function isValidMetaRecord(data: unknown): data is MetaRecord {
   if ('pgn' in data) return false;
   return typeof data['name'] === 'string' && 'value' in data && isFiniteNumber(data['updatedAt']);
 }
+
+export function isValidCachedProfileRecord(val: unknown): boolean {
+  if (!isObject(val)) return false;
+  return (
+    typeof val['username'] === 'string' &&
+    (val['profile'] === null || isObject(val['profile'])) &&
+    (val['stats'] === null || isObject(val['stats'])) &&
+    isFiniteNumber(val['fetchedAt'])
+  );
+}

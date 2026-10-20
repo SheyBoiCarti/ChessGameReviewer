@@ -24,6 +24,7 @@ const PRIMARY_ITEMS: readonly NavItem[] = [
   { tab: 'games', label: 'Games', icon: 'games' },
   { tab: 'analysis', label: 'Review', icon: 'review' },
   { tab: 'opening', label: 'Openings', icon: 'openings' },
+  { tab: 'insights', label: 'Insights', icon: 'insights' },
 ];
 
 export function WorkspaceNavigation({

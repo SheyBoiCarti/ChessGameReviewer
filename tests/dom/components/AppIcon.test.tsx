@@ -8,6 +8,7 @@ describe('AppIcon', () => {
     'games',
     'review',
     'openings',
+    'insights',
     'settings',
     'info',
     'menu',

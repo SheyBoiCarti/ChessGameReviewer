@@ -3,7 +3,7 @@
 import type { JSX, KeyboardEvent } from 'react';
 
 export type ReviewMode = 'review' | 'analysis';
-export type WorkspaceTab = 'games' | 'opening' | 'analysis' | 'settings';
+export type WorkspaceTab = 'games' | 'opening' | 'analysis' | 'insights' | 'settings';
 
 const reviewTabs: ReadonlyArray<{ id: ReviewMode; label: string }> = [
   { id: 'review', label: 'Review' },

@@ -17,3 +17,5 @@ next-env.d.ts
 .worktrees/
 docs/superpowers/
 .superpowers/
+AGENT.md
+agent.md

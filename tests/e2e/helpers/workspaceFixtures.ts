@@ -96,6 +96,33 @@ async function installRoutes(page: Page, fixtureGames: readonly ReturnType<typeo
       body: JSON.stringify({ games: fixtureGames }),
     })
   );
+  await page.route('https://api.chess.com/pub/player/fixture-user', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        username: 'fixture-user',
+        name: 'Fixture User',
+        title: 'NM',
+        status: 'premium',
+        url: 'https://www.chess.com/member/fixture-user',
+        joined: 1600000000,
+      }),
+    })
+  );
+  await page.route('https://api.chess.com/pub/player/fixture-user/stats', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        chess_blitz: {
+          last: { rating: 1800, date: 1705406400 },
+          best: { rating: 1850, date: 1700000000 },
+        },
+        chess_rapid: {
+          last: { rating: 1750, date: 1705406400 },
+        },
+      }),
+    })
+  );
 }
 
 export async function loadFixtureGames(page: Page, maximumGames = 2) {

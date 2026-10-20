@@ -752,6 +752,40 @@ describe('chesscomClient', () => {
       );
     });
 
+    it('rejects monthly games responses with invalid schema', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        mockResponseMonthly(JSON.stringify({ games: 'not-an-array' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      );
+
+      await expect(fetchMonthlyGames('hikaru', '2023', '05')).rejects.toThrowError(
+        expect.objectContaining({ code: 'INVALID_SCHEMA' })
+      );
+    });
+
+    it('handles generic error thrown when caller signal was aborted', async () => {
+      const controller = new AbortController();
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        controller.abort();
+        throw new Error('generic network drop');
+      });
+      await expect(
+        fetchPlayerArchives('hikaru', { signal: controller.signal })
+      ).rejects.toThrowError(expect.objectContaining({ code: 'ABORTED' }));
+    });
+
+    it('handles generic error thrown when timeout occurred', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        throw new Error('generic network drop');
+      });
+      await expect(fetchPlayerArchives('hikaru', { timeoutMs: 10 })).rejects.toThrowError(
+        expect.objectContaining({ code: 'TIMEOUT' })
+      );
+    });
+
     it('handles unexpected redirect targets safely', async () => {
       const response = mockResponseMonthly(JSON.stringify({ archives: [] }), { status: 200 });
       Object.defineProperty(response, 'url', {

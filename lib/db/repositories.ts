@@ -464,3 +464,28 @@ export async function getDistinctUsernames(db: IDBDatabase): Promise<string[]> {
     return [];
   }
 }
+
+import type { CachedProfileRecord } from '../api/chesscomProfile';
+import { isValidCachedProfileRecord } from './schema';
+
+export async function getPlayerProfile(
+  db: IDBDatabase,
+  username: string
+): Promise<CachedProfileRecord | null> {
+  const meta = await getMeta(db, `profile:${username.toLowerCase()}`);
+  if (!meta || !meta.value) return null;
+  if (!isValidCachedProfileRecord(meta.value)) {
+    throw new CorruptRecordError(STORES.META);
+  }
+  return meta.value as CachedProfileRecord;
+}
+
+export async function putPlayerProfile(
+  db: IDBDatabase,
+  record: CachedProfileRecord
+): Promise<void> {
+  if (!isValidCachedProfileRecord(record)) {
+    throw new Error('Invalid CachedProfileRecord provided to putPlayerProfile.');
+  }
+  await setMeta(db, `profile:${record.username.toLowerCase()}`, record);
+}

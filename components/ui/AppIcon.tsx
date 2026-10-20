@@ -4,6 +4,7 @@ export type AppIconName =
   | 'games'
   | 'review'
   | 'openings'
+  | 'insights'
   | 'settings'
   | 'info'
   | 'menu'
@@ -67,6 +68,13 @@ function renderIconPaths(name: AppIconName): JSX.Element {
           <circle cx="18" cy="6" r="3" />
           <path d="M6 9v3a3 3 0 0 0 3 3h6" />
           <line x1="6" y1="9" x2="6" y2="15" />
+        </>
+      );
+    case 'insights':
+      return (
+        <>
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+          <polyline points="16 7 22 7 22 13" />
         </>
       );
     case 'settings':
