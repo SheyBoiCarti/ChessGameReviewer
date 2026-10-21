@@ -6,6 +6,7 @@ import {
   computeOpeningStats,
   computeTacticalStats,
   aggregateAllInsights,
+  extractFirstMovesFromPgn,
 } from '../../features/profile-insights/aggregations';
 import type { GameRecord } from '../../lib/db/schema';
 import type { GameAnalysisResult } from '../../features/stockfish-analysis/analyzeGame';
@@ -141,14 +142,26 @@ describe('aggregations', () => {
     });
   });
 
+  describe('extractFirstMovesFromPgn', () => {
+    it('strips clock annotations and comments from PGN body', () => {
+      const pgn = `[Event "Live Chess"]\n[White "player1"]\n[Black "player2"]\n\n1. d4 {[%clk 0:02:59.6]} 1... d5 {[%clk 0:02:58.1]} 2. c4 {[%clk 0:02:57]} e6 1-0`;
+      const moves = extractFirstMovesFromPgn(pgn);
+      expect(moves).toBe('1. d4 1... d5 2. c4 e6');
+    });
+
+    it('returns empty string for empty input', () => {
+      expect(extractFirstMovesFromPgn('')).toBe('');
+    });
+  });
+
   describe('computeOpeningStats', () => {
-    it('groups games by opening name and calculates win rate', () => {
+    it('groups games by opening name and calculates win rate without clock comments in moves', () => {
       const games = [
         makeGame({
           id: '1',
           userColor: 'white',
           result: 'win',
-          pgn: `[ECO "B01"]\n[Opening "Scandinavian Defense"]\n\n1. e4 d5 2. exd5 Qxd5 1-0`,
+          pgn: `[ECO "B01"]\n[Opening "Scandinavian Defense"]\n\n1. e4 {[%clk 0:03:00]} d5 {[%clk 0:02:58]} 2. exd5 Qxd5 1-0`,
         }),
         makeGame({
           id: '2',
@@ -178,6 +191,7 @@ describe('aggregations', () => {
       expect(whiteOpenings[0]!.losses).toBe(1);
       expect(whiteOpenings[0]!.winRate).toBe(66.7);
       expect(whiteOpenings[0]!.eco).toBe('B01');
+      expect(whiteOpenings[0]!.moves).toBe('1. e4 d5 2. exd5 Qxd5');
 
       expect(whiteOpenings[1]!.name).toBe('French Defense');
       expect(whiteOpenings[1]!.played).toBe(1);
@@ -309,15 +323,13 @@ describe('aggregations', () => {
       };
 
       const stats = computeTacticalStats([game1, game2], analysisMap);
-      // game1 user is white: blunders=1, mistakes=2, inaccuracies=3, misses=1, eligibleMoves=25, acc=85.5
-      // game2 user is black: blunders=2, mistakes=1, inaccuracies=2, misses=0, eligibleMoves=20, acc=75.5
       expect(stats.blunders).toBe(3);
       expect(stats.mistakes).toBe(3);
       expect(stats.inaccuracies).toBe(5);
       expect(stats.misses).toBe(1);
       expect(stats.totalEvaluatedMoves).toBe(45);
       expect(stats.blundersPerGame).toBe(1.5);
-      expect(stats.avgAccuracy).toBe(80.5); // (85.5 + 75.5) / 2 = 80.5
+      expect(stats.avgAccuracy).toBe(80.5);
     });
   });
 

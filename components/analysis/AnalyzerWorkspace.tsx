@@ -253,7 +253,7 @@ export function AnalyzerWorkspace({
       {status === 'failed' ? (
         <p role="alert">Analysis failed. Completed cached positions remain available.</p>
       ) : null}
-      {result?.warnings.length ? (
+      {result?.warnings && result.warnings.length ? (
         <p className="analysis-cache-warning" role="status">
           Analysis completed, but some results could not be saved locally. A resumed review may need
           to analyse them again.

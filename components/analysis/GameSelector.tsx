@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import type { GameRecord } from '@/lib/db/schema';
 import { extractPgnPlayers } from '@/lib/chess/pgnHeaders';
@@ -43,10 +43,24 @@ export function GameSelector({
     [games, selectedGameId]
   );
 
+  const isSelectedInRows = rows.some(({ game }) => game.id === selectedGameId);
+  const visibleSelectedGame = isSelectedInRows ? selectedGame : null;
+
+  useEffect(() => {
+    if (filter.trim() && rows.length > 0) {
+      const isSelected = rows.some(({ game }) => game.id === selectedGameId);
+      if (!isSelected && rows[0]) {
+        onSelect(rows[0].game.id);
+      }
+    }
+  }, [filter, rows, selectedGameId, onSelect]);
+
   return (
     <section className="game-selector surface-panel" aria-labelledby="game-selector-heading">
       <div className="game-selector-header">
-        <h3 id="game-selector-heading">Games ({games.length})</h3>
+        <h3 id="game-selector-heading">
+          Games ({filter.trim() ? `${rows.length} of ${games.length}` : games.length})
+        </h3>
       </div>
       <div className="game-selector-controls">
         <label>
@@ -69,15 +83,17 @@ export function GameSelector({
           </select>
         </label>
       </div>
-      {selectedGame && onAnalyze ? (
+      {visibleSelectedGame && onAnalyze ? (
         <div className="game-selector-selected-bar">
           <div
             className="selected-game-detail"
-            title={`${playerName(selectedGame, 'white')} (${playerRating(selectedGame, 'white')}) vs ${playerName(selectedGame, 'black')} (${playerRating(selectedGame, 'black')})`}
+            title={`${playerName(visibleSelectedGame, 'white')} (${playerRating(visibleSelectedGame, 'white')}) vs ${playerName(visibleSelectedGame, 'black')} (${playerRating(visibleSelectedGame, 'black')})`}
           >
             <span className="selected-game-matchup">
-              {playerName(selectedGame, 'white')} ({playerRating(selectedGame, 'white')}) vs{' '}
-              {playerName(selectedGame, 'black')} ({playerRating(selectedGame, 'black')})
+              {playerName(visibleSelectedGame, 'white')} (
+              {playerRating(visibleSelectedGame, 'white')}) vs{' '}
+              {playerName(visibleSelectedGame, 'black')} (
+              {playerRating(visibleSelectedGame, 'black')})
             </span>
           </div>
           <button
@@ -85,8 +101,8 @@ export function GameSelector({
             className="button-primary game-selector-review-button"
             disabled={Boolean(reviewDisabledReason)}
             onClick={() => {
-              if (!reviewDisabledReason && selectedGameId) {
-                onAnalyze(selectedGameId);
+              if (!reviewDisabledReason) {
+                onAnalyze(visibleSelectedGame.id);
               }
             }}
           >

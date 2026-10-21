@@ -139,6 +139,66 @@ describe('workspace reducer', () => {
     expect(next.analysis).toMatchObject({ status: 'idle', result: null });
   });
 
+  it('preserves existing loaded games when a subsequent query fails and recovers on dismissal', () => {
+    const loadedGame = {
+      id: 'g-1',
+      username: 'shehey',
+      url: 'url',
+      userColor: 'white' as const,
+      result: 'win' as const,
+      endedAt: 1000,
+      timeClass: 'rapid' as const,
+      rated: true,
+      userRating: 1500,
+      opponentRating: 1400,
+      whitePlayer: { username: 'shehey', rating: 1500 },
+      blackPlayer: { username: 'opponent', rating: 1400 },
+      pgn: '1. e4 e5 1-0',
+      rules: 'chess' as const,
+    };
+    const loaded = {
+      ...initialWorkspaceState,
+      query: { draft: query, active: query, token: 1 },
+      ingestion: {
+        status: 'complete' as const,
+        progress: null,
+        result: {
+          jobId: 'j-1',
+          fingerprint: 'fp-1',
+          status: 'complete' as const,
+          games: [loadedGame],
+          failedMonths: [],
+          diagnostics: [],
+          offlineCacheOnly: false,
+        },
+        error: null,
+      },
+      selection: { gameId: 'g-1', positionKey: 'pos-1', pathId: 0, ply: 2 },
+    };
+
+    const nextQuery: GameQuery = { ...query, username: 'nonexistent-user' };
+    const starting = reduceWorkspace(loaded, { type: 'query/started', query: nextQuery, token: 2 });
+    expect(starting.ingestion.status).toBe('loading');
+    expect(starting.ingestion.result?.games).toEqual([loadedGame]);
+    expect(starting.selection.gameId).toBe('g-1');
+
+    const failed = reduceWorkspace(starting, {
+      type: 'ingestion/failed',
+      token: 2,
+      error: 'User not found',
+    });
+    expect(failed.ingestion.status).toBe('failed');
+    expect(failed.ingestion.error).toBe('User not found');
+    expect(failed.ingestion.result?.games).toEqual([loadedGame]);
+    expect(failed.selection.gameId).toBe('g-1');
+    expect(failed.query.active?.username).toBe('shehey');
+
+    const dismissed = reduceWorkspace(failed, { type: 'ingestion/errorDismissed' });
+    expect(dismissed.ingestion.status).toBe('complete');
+    expect(dismissed.ingestion.error).toBeNull();
+    expect(dismissed.ingestion.result?.games).toEqual([loadedGame]);
+  });
+
   it('ignores results from superseded relevance tokens', () => {
     const current = reduceWorkspace(initialWorkspaceState, {
       type: 'query/started',

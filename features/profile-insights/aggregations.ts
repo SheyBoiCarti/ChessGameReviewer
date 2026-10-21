@@ -101,10 +101,14 @@ function formatEcoUrlName(ecoUrl?: string): string | undefined {
   }
 }
 
-function extractFirstMovesFromPgn(pgn: string): string {
+export function extractFirstMovesFromPgn(pgn: string): string {
   if (!pgn) return '';
-  const body = pgn.replace(/^\[[^\]]*\]/gm, '').trim();
-  const tokens = body.split(/\s+/).filter(Boolean);
+  const body = pgn
+    .replace(/^\[[^\]]*\]/gm, '')
+    .replace(/\{[^}]*\}/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const tokens = body.split(' ').filter(Boolean);
   const moves: string[] = [];
   for (const token of tokens) {
     if (token === '1-0' || token === '0-1' || token === '1/2-1/2' || token === '*') break;

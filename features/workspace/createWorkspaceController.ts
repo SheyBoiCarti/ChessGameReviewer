@@ -59,6 +59,7 @@ export interface WorkspaceController {
   subscribe(listener: () => void): () => void;
   submitQuery(query: GameQuery, options?: { manualRefresh?: boolean }): Promise<void>;
   cancelIngestion(): void;
+  dismissIngestionError(): void;
   probeEngine(): Promise<void>;
   selectGame(gameId: string | null): void;
   navigateGraph(positionKey: string, pathId: number | null): void;
@@ -215,6 +216,9 @@ export function createWorkspaceController(
     },
     cancelIngestion() {
       services.ingestion.cancel();
+    },
+    dismissIngestionError() {
+      dispatch({ type: 'ingestion/errorDismissed' });
     },
     async probeEngine() {
       dispatch({ type: 'analysis/probing' });

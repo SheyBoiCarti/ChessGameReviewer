@@ -74,6 +74,7 @@ export type WorkspaceAction =
   | { type: 'ingestion/progress'; token: number; progress: IngestionProgress }
   | { type: 'ingestion/terminal'; token: number; result: IngestionResult }
   | { type: 'ingestion/failed'; token: number; error: string }
+  | { type: 'ingestion/errorDismissed' }
   | { type: 'graph/started'; token: number }
   | {
       type: 'graph/terminal';

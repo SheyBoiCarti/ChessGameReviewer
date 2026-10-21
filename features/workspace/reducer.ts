@@ -55,18 +55,52 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
   switch (action.type) {
     case 'query/draftChanged':
       return { ...state, query: { ...state.query, draft: action.query } };
-    case 'query/started':
+    case 'query/started': {
+      const hasExistingGames = (state.ingestion.result?.games.length ?? 0) > 0;
       return {
         ...state,
         query: { draft: action.query, active: action.query, token: action.token },
-        ingestion: { status: 'loading', progress: null, result: null, error: null },
-        graph: idleGraph,
-        selection: emptySelection,
-        analysis: idleAnalysis,
+        ingestion: {
+          status: 'loading',
+          progress: null,
+          result: hasExistingGames ? state.ingestion.result : null,
+          error: null,
+        },
+        graph: hasExistingGames ? state.graph : idleGraph,
+        selection: hasExistingGames ? state.selection : emptySelection,
+        analysis: hasExistingGames ? state.analysis : idleAnalysis,
       };
+    }
     case 'ingestion/progress':
       return { ...state, ingestion: { ...state.ingestion, progress: action.progress } };
     case 'ingestion/terminal': {
+      const hasExistingGames = (state.ingestion.result?.games.length ?? 0) > 0;
+      const isFailed =
+        action.result.status === 'failed' ||
+        (action.result.status === 'cancelled' && action.result.games.length === 0);
+
+      if (isFailed && hasExistingGames) {
+        const previousUsername = state.ingestion.result?.games[0]?.username;
+        return {
+          ...state,
+          query: {
+            ...state.query,
+            active:
+              previousUsername && state.query.active
+                ? { ...state.query.active, username: previousUsername }
+                : state.query.active,
+          },
+          ingestion: {
+            ...state.ingestion,
+            status: 'failed',
+            error:
+              action.result.diagnostics[0]?.message ??
+              action.result.failedMonths[0]?.error.message ??
+              'Games could not be loaded',
+          },
+        };
+      }
+
       const status =
         action.result.status === 'complete' && action.result.games.length === 0
           ? 'empty'
@@ -90,11 +124,39 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
             : emptySelection,
       };
     }
-    case 'ingestion/failed':
+    case 'ingestion/failed': {
+      const hasExistingGames = (state.ingestion.result?.games.length ?? 0) > 0;
+      const previousUsername = state.ingestion.result?.games[0]?.username;
       return {
         ...state,
+        query: {
+          ...state.query,
+          active:
+            hasExistingGames && previousUsername && state.query.active
+              ? { ...state.query.active, username: previousUsername }
+              : state.query.active,
+        },
         ingestion: { ...state.ingestion, status: 'failed', error: action.error },
       };
+    }
+    case 'ingestion/errorDismissed': {
+      const currentResult = state.ingestion.result;
+      const recoveredStatus = currentResult
+        ? currentResult.games.length > 0
+          ? currentResult.status === 'partial'
+            ? 'partial'
+            : 'complete'
+          : 'empty'
+        : 'idle';
+      return {
+        ...state,
+        ingestion: {
+          ...state.ingestion,
+          status: recoveredStatus,
+          error: null,
+        },
+      };
+    }
     case 'graph/started':
       return {
         ...state,

@@ -59,15 +59,57 @@ describe('GameSelector', () => {
     await user.type(screen.getByLabelText(/filter games/i), 'Judit');
     expect(screen.getByRole('list', { name: 'Games' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /magnus/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Games (1 of 2)');
     window.matchMedia = originalMatchMedia;
+  });
+
+  it('updates heading and auto-selects first visible game when filter omits currently selected game', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const onAnalyze = vi.fn();
+    const { rerender } = render(
+      <GameSelector
+        games={games}
+        selectedGameId="older"
+        onSelect={onSelect}
+        onAnalyze={onAnalyze}
+      />
+    );
+
+    // Initial heading
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Games (2)');
+    // Initial selection is 'older' (vs Magnus Carlsen)
+    expect(screen.getByText('player-one (1800) vs Magnus Carlsen (1850)')).toBeInTheDocument();
+
+    // Filter to Judit (which filters out 'older')
+    await user.type(screen.getByLabelText(/filter games/i), 'Judit');
+
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Games (1 of 2)');
+    // onSelect should be called with 'newer' (Judit Polgar)
+    expect(onSelect).toHaveBeenCalledWith('newer');
+
+    // When rerendered with updated selectedGameId
+    rerender(
+      <GameSelector
+        games={games}
+        selectedGameId="newer"
+        onSelect={onSelect}
+        onAnalyze={onAnalyze}
+      />
+    );
+    expect(screen.getByText('player-one (1800) vs Judit Polgar (1850)')).toBeInTheDocument();
   });
 
   it('shows an unbounded empty state when the filter matches no games', async () => {
     const user = userEvent.setup();
-    render(<GameSelector games={games} selectedGameId={null} onSelect={vi.fn()} />);
+    render(
+      <GameSelector games={games} selectedGameId="older" onSelect={vi.fn()} onAnalyze={vi.fn()} />
+    );
 
     await user.type(screen.getByLabelText(/filter games/i), 'No such opponent');
 
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Games (0 of 2)');
+    expect(screen.queryByText(/magnus carlsen/i)).not.toBeInTheDocument();
     expect(
       screen.getByText('No games match this filter. Try another opponent name.')
     ).toBeInTheDocument();

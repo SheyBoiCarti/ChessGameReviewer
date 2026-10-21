@@ -149,7 +149,14 @@ export function ChessWorkspace({
     tab === 'analysis' && !variation
       ? state.analysis.result?.annotations.find(({ ply }) => ply === state.selection.ply)
       : undefined;
-  const selectedArrow = uciArrow(selectedAnnotation?.after.pv[0]);
+  const isSuboptimalMove =
+    selectedAnnotation?.accuracy.status === 'classified' &&
+    ['inaccuracy', 'mistake', 'blunder', 'miss'].includes(selectedAnnotation.accuracy.quality);
+  const selectedArrow = uciArrow(
+    isSuboptimalMove
+      ? (selectedAnnotation?.before.bestMove ?? selectedAnnotation?.before.pv[0])
+      : (selectedAnnotation?.after.pv[0] ?? selectedAnnotation?.before.bestMove)
+  );
   const selectedBadge =
     selectedAnnotation && selectedAnnotation.accuracy.status === 'classified'
       ? {
@@ -359,6 +366,52 @@ export function ChessWorkspace({
             onPlyChange: handlePlyChange,
           }
         : undefined;
+
+  useEffect(() => {
+    if (tab !== 'games' && tab !== 'analysis') return;
+    if (importOpen || aboutOpen || menuOpen || moveOrdersOpen) return;
+    if (!historyValue) return;
+
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+      const active = document.activeElement;
+      if (active) {
+        const tag = active.tagName.toLowerCase();
+        if (
+          tag === 'input' ||
+          tag === 'textarea' ||
+          tag === 'select' ||
+          active.getAttribute('contenteditable') === 'true' ||
+          active.getAttribute('role') === 'textbox' ||
+          active.closest('[role="dialog"]')
+        ) {
+          return;
+        }
+        if (active.closest('.chessboard')) {
+          return;
+        }
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        historyValue.onPlyChange(Math.max(0, historyValue.currentPly - 1));
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        historyValue.onPlyChange(Math.min(historyValue.totalPlies, historyValue.currentPly + 1));
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        historyValue.onPlyChange(0);
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        historyValue.onPlyChange(historyValue.totalPlies);
+      }
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown);
+    return () => window.removeEventListener('keydown', handleWindowKeyDown);
+  }, [tab, importOpen, aboutOpen, menuOpen, moveOrdersOpen, historyValue]);
 
   // Board interactivity by view:
   // Games & Review: playback and orientation only (isInteractive = false)
@@ -653,6 +706,37 @@ export function ChessWorkspace({
                     hasGamesLoaded ? (
                       <>
                         {state.ingestion.result?.offlineCacheOnly ? <OfflineCacheNotice /> : null}
+                        {state.ingestion.status === 'failed' || state.ingestion.error ? (
+                          <div
+                            className="status-card status-failed"
+                            role="alert"
+                            style={{ marginBottom: '1rem' }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: '0.75rem',
+                              }}
+                            >
+                              <div>
+                                <h3>Games could not be loaded</h3>
+                                <p>
+                                  {state.ingestion.error ?? 'Failed to import games.'} Retaining
+                                  previously loaded games.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                className="button button--secondary button--sm"
+                                onClick={() => controller.dismissIngestionError()}
+                              >
+                                Keep current games
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                         {state.ingestion.result?.status === 'partial' ? (
                           <div className="partial-import-notice" role="status">
                             <p>Some games could not be imported.</p>
@@ -711,6 +795,18 @@ export function ChessWorkspace({
                             progress={state.ingestion.progress}
                             onCancel={controller.cancelIngestion}
                           />
+                        ) : null}
+                        {!state.ingestion.result &&
+                        state.ingestion.status === 'failed' &&
+                        state.ingestion.error ? (
+                          <div
+                            className="status-card status-failed"
+                            role="alert"
+                            style={{ marginTop: '1rem' }}
+                          >
+                            <h3>Games could not be loaded</h3>
+                            <p>{state.ingestion.error}</p>
+                          </div>
                         ) : null}
                         {state.ingestion.result && state.ingestion.status !== 'loading' ? (
                           <div
@@ -922,7 +1018,20 @@ export function ChessWorkspace({
             onCancel={controller.cancelIngestion}
           />
         ) : null}
-        {state.ingestion.result && state.ingestion.status !== 'loading' ? (
+        {state.ingestion.status === 'failed' && state.ingestion.error ? (
+          <div className="status-card status-failed" role="alert" style={{ marginTop: '1rem' }}>
+            <h3>Games could not be loaded</h3>
+            <p>{state.ingestion.error}</p>
+            {hasGamesLoaded ? (
+              <p className="field-help" style={{ marginTop: '0.5rem' }}>
+                Your previously loaded games remain available in the workspace.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {state.ingestion.result &&
+        state.ingestion.status !== 'loading' &&
+        (!hasGamesLoaded || state.ingestion.status !== 'failed') ? (
           <div
             className="utility-rail__result"
             data-utility-rail-result

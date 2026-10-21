@@ -33,7 +33,7 @@ export function createSecurityHeaders(isDevelopment: boolean): SecurityHeader[] 
         "default-src 'self'",
         `script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ''}`,
         "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: blob:",
+        "img-src 'self' data: blob: https://images.chesscomfiles.com https://*.chesscomfiles.com",
         "connect-src 'self' https://api.chess.com",
         "worker-src 'self' blob:",
         "frame-ancestors 'none'",

@@ -48,6 +48,15 @@ describe('Security Headers Configuration', () => {
     expect(val).toContain("frame-ancestors 'none'");
   });
 
+  it('permits Chess.com image domains in CSP img-src for avatars', () => {
+    const csp = securityHeaders.find((h) => h.key === 'Content-Security-Policy');
+    expect(csp).toBeDefined();
+    const val = csp?.value ?? '';
+    expect(val).toContain('img-src');
+    expect(val).toContain('https://images.chesscomfiles.com');
+    expect(val).toContain('https://*.chesscomfiles.com');
+  });
+
   it('does not permit general unsafe eval', () => {
     const csp = securityHeaders.find((header) => header.key === 'Content-Security-Policy');
     expect(csp?.value).toContain("'wasm-unsafe-eval'");
