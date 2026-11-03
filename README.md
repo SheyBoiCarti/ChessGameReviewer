@@ -71,7 +71,7 @@ The deployed origin must preserve the response headers configured in `next.confi
 
 The application uses the browser to call approved public Chess.com API endpoints. Imported games, opening data, and engine evaluations remain in local browser storage. Clearing application data from the Settings view removes the stored data for this app.
 
-Chess.com usernames and public game records are sent to Chess.com's API when the user requests an import. No analytics or telemetry service is included by default.
+Chess.com usernames and public game records are sent to Chess.com's API when the user requests an import. Vercel Web Analytics is enabled for production deployments to monitor application performance and traffic.
 
 ## Licensing
 

@@ -19,3 +19,4 @@ docs/superpowers/
 .superpowers/
 AGENT.md
 agent.md
+.playwright-mcp/

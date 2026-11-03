@@ -8,3 +8,4 @@ docs/superpowers
 app/icon.svg
 public/stockfish/
 next-env.d.ts
+.playwright-mcp/
