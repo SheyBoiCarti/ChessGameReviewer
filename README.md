@@ -1,63 +1,79 @@
 # Chess Game Reviewer
 
-Chess Game Reviewer is an unaffiliated, browser-based tool for reviewing public Chess.com games, exploring opening trees, and running local Stockfish analysis.
+Review your public Chess.com games, explore your opening patterns, and analyze positions with Stockfish running in your browser.
 
-It works without an account or application backend:
+Chess Game Reviewer is an unaffiliated, browser-based application. It has no account system or application backend: game data and analysis are kept in your browser, while public game archives are fetched directly from Chess.com.
 
-- Public game archives are requested directly from the Chess.com Published Data API.
-- Normalized games, opening data, and evaluations are stored in the browser's IndexedDB.
-- PGNs and engine evaluations are not uploaded to an application server.
-- Stockfish runs locally in Web Workers with a single-thread fallback when browser isolation is unavailable.
+## Screenshots
 
-This project is not affiliated with, endorsed by, or sponsored by Chess.com.
+| Game import workspace                                                   | Opening explorer                                                                   |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| ![Chess Game Reviewer import workspace](docs/screenshots/workspace.png) | ![Opening explorer with move tree and outcomes](docs/screenshots/opening-tree.png) |
 
-## Features
+![Game review with chessboard](docs/screenshots/game-review.png)
 
-- Import standard games by Chess.com username and UTC date range.
-- Filter by time class, colour, rated status, and game count.
-- Browse a transposition-aware opening tree with outcome and sample-size context.
-- Review a selected game with local Stockfish evaluations, move classifications, and variations.
-- Keep data offline in versioned IndexedDB stores, with controls to delete local data.
-- Continue using import and opening features when the analysis engine is unavailable.
+## What you can do
 
-Advanced repertoire and statistical comparison features described in the technical specification are planned and are not part of the current release.
+- **Import games** by Chess.com username and UTC date range. Filter by time class, colour, rated status, and game count.
+- **Explore openings** in a transposition-aware move tree, with outcome and sample-size context.
+- **Review games** with local Stockfish evaluations, move classifications, and suggested variations.
+- **Keep your data local.** Games, opening data, and evaluations are stored in versioned IndexedDB stores in your browser. Settings lets you delete this app's local data.
+- **Use the core workspace without the engine.** Import and opening exploration remain available if Stockfish cannot start.
 
-## Requirements
+Advanced repertoire and statistical comparison features are planned; they are not included in the current release.
 
-- Node.js 20.11 or newer (Node.js 22 is used in CI)
+## Quick start
+
+### Requirements
+
+- Node.js 20.11 or newer (CI uses Node.js 22)
 - npm 11
 - A modern browser with Web Workers, IndexedDB, and WebAssembly support
 
-## Development
+### Run locally
 
 ```bash
+git clone <repository-url>
+cd ChessGameReviewer
 npm ci
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000), enter a Chess.com username, choose a UTC date range, and import the games you want to review.
 
-Useful checks:
+## Development commands
 
-```bash
-npm run format:check
-npm run lint
-npm run typecheck
-npm test
-npm run verify:stockfish
-npm run build
-```
+| Command                    | Purpose                                                            |
+| -------------------------- | ------------------------------------------------------------------ |
+| `npm run dev`              | Start the local development server                                 |
+| `npm run build`            | Create a production build                                          |
+| `npm start`                | Serve the production build                                         |
+| `npm run lint`             | Run ESLint                                                         |
+| `npm run typecheck`        | Check TypeScript types                                             |
+| `npm test`                 | Run unit tests                                                     |
+| `npm run test:e2e`         | Run Playwright end-to-end tests                                    |
+| `npm run verify:stockfish` | Verify bundled Stockfish artifacts                                 |
+| `npm run verify`           | Run formatting, lint, type, coverage, build, and end-to-end checks |
 
-The complete CI-equivalent verification command is `npm run verify`. Playwright browsers must be installed before running the end-to-end suite:
+Playwright browsers must be installed to run the end-to-end suite:
 
 ```bash
 npx playwright install --with-deps
-npm run verify
+npm run test:e2e
 ```
+
+## Privacy and network use
+
+- When you import games, your Chess.com username and request details are sent to Chess.com's public Published Data API.
+- Imported games, opening data, and engine evaluations are stored in your browser; PGNs and evaluations are not uploaded to an application server.
+- Stockfish runs locally in Web Workers, with a single-thread fallback when browser cross-origin isolation is unavailable.
+- Production deployments enable Vercel Web Analytics for application performance and traffic measurement.
+
+The app does not require environment variables or a server-side Chess.com proxy.
 
 ## Deployment
 
-The app can be deployed as a standard Next.js application:
+Deploy as a standard Next.js application:
 
 ```bash
 npm ci
@@ -65,22 +81,14 @@ npm run build
 npm start
 ```
 
-The deployed origin must preserve the response headers configured in `next.config.ts`, especially cross-origin isolation for the threaded Stockfish build. The app has no required environment variables and does not use a server-side Chess.com proxy.
+Preserve the response headers configured in [`next.config.ts`](next.config.ts), especially cross-origin isolation headers needed by the threaded Stockfish build.
 
-## Privacy and data
+## Licensing and attribution
 
-The application uses the browser to call approved public Chess.com API endpoints. Imported games, opening data, and engine evaluations remain in local browser storage. Clearing application data from the Settings view removes the stored data for this app.
+The application source code is licensed under the [MIT License](LICENSE). The repository also distributes Stockfish.js WebAssembly artifacts under GPL-3.0-or-later. See [third-party notices](THIRD_PARTY_NOTICES.md), [Stockfish license](public/stockfish/COPYING.txt), and [source correspondence and rebuild instructions](docs/stockfish-source-offer.md).
 
-Chess.com usernames and public game records are sent to Chess.com's API when the user requests an import. Vercel Web Analytics is enabled for production deployments to monitor application performance and traffic.
-
-## Licensing
-
-The application source code is licensed under the [MIT License](LICENSE).
-
-The repository also distributes Stockfish.js WebAssembly artifacts under GPL-3.0-or-later. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [public/stockfish/COPYING.txt](public/stockfish/COPYING.txt), and [docs/stockfish-source-offer.md](docs/stockfish-source-offer.md) for attribution, source correspondence, and rebuild instructions.
-
-The board uses Chess.com Neo PNG artwork; see [asset provenance](public/chess-pieces/neo/README.md).
+The board uses Chess.com Neo piece artwork; see the [asset provenance notes](public/chess-pieces/neo/README.md). This project is not affiliated with, endorsed by, or sponsored by Chess.com.
 
 ## Security
 
-Please report security issues privately according to [SECURITY.md](SECURITY.md), rather than opening a public issue with sensitive details.
+Report security issues privately using the process in [SECURITY.md](SECURITY.md), rather than opening a public issue with sensitive details.
