@@ -54,6 +54,10 @@ describe('chesscomProfile API', () => {
 
       const profile = await fetchPlayerProfile('erik');
       expect(profile).toEqual(mockData);
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.any(URL),
+        expect.objectContaining({ cache: 'no-store' })
+      );
     });
 
     it('successfully fetches and parses minimal player profile', async () => {

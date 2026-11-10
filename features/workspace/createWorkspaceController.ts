@@ -43,6 +43,10 @@ export interface WorkspaceServices {
     dispose(): void;
   };
   analysis: {
+    restore?(
+      games: readonly GameRecord[],
+      strength: AnalysisStrength
+    ): Promise<Record<string, GameAnalysisResult>>;
     analyze(
       game: GameRecord,
       strength: AnalysisStrength,
@@ -94,8 +98,10 @@ export function createWorkspaceController(
   let analysisController: AbortController | null = null;
   let activeQuery: Promise<void> | null = null;
   let activeAnalysis: Promise<void> | null = null;
+  const pendingAnalyses = new Set<Promise<void>>();
   let maintenance: Promise<unknown> | null = null;
   const listeners = new Set<() => void>();
+  const gameAnalysisSequences = new Map<string, number>();
 
   const dispatch = (action: WorkspaceAction): void => {
     if (disposed) return;
@@ -123,7 +129,7 @@ export function createWorkspaceController(
     services.ingestion.cancel();
     services.graph.cancel();
     analysisController?.abort();
-    const active = [activeQuery, activeAnalysis].filter(
+    const active = [activeQuery, activeAnalysis, ...pendingAnalyses].filter(
       (promise): promise is Promise<void> => promise !== null
     );
     await Promise.allSettled(active);
@@ -173,6 +179,7 @@ export function createWorkspaceController(
         const token = ++nextToken;
         services.ingestion.cancel();
         services.graph.cancel();
+        analysisController?.abort();
         dispatch({ type: 'query/started', query, token });
         try {
           const result = await services.ingestion.start(query, {
@@ -182,6 +189,19 @@ export function createWorkspaceController(
             onProgress: (progress) => dispatch({ type: 'ingestion/progress', token, progress }),
           });
           dispatch({ type: 'ingestion/terminal', token, result });
+          if (services.analysis.restore && result.games.length > 0) {
+            try {
+              const restored = await services.analysis.restore(
+                result.games,
+                state.preferences.analysisStrength
+              );
+              for (const [gameId, saved] of Object.entries(restored)) {
+                dispatch({ type: 'analysis/terminal', token, gameId, result: saved });
+              }
+            } catch {
+              /* Saved reviews are optional when storage is unavailable. */
+            }
+          }
           if (disposed || token !== state.query.token || result.games.length === 0) return;
           dispatch({ type: 'graph/started', token });
           const graph = await services.graph.build(
@@ -251,9 +271,11 @@ export function createWorkspaceController(
       if (!game || !capability || capability.mode === 'unavailable') return;
       const tracked = trackedOperation((promise) => {
         activeAnalysis = promise;
+        if (promise) pendingAnalyses.add(promise);
       });
       try {
         const sequence = ++analysisSequence;
+        gameAnalysisSequences.set(game.id, sequence);
         analysisController?.abort();
         analysisController = new AbortController();
         const token = state.query.token;
@@ -272,8 +294,8 @@ export function createWorkspaceController(
               }
             }
           );
-          if (sequence === analysisSequence) {
-            dispatch({ type: 'analysis/terminal', token, result });
+          if (gameAnalysisSequences.get(game.id) === sequence) {
+            dispatch({ type: 'analysis/terminal', token, gameId: game.id, result });
           }
         } catch (error) {
           if (sequence === analysisSequence) {
@@ -288,11 +310,11 @@ export function createWorkspaceController(
         }
       } finally {
         tracked.finish();
+        pendingAnalyses.delete(tracked.promise);
         if (activeAnalysis === tracked.promise) activeAnalysis = null;
       }
     },
     cancelAnalysis() {
-      analysisSequence += 1;
       analysisController?.abort();
       analysisController = null;
       dispatch({ type: 'analysis/cancelled', token: state.query.token });

@@ -89,6 +89,7 @@ export function GameQueryForm({
   }, [openingHorizon]);
 
   const handleSelectPreset = (preset: DatePreset) => {
+    setDiagnostics([]);
     setDatePreset(preset);
     if (preset === 'custom') {
       return;
@@ -123,6 +124,7 @@ export function GameQueryForm({
   };
 
   const updateDraft = (changes: Partial<GameQuery>) => {
+    setDiagnostics([]);
     onDraftChange?.({
       username,
       dateFrom,

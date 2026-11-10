@@ -2,8 +2,8 @@ import { ClientWorkspaceLoader } from '@/components/workspace/ClientWorkspaceLoa
 
 export default function Home() {
   return (
-    <main className="workspace-root">
+    <div className="workspace-root">
       <ClientWorkspaceLoader />
-    </main>
+    </div>
   );
 }

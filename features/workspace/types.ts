@@ -30,6 +30,7 @@ export interface WorkspaceState {
   query: {
     draft: GameQuery;
     active: GameQuery | null;
+    previousActive?: GameQuery | null;
     token: number;
   };
   ingestion: {
@@ -95,7 +96,7 @@ export type WorkspaceAction =
       token: number;
       progress: { analyzedPlies: number; totalPlies: number };
     }
-  | { type: 'analysis/terminal'; token: number; result: GameAnalysisResult }
+  | { type: 'analysis/terminal'; token: number; result: GameAnalysisResult; gameId?: string }
   | { type: 'analysis/cancelled'; token: number }
   | { type: 'analysis/failed'; token: number; error: string }
   | { type: 'preferences/changed'; preferences: Partial<WorkspacePreferences> }

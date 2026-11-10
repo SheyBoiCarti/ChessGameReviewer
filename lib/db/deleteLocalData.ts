@@ -65,6 +65,18 @@ export async function deleteUserData(db: IDBDatabase, username: string): Promise
     const metaStore = tx.objectStore(STORES.META);
     const userMetaKey = `archiveList:${normUsername}`;
     metaStore.delete(userMetaKey);
+    metaStore.delete(`profile:${normUsername}`);
+    const reviewPrefix = `review:${normUsername}:`;
+    const reviewsReq = metaStore.openKeyCursor(
+      IDBKeyRange.bound(reviewPrefix, `${reviewPrefix}\uffff`)
+    );
+    reviewsReq.onsuccess = () => {
+      const cursor = reviewsReq.result;
+      if (cursor) {
+        metaStore.delete(cursor.primaryKey);
+        cursor.continue();
+      }
+    };
 
     tx.oncomplete = () => {
       resolve({

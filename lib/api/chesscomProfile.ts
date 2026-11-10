@@ -198,7 +198,7 @@ async function executeProfileRequest<T>(
         mode: 'cors',
         credentials: 'omit',
         redirect: 'follow',
-        cache: 'default',
+        cache: 'no-store',
         signal: composed.signal,
       });
 

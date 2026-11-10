@@ -322,7 +322,7 @@ describe('GameQueryForm', () => {
     await user.click(screen.getByRole('button', { name: /load games/i }));
 
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert')).toHaveTextContent(/cannot be after dateTo/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/end date on or after the start date/i);
     expect(screen.getByLabelText(/from date/i)).toBeVisible();
   });
 });

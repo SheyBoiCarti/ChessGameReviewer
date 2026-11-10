@@ -196,6 +196,8 @@ export function computeTacticalStats(
   let misses = 0;
   let analyzedGamesCount = 0;
 
+  let localGames = 0;
+  let chessComGames = 0;
   let accuracySum = 0;
   let accuracyCount = 0;
 
@@ -210,6 +212,7 @@ export function computeTacticalStats(
           colorSummary.accuracyEstimate !== null &&
           Number.isFinite(colorSummary.accuracyEstimate)
         ) {
+          localGames += 1;
           accuracySum += colorSummary.accuracyEstimate;
           accuracyCount += 1;
         }
@@ -223,6 +226,7 @@ export function computeTacticalStats(
     } else if (game.accuracies) {
       const acc = game.accuracies[game.userColor];
       if (typeof acc === 'number' && Number.isFinite(acc)) {
+        chessComGames += 1;
         accuracySum += acc;
         accuracyCount += 1;
       }
@@ -235,6 +239,12 @@ export function computeTacticalStats(
     analyzedGamesCount > 0 ? Math.round((blunders / analyzedGamesCount) * 100) / 100 : 0;
 
   return {
+    accuracySources: {
+      localGames,
+      chessComGames,
+      reviewedGames: analyzedGamesCount,
+      totalGames: games.length,
+    },
     totalEvaluatedMoves,
     avgAccuracy,
     blunders,

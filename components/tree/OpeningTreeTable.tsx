@@ -83,8 +83,8 @@ export function OpeningTreeTable({
           <option value="san">Move</option>
         </select>
       </label>
-      <p className="sr-only" aria-live="polite">
-        Candidate moves sorted by {sort}.
+      <p className="field-help" aria-live="polite">
+        Position-wide candidate moves across all observed move orders, sorted by {sort}.
       </p>
 
       {candidates.length === 0 ? (

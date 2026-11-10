@@ -10,6 +10,7 @@ import {
   type WorkspaceServices,
 } from './createWorkspaceController';
 import type { WorkspacePreferences } from './types';
+import { readWorkspaceSession, type SavedWorkspaceSession } from './session';
 
 const preferencesStorageKey = 'chess-game-reviewer:preferences';
 const recentQueryStorageKey = 'chess-game-reviewer:recent-query';
@@ -18,6 +19,7 @@ export interface UseWorkspaceResult {
   controller: WorkspaceController;
   state: ReturnType<WorkspaceController['getState']>;
   recentQuery: GameQuery | null;
+  recoveredSession: SavedWorkspaceSession | null;
 }
 
 export function useWorkspace(createServices: () => WorkspaceServices): UseWorkspaceResult {
@@ -25,6 +27,9 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
     createWorkspaceController(createServices(), readStoredPreferences())
   );
   const [recentQuery, setRecentQuery] = useState<GameQuery | null>(() => readStoredQuery());
+  const [startupQuery] = useState(() => readStoredQuery());
+  const [startupSession] = useState(() => readWorkspaceSession());
+  const [recoveredSession, setRecoveredSession] = useState<SavedWorkspaceSession | null>(null);
   const state = useSyncExternalStore(
     controller.subscribe,
     controller.getState,
@@ -47,7 +52,45 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
     setRecentQuery(state.query.active);
   }, [state.query.active]);
 
-  return { controller, state, recentQuery };
+  useEffect(() => {
+    let active = true;
+    if (startupQuery) {
+      void controller
+        .listStoredUsernames()
+        .then(async (usernames) => {
+          if (
+            !active ||
+            controller.getState().query.token !== 0 ||
+            !usernames.includes(startupQuery.username)
+          )
+            return;
+          await controller.submitQuery(startupQuery);
+          const loaded = controller.getState();
+          if (
+            !active ||
+            loaded.query.token !== 1 ||
+            !startupSession ||
+            startupSession.username !== startupQuery.username
+          )
+            return;
+          const game = loaded.ingestion.result?.games.find(
+            ({ id }) => id === startupSession.gameId
+          );
+          if (!game) return;
+          controller.selectGame(game.id);
+          controller.selectPly(startupSession.ply);
+          setRecoveredSession(startupSession);
+        })
+        .catch(() => {
+          /* Manual import remains available if local recovery fails. */
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [controller, startupQuery, startupSession]);
+
+  return { controller, state, recentQuery, recoveredSession };
 }
 
 function readStoredPreferences(): Partial<WorkspacePreferences> {

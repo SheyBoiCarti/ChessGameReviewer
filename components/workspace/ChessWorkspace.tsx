@@ -36,6 +36,7 @@ import {
 import { createBrowserWorkspaceServices } from '@/features/workspace/browserServices';
 import type { WorkspaceServices } from '@/features/workspace/createWorkspaceController';
 import { useWorkspace } from '@/features/workspace/useWorkspace';
+import { saveWorkspaceSession } from '@/features/workspace/session';
 import type { PlayerMetadata } from '@/lib/api/contracts';
 import { parseGamePgn, type ParsedGame } from '@/lib/chess/pgnParser';
 import { deserializeOpeningGraph } from '@/lib/chess/graph/serialization';
@@ -62,7 +63,7 @@ export function ChessWorkspace({
 }: {
   createServices?: (() => WorkspaceServices) | undefined;
 } = {}): JSX.Element {
-  const { controller, state, recentQuery } = useWorkspace(createServices);
+  const { controller, state, recentQuery, recoveredSession } = useWorkspace(createServices);
   const [tab, setTab] = useState<WorkspaceTab>('games');
   const [reviewMode, setReviewMode] = useState<ReviewMode>('review');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -77,6 +78,36 @@ export function ChessWorkspace({
     returnPositionKey: string;
     returnPathId: number;
   } | null>(null);
+  useEffect(() => {
+    if (recoveredSession) {
+      setTab(recoveredSession.tab);
+      setReviewMode(recoveredSession.reviewMode);
+    }
+  }, [recoveredSession]);
+
+  useEffect(() => {
+    if (
+      state.query.active &&
+      state.selection.gameId &&
+      ['complete', 'partial'].includes(state.ingestion.status)
+    ) {
+      saveWorkspaceSession({
+        username: state.query.active.username,
+        gameId: state.selection.gameId,
+        ply: state.selection.ply,
+        tab,
+        reviewMode,
+      });
+    }
+  }, [
+    state.query.active,
+    state.selection.gameId,
+    state.selection.ply,
+    state.ingestion.status,
+    tab,
+    reviewMode,
+  ]);
+
   const [loadedAnnouncement, setLoadedAnnouncement] = useState<string | null>(null);
 
   const moveOrdersButton = useRef<HTMLButtonElement>(null);
@@ -186,13 +217,14 @@ export function ChessWorkspace({
         setLoadedAnnouncement(`${state.ingestion.result?.games.length} games loaded`);
         requestAnimationFrame(() => titleHeadingRef.current?.focus());
       } else {
+        if (state.ingestion.status === 'empty') setLoadedAnnouncement(null);
         setResultFocusVersion((v) => v + 1);
       }
     }
   }, [state.ingestion.status, state.ingestion.result]);
 
   useEffect(() => {
-    if (tab === 'analysis' && state.analysis.status === 'idle' && !state.analysis.capability) {
+    if (tab === 'analysis' && state.analysis.status !== 'probing' && !state.analysis.capability) {
       void controller.probeEngine();
     }
   }, [controller, state.analysis.capability, state.analysis.status, tab]);
@@ -529,13 +561,15 @@ export function ChessWorkspace({
   const queryForm = (
     <GameQueryForm
       disabled={state.ingestion.status === 'loading'}
-      initialQuery={state.query.active ?? state.query.draft}
-      onDraftChange={(draft) =>
+      initialQuery={state.query.active ?? recentQuery ?? state.query.draft}
+      onDraftChange={(draft) => {
+        if (state.ingestion.error || state.ingestion.status === 'failed')
+          controller.dismissIngestionError();
         controller.dispatch({
           type: 'query/draftChanged',
           query: { ...state.query.draft, ...draft },
-        })
-      }
+        });
+      }}
       openingHorizon={state.preferences.openingHorizon}
       onOpeningHorizonChange={(openingHorizon) =>
         controller.dispatch({
@@ -589,6 +623,14 @@ export function ChessWorkspace({
         />
 
         <main className="workspace-content">
+          {state.ingestion.status === 'cancelled' && !importOpen ? (
+            <p role="status">
+              Import cancelled.{' '}
+              {hasGamesLoaded
+                ? 'Previously loaded games are still available.'
+                : 'You can load games again.'}
+            </p>
+          ) : null}
           {tab === 'games' && loadedAnnouncement ? (
             <div className="sr-only" role="status" aria-live="polite">
               {loadedAnnouncement}
@@ -677,6 +719,7 @@ export function ChessWorkspace({
               tabIndex={-1}
             >
               <ProfileInsightsDashboard
+                key={state.query.active?.username ?? 'no-player'}
                 username={
                   state.query.active?.username ?? state.ingestion.result?.games[0]?.username ?? null
                 }
@@ -1028,6 +1071,14 @@ export function ChessWorkspace({
               </p>
             ) : null}
           </div>
+        ) : null}
+        {state.ingestion.status === 'cancelled' ? (
+          <p role="status">
+            Import cancelled.{' '}
+            {hasGamesLoaded
+              ? 'Previously loaded games are still available.'
+              : 'You can load games again.'}
+          </p>
         ) : null}
         {state.ingestion.result &&
         state.ingestion.status !== 'loading' &&

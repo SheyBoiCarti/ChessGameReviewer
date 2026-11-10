@@ -20,3 +20,5 @@ docs/superpowers/
 AGENT.md
 agent.md
 .playwright-mcp/
+docs/exploratory-evidence/
+docs/fix-verification-evidence/

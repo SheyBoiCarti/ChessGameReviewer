@@ -11,8 +11,10 @@ import {
   createIndexedDbEvaluationRepository,
   EvaluationCache,
 } from '@/features/stockfish-analysis/evaluationCache';
+import { restoreReviews, saveReview } from '@/features/stockfish-analysis/reviewRepository';
 import { analysisPreset } from '@/features/stockfish-analysis/presentation';
 import { fetchMonthlyGames, fetchPlayerArchives } from '@/lib/api/chesscomClient';
+import { STORES } from '@/lib/db/schema';
 import { parseGamePgn } from '@/lib/chess/pgnParser';
 import { clearAllData, deleteUserData } from '@/lib/db/deleteLocalData';
 import { closeDatabase, initializeDatabaseMetadata, openDatabase } from '@/lib/db/openDatabase';
@@ -41,7 +43,7 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     }
     if (database) {
       try {
-        database.transaction('metadata', 'readonly');
+        database.transaction(STORES.META, 'readonly');
         return database;
       } catch {
         database = null;
@@ -129,6 +131,7 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
       },
     },
     analysis: {
+      restore: async (games, strength) => restoreReviews(await db(), games, strength),
       async analyze(game, strength, capability, context, signal, onProgress) {
         const parsed = parseGamePgn({
           game: {
@@ -154,7 +157,7 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
           throw new Error(parsed.errors[0]?.message ?? 'The selected PGN is invalid.');
         const preset = analysisPreset(strength);
         const cache = new EvaluationCache(createIndexedDbEvaluationRepository(await db()));
-        return analyzeGame({
+        const result = await analyzeGame({
           game: parsed.game,
           settings: {
             engineBuild: ENGINE_BUILD,
@@ -185,6 +188,22 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
           signal,
           onProgress,
         });
+        try {
+          await saveReview(await db(), game, strength, result);
+        } catch {
+          return {
+            ...result,
+            warnings: [
+              ...result.warnings,
+              {
+                code: 'EVALUATION_CACHE_WRITE_FAILED' as const,
+                message:
+                  'This review could not be saved locally. Keep this page open to retain it.',
+              },
+            ],
+          };
+        }
+        return result;
       },
     },
   };
