@@ -185,7 +185,7 @@ describe('workspace controller', () => {
     expect(clearAll).toHaveBeenCalledTimes(1);
   });
 
-  it('cancels and ignores selected-game analysis after the game selection changes', async () => {
+  it('retains a completed result for its game without replacing another selection', async () => {
     const pending = deferred<Awaited<ReturnType<WorkspaceServices['analysis']['analyze']>>>();
     const services = createServices(async () => result(secondQuery, [game]));
     services.analysis.analyze = (_game, _strength, _capability, _context, signal) => {
@@ -236,6 +236,9 @@ describe('workspace controller', () => {
 
     expect(controller.getState().selection.gameId).toBeNull();
     expect(controller.getState().analysis.result).toBeNull();
+    expect(controller.getState().analysis.resultsByGameId[game.id]?.status).toBe('complete');
+    controller.selectGame(game.id);
+    expect(controller.getState().analysis.status).toBe('complete');
   });
 
   it('runs analysis progress, cancellation, navigation, clearing, and engine fallback paths', async () => {

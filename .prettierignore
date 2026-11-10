@@ -9,3 +9,7 @@ app/icon.svg
 public/stockfish/
 next-env.d.ts
 .playwright-mcp/
+
+# Captured browser evidence is preserved in its original format.
+docs/exploratory-evidence/
+docs/fix-verification-evidence/

@@ -27,6 +27,8 @@ test('keeps the board and its move controls visible without document overflow ac
   page,
 }) => {
   test.setTimeout(90_000);
+  // Each viewport exercises a first import; recovery is covered separately.
+  await page.addInitScript(() => localStorage.clear());
   const viewports = [
     { name: 'phone', width: 390, height: 844, usesDrawer: true },
     { name: 'tablet', width: 768, height: 1024, usesDrawer: true },

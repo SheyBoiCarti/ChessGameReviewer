@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import type { GameRecord } from '@/lib/db/schema';
 import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGame';
 import { openDatabase } from '@/lib/db/openDatabase';
@@ -46,17 +46,33 @@ export function ProfileInsightsDashboard({
   const [cachedData, setCachedData] = useState<CachedProfileRecord | null>(null);
   const [isLoadingProfile, setIsLoadingProfile] = useState<boolean>(false);
 
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   // Refresh profile & stats handler
   const refreshProfileData = useCallback(async () => {
     if (!username) return;
 
     setIsLoadingProfile(true);
+    setRefreshError(null);
     try {
       const [profile, stats] = await Promise.allSettled([
         fetchPlayerProfile(username),
         fetchPlayerStats(username),
       ]);
 
+      if (!mounted.current) return;
+      const succeeded = profile.status === 'fulfilled' && stats.status === 'fulfilled';
+      if (!succeeded)
+        setRefreshError(
+          'Profile refresh failed. Showing previously saved data where available. Check your connection and try Refresh again.'
+        );
       setCachedData((prev) => {
         const resolvedProfile =
           profile.status === 'fulfilled' ? profile.value : (prev?.profile ?? null);
@@ -66,19 +82,21 @@ export function ProfileInsightsDashboard({
           username,
           profile: resolvedProfile,
           stats: resolvedStats,
-          fetchedAt: Date.now(),
+          fetchedAt: succeeded ? Date.now() : (prev?.fetchedAt ?? 0),
         };
 
-        void openDatabase()
-          .then((db) => putPlayerProfile(db, newRecord))
-          .catch(() => {});
+        if (succeeded)
+          void openDatabase()
+            .then((db) => putPlayerProfile(db, newRecord))
+            .catch(() => {});
 
         return newRecord;
       });
     } catch {
-      // Fetch failures handled gracefully
+      if (mounted.current)
+        setRefreshError('Profile refresh failed. Check your connection and try again.');
     } finally {
-      setIsLoadingProfile(false);
+      if (mounted.current) setIsLoadingProfile(false);
     }
   }, [username]);
 
@@ -167,6 +185,7 @@ export function ProfileInsightsDashboard({
           onRefresh={refreshProfileData}
         />
 
+        {refreshError ? <p role="alert">{refreshError}</p> : null}
         <div className="profile-empty-dashboard">
           <div className="profile-empty-icon">♟️</div>
           <h3>No ingested games found for {username}</h3>
@@ -194,6 +213,13 @@ export function ProfileInsightsDashboard({
         onRefresh={refreshProfileData}
       />
 
+      {refreshError ? <p role="alert">{refreshError}</p> : null}
+      {cachedData && cachedData.fetchedAt > 0 ? (
+        <p className="field-help">
+          Profile last updated: {new Date(cachedData.fetchedAt).toLocaleString()}. Ratings are
+          account-wide lifetime peaks; performance filters apply to loaded games.
+        </p>
+      ) : null}
       <InsightsFilterBar filters={filters} onChange={setFilters} />
 
       {aggregated.totalGames === 0 ? (
@@ -229,6 +255,8 @@ export function ProfileInsightsDashboard({
 
             <div className="profile-dashboard-col">
               <TopOpeningsCard
+                key={filters.color}
+                initialColor={filters.color === 'black' ? 'black' : 'white'}
                 whiteOpenings={aggregated.topOpeningsWhite}
                 blackOpenings={aggregated.topOpeningsBlack}
               />

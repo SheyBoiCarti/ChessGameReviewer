@@ -29,7 +29,7 @@ test.describe('Profile Insights Dashboard E2E', () => {
     // 4. Verify player profile header card
     await expect(page.getByRole('heading', { name: 'Fixture User' })).toBeVisible();
     await expect(page.getByText('@fixture-user')).toBeVisible();
-    await expect(page.getByText('NM')).toBeVisible();
+    await expect(page.getByText('NM', { exact: true })).toBeVisible();
 
     // 5. Verify KPI grid
     const kpiGrid = page.getByRole('region', { name: 'Performance KPIs' });

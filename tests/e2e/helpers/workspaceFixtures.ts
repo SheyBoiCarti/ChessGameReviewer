@@ -160,3 +160,12 @@ function game(input: {
     black: { username: input.black, rating: 1750, result: whiteWon ? 'resigned' : 'win' },
   };
 }
+
+// The e3 continuation exists only through the alternate arrival path.
+export async function installTranspositionWorkspaceFixtures(page: Page) {
+  const alternateGames = [
+    { ...games[0]!, pgn: games[0]!.pgn.replace('3. e3 e6 4. Bd3 Bd6', '3. Bf4 e6 4. e3 Bd6') },
+    games[1]!,
+  ];
+  await installRoutes(page, alternateGames);
+}

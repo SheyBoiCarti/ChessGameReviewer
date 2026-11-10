@@ -34,7 +34,11 @@ export function TacticalMistakesCard({ tactics }: TacticalMistakesCardProps): Re
             {avgAccuracy !== null ? `${avgAccuracy}%` : 'No evaluations yet'}
           </span>
           <span className="profile-tactics-accuracy-subtext">
-            Based on Stockfish evaluation engine and ingested game results
+            Accuracy combines local Stockfish estimates for reviewed games with Chess.com accuracy
+            for other games. Tactical counts cover only locally evaluated moves.
+            {tactics.accuracySources
+              ? ` ${tactics.accuracySources.reviewedGames} of ${tactics.accuracySources.totalGames} games have local review results. Average accuracy uses ${tactics.accuracySources.localGames} local estimates and ${tactics.accuracySources.chessComGames} Chess.com values.`
+              : ''}
           </span>
         </div>
       </div>
@@ -45,9 +49,11 @@ export function TacticalMistakesCard({ tactics }: TacticalMistakesCardProps): Re
             <span className="profile-mistake-dot profile-mistake-dot--blunder" />
             <span className="profile-mistake-title">Blunders</span>
           </div>
-          <span className="profile-mistake-count">{blunders}</span>
+          <span className="profile-mistake-count">
+            {totalEvaluatedMoves > 0 ? blunders : 'Unknown'}
+          </span>
           <span className="profile-mistake-rate">
-            {blundersPerGame > 0 ? `${blundersPerGame} / game` : '0 / game'}
+            {totalEvaluatedMoves === 0 ? 'Run a review to calculate' : `${blundersPerGame} / game`}
           </span>
         </div>
 
@@ -56,7 +62,9 @@ export function TacticalMistakesCard({ tactics }: TacticalMistakesCardProps): Re
             <span className="profile-mistake-dot profile-mistake-dot--mistake" />
             <span className="profile-mistake-title">Mistakes</span>
           </div>
-          <span className="profile-mistake-count">{mistakes}</span>
+          <span className="profile-mistake-count">
+            {totalEvaluatedMoves > 0 ? mistakes : 'Unknown'}
+          </span>
         </div>
 
         <div className="profile-mistake-pill profile-mistake-pill--inaccuracy">
@@ -64,7 +72,9 @@ export function TacticalMistakesCard({ tactics }: TacticalMistakesCardProps): Re
             <span className="profile-mistake-dot profile-mistake-dot--inaccuracy" />
             <span className="profile-mistake-title">Inaccuracies</span>
           </div>
-          <span className="profile-mistake-count">{inaccuracies}</span>
+          <span className="profile-mistake-count">
+            {totalEvaluatedMoves > 0 ? inaccuracies : 'Unknown'}
+          </span>
         </div>
 
         <div className="profile-mistake-pill profile-mistake-pill--miss">
@@ -72,7 +82,9 @@ export function TacticalMistakesCard({ tactics }: TacticalMistakesCardProps): Re
             <span className="profile-mistake-dot profile-mistake-dot--miss" />
             <span className="profile-mistake-title">Misses</span>
           </div>
-          <span className="profile-mistake-count">{misses}</span>
+          <span className="profile-mistake-count">
+            {totalEvaluatedMoves > 0 ? misses : 'Unknown'}
+          </span>
         </div>
       </div>
     </div>

@@ -59,7 +59,15 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
       const hasExistingGames = (state.ingestion.result?.games.length ?? 0) > 0;
       return {
         ...state,
-        query: { draft: action.query, active: action.query, token: action.token },
+        query: {
+          draft: action.query,
+          active: action.query,
+          previousActive:
+            state.ingestion.status === 'loading'
+              ? (state.query.previousActive ?? state.query.active)
+              : state.query.active,
+          token: action.token,
+        },
         ingestion: {
           status: 'loading',
           progress: null,
@@ -86,17 +94,25 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           query: {
             ...state.query,
             active:
-              previousUsername && state.query.active
+              (state.query.previousActive
+                ? {
+                    ...state.query.previousActive,
+                    username: previousUsername ?? state.query.previousActive.username,
+                  }
+                : null) ??
+              (previousUsername && state.query.active
                 ? { ...state.query.active, username: previousUsername }
-                : state.query.active,
+                : state.query.active),
           },
           ingestion: {
             ...state.ingestion,
-            status: 'failed',
+            status: action.result.status === 'cancelled' ? 'cancelled' : 'failed',
             error:
-              action.result.diagnostics[0]?.message ??
-              action.result.failedMonths[0]?.error.message ??
-              'Games could not be loaded',
+              action.result.status === 'cancelled'
+                ? null
+                : (action.result.diagnostics[0]?.message ??
+                  action.result.failedMonths[0]?.error.message ??
+                  'Games could not be loaded'),
           },
         };
       }
@@ -105,23 +121,34 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         action.result.status === 'complete' && action.result.games.length === 0
           ? 'empty'
           : action.result.status;
+      const gameId =
+        action.result.games.length > 0
+          ? action.result.games.reduce((newest, game) =>
+              game.endedAt > newest.endedAt ? game : newest
+            ).id
+          : null;
+      const cached = gameId ? (state.analysis.resultsByGameId[gameId] ?? null) : null;
       return {
         ...state,
+        analysis: {
+          ...state.analysis,
+          status:
+            cached?.status ??
+            (state.analysis.capability?.mode === 'unavailable' ? 'unavailable' : 'idle'),
+          result: cached,
+          progress: cached
+            ? { analyzedPlies: cached.analyzedPlies, totalPlies: cached.totalPlies }
+            : null,
+          error: null,
+        },
         ingestion: {
           status,
           progress: state.ingestion.progress,
           result: action.result,
           error: null,
         },
-        selection:
-          action.result.games.length > 0
-            ? {
-                ...emptySelection,
-                gameId: action.result.games.reduce((newest, game) =>
-                  game.endedAt > newest.endedAt ? game : newest
-                ).id,
-              }
-            : emptySelection,
+        graph: action.result.games.length === 0 ? idleGraph : state.graph,
+        selection: { ...emptySelection, gameId },
       };
     }
     case 'ingestion/failed': {
@@ -132,9 +159,14 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         query: {
           ...state.query,
           active:
-            hasExistingGames && previousUsername && state.query.active
-              ? { ...state.query.active, username: previousUsername }
-              : state.query.active,
+            hasExistingGames && state.query.previousActive
+              ? {
+                  ...state.query.previousActive,
+                  username: previousUsername ?? state.query.previousActive.username,
+                }
+              : hasExistingGames && previousUsername && state.query.active
+                ? { ...state.query.active, username: previousUsername }
+                : state.query.active,
         },
         ingestion: { ...state.ingestion, status: 'failed', error: action.error },
       };
@@ -194,11 +226,14 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           capability: state.analysis.capability,
           resultsByGameId: state.analysis.resultsByGameId,
           status: cached
-            ? 'complete'
+            ? cached.status
             : state.analysis.capability?.mode === 'unavailable'
               ? 'unavailable'
               : 'idle',
           result: cached,
+          progress: cached
+            ? { analyzedPlies: cached.analyzedPlies, totalPlies: cached.totalPlies }
+            : null,
           error:
             !cached && state.analysis.capability?.mode === 'unavailable'
               ? (state.analysis.capability.reason ?? null)
@@ -218,13 +253,15 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
     case 'selection/ply':
       return { ...state, selection: { ...state.selection, ply: Math.max(0, action.ply) } };
     case 'analysis/probing':
-      return { ...state, analysis: { ...idleAnalysis, status: 'probing' } };
+      return { ...state, analysis: { ...state.analysis, status: 'probing' } };
     case 'analysis/capability':
       return {
         ...state,
         analysis: {
           ...state.analysis,
-          status: action.capability.mode === 'unavailable' ? 'unavailable' : 'idle',
+          status:
+            state.analysis.result?.status ??
+            (action.capability.mode === 'unavailable' ? 'unavailable' : 'idle'),
           capability: action.capability,
           error:
             action.capability.mode === 'unavailable' ? (action.capability.reason ?? null) : null,
@@ -244,19 +281,26 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
     case 'analysis/progress':
       return { ...state, analysis: { ...state.analysis, progress: action.progress } };
     case 'analysis/terminal': {
-      const gameId = state.selection.gameId;
-      const resultsByGameId =
-        gameId && action.result.status === 'complete'
-          ? { ...state.analysis.resultsByGameId, [gameId]: action.result }
-          : state.analysis.resultsByGameId;
+      const gameId = action.gameId ?? state.selection.gameId;
+      const resultsByGameId = gameId
+        ? { ...state.analysis.resultsByGameId, [gameId]: action.result }
+        : state.analysis.resultsByGameId;
       return {
         ...state,
         analysis: {
           ...state.analysis,
-          status: action.result.status,
-          result: action.result,
-          error: action.result.error ?? null,
           resultsByGameId,
+          ...(gameId !== state.selection.gameId
+            ? {}
+            : {
+                status: action.result.status,
+                result: action.result,
+                error: action.result.error ?? null,
+                progress: {
+                  analyzedPlies: action.result.analyzedPlies,
+                  totalPlies: action.result.totalPlies,
+                },
+              }),
         },
       };
     }

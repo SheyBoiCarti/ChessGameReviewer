@@ -77,6 +77,7 @@ async function waitForStableLayout(page: Page) {
   await page.waitForFunction(() => document.documentElement.dataset.theme !== undefined);
   await page.locator('html').evaluate((root) => root.setAttribute('data-theme', 'dark'));
   await page.evaluate(async () => {
+    window.scrollTo(0, 0);
     await document.fonts.ready;
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()))

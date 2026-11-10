@@ -117,7 +117,14 @@ function safeDiagnostic(error: unknown): Diagnostic {
     };
   }
   if (isPubApiError(error)) {
-    return { code: error.code, message: error.message, severity: 'error' };
+    return {
+      code: error.code,
+      message:
+        error.code === 'PLAYER_NOT_FOUND'
+          ? 'No Chess.com account was found. Check the username and try again.'
+          : error.message,
+      severity: 'error',
+    };
   }
   return {
     code: 'INGESTION_FAILED',

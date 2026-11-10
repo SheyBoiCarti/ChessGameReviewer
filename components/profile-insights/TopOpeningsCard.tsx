@@ -4,15 +4,17 @@ import React, { useState } from 'react';
 import type { OpeningInsight } from '@/features/profile-insights/types';
 
 export interface TopOpeningsCardProps {
+  initialColor?: 'white' | 'black';
   whiteOpenings: readonly OpeningInsight[];
   blackOpenings: readonly OpeningInsight[];
 }
 
 export function TopOpeningsCard({
+  initialColor = 'white',
   whiteOpenings,
   blackOpenings,
 }: TopOpeningsCardProps): React.JSX.Element {
-  const [selectedColor, setSelectedColor] = useState<'white' | 'black'>('white');
+  const [selectedColor, setSelectedColor] = useState<'white' | 'black'>(initialColor);
 
   const openings = selectedColor === 'white' ? whiteOpenings : blackOpenings;
 

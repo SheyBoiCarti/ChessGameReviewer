@@ -33,7 +33,13 @@ export function navigateCandidate(
 ): GraphNavigationState {
   if (!graph.positions.has(edge.targetKey)) throw new Error('UNKNOWN_GRAPH_POSITION');
   const lookedUp = graph.paths.lookup(state.pathId, edge.uci);
-  const pathId = lookedUp ?? overridePathId ?? null;
+  const pathId =
+    lookedUp ??
+    overridePathId ??
+    (graph.positions.get(state.positionKey)?.outgoing.get(edge.uci)?.targetKey === edge.targetKey
+      ? graph.positions.get(edge.targetKey)?.arrivalsByPath.keys().next().value
+      : null) ??
+    null;
   if (pathId === null || pathId === undefined) throw new Error('UNKNOWN_GRAPH_PATH');
   const entry = { positionKey: edge.targetKey, pathId };
   return { ...entry, history: [...state.history, entry] };

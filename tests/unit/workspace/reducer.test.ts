@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import type { GameQuery } from '@/lib/api/contracts';
+import type { WorkspaceState } from '@/features/workspace/types';
+
 import { initialWorkspaceState, reduceWorkspace } from '@/features/workspace/reducer';
 
 const query: GameQuery = {
@@ -11,6 +13,65 @@ const query: GameQuery = {
 };
 
 describe('workspace reducer', () => {
+  it('clears the previous graph, selection and active review after a successful empty import', () => {
+    const snapshot = { rootKey: 'old-root' } as never;
+    let state: WorkspaceState = {
+      ...initialWorkspaceState,
+      graph: { ...initialWorkspaceState.graph, snapshot },
+    };
+    state = reduceWorkspace(state, {
+      type: 'ingestion/terminal',
+      token: 0,
+      result: {
+        jobId: 'empty',
+        fingerprint: 'empty',
+        status: 'complete',
+        games: [],
+        failedMonths: [],
+        diagnostics: [],
+        offlineCacheOnly: false,
+      },
+    });
+    expect(state.ingestion.status).toBe('empty');
+    expect(state.graph.snapshot).toBeNull();
+    expect(state.selection.gameId).toBeNull();
+    expect(state.analysis.result).toBeNull();
+  });
+
+  it('keeps the full previous query and games after intentional cancellation', () => {
+    const previousQuery = { ...query, dateFrom: '2026-11-01', dateTo: '2026-11-09' };
+    const previousResult = {
+      jobId: 'loaded',
+      fingerprint: 'loaded',
+      status: 'complete' as const,
+      games: [{ id: 'old', endedAt: 1, username: query.username } as never],
+      failedMonths: [],
+      diagnostics: [],
+      offlineCacheOnly: false,
+    };
+    let state = reduceWorkspace(
+      {
+        ...initialWorkspaceState,
+        query: { draft: previousQuery, active: previousQuery, token: 0 },
+        ingestion: { ...initialWorkspaceState.ingestion, result: previousResult },
+      },
+      { type: 'query/started', token: 1, query: { ...query, dateFrom: '2025-01-01' } }
+    );
+    state = reduceWorkspace(state, {
+      type: 'ingestion/terminal',
+      token: 1,
+      result: {
+        ...previousResult,
+        status: 'cancelled',
+        games: [],
+      },
+    });
+    expect(state.ingestion.status).toBe('cancelled');
+    expect(state.ingestion.error).toBeNull();
+    expect(state.ingestion.result).toBe(previousResult);
+    expect(state.query.active).toEqual(previousQuery);
+  });
+
   it('models deletion maintenance start, failure, and success explicitly', () => {
     const deleting = reduceWorkspace(initialWorkspaceState, {
       type: 'data/deletionStarted',

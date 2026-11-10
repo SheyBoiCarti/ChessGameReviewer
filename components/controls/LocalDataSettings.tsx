@@ -142,7 +142,10 @@ export function LocalDataSettings({
             onKeyDown={dialogKeyDown}
           >
             <h4 id="delete-data-title">Delete local data?</h4>
-            <p>This removes games and analysis from this device and cannot be undone.</p>
+            <p>
+              This removes games and analysis from this device and cannot be undone. View
+              preferences and recent search history are kept.
+            </p>
             <div className="modal-actions">
               <button
                 type="button"

@@ -100,7 +100,7 @@ export function validateGameQuery(input: unknown): ValidationResult<GameQuery> {
   if (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) {
     diagnostics.push({
       code: 'INVERTED_DATE_RANGE',
-      message: `dateFrom (${dateFrom}) cannot be after dateTo (${dateTo})`,
+      message: 'Choose an end date on or after the start date.',
       severity: 'error',
     });
   }

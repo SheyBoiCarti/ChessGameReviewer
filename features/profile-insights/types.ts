@@ -39,6 +39,12 @@ export interface OpeningInsight {
 }
 
 export interface TacticalMistakeSummary {
+  accuracySources?: {
+    localGames: number;
+    chessComGames: number;
+    reviewedGames: number;
+    totalGames: number;
+  };
   totalEvaluatedMoves: number;
   avgAccuracy: number | null;
   blunders: number;
