@@ -82,6 +82,30 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   page,
 }) => {
   test.setTimeout(120_000);
+  // Let Stockfish evaluate enough positions for one annotation, then hold the
+  // next request until Cancel. Browser speed must not decide whether the review
+  // finishes before Playwright can click the button. Resume runs without a gate.
+  await page.addInitScript(() => {
+    const postMessage = Worker.prototype.postMessage;
+    let evaluations = 0;
+    Worker.prototype.postMessage = function (message: unknown) {
+      const request = message as { protocolVersion?: number; type?: string } | null;
+      if (request?.protocolVersion === 1) {
+        if (request.type === 'EVALUATE' && ++evaluations === 3) {
+          document.documentElement.dataset.reviewEvaluationHeld = 'true';
+          window.addEventListener(
+            'release-review-evaluation',
+            () => {
+              postMessage.call(this, message);
+            },
+            { once: true }
+          );
+          return;
+        }
+      }
+      Reflect.apply(postMessage, this, arguments);
+    };
+  });
   await installWorkspaceFixtures(page);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
@@ -93,8 +117,17 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   await expect(page.locator('.analyzer-lifecycle-text')).toContainText(/Analysing [1-7] of 8/, {
     timeout: 30_000,
   });
+  await expect(page.locator('html')).toHaveAttribute('data-review-evaluation-held', 'true');
   await page.getByRole('button', { name: 'Cancel analysis', exact: true }).click();
+  await page.evaluate(() => window.dispatchEvent(new Event('release-review-evaluation')));
   await expect(page.getByRole('button', { name: 'Resume analysis' })).toBeVisible();
+  // Cancel updates the button immediately; the summary appears only after the
+  // partial result has been saved and delivered to the workspace.
+  await expect(
+    page
+      .getByRole('region', { name: 'Game Review Summary', exact: true })
+      .getByText(/Coverage: [1-7] of 8 eligible plies/)
+  ).toBeVisible();
   await openTab(page, 'Games');
   await page.getByRole('button', { name: /opponent-one/i }).click();
   await page.getByRole('button', { name: /opponent-two/i }).click();
