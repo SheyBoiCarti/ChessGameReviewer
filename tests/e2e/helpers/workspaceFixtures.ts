@@ -1,4 +1,6 @@
 import type { Page } from '@playwright/test';
+import type { RawChesscomGame } from '../../../lib/api/chesscomSchemas';
+import scopeGames from '../../fixtures/openingScopeGames.json';
 
 const archiveUrl = 'https://api.chess.com/pub/player/fixture-user/games/2024/01';
 
@@ -83,7 +85,7 @@ export async function installOverflowWorkspaceFixtures(page: Page) {
   await installRoutes(page, overflowGames);
 }
 
-async function installRoutes(page: Page, fixtureGames: readonly ReturnType<typeof game>[]) {
+async function installRoutes(page: Page, fixtureGames: readonly RawChesscomGame[]) {
   await page.route('https://api.chess.com/pub/player/fixture-user/games/archives', (route) =>
     route.fulfill({
       contentType: 'application/json',
@@ -168,4 +170,59 @@ export async function installTranspositionWorkspaceFixtures(page: Page) {
     games[1]!,
   ];
   await installRoutes(page, alternateGames);
+}
+
+// Shared legal PGNs for controlled engine responses, including the long-game scenario.
+export const workspaceFixturePgns = [...games, ...longGames].map((g) => g.pgn);
+
+export async function installOpeningScopeWorkspaceFixtures(page: Page) {
+  const month = 'https://api.chess.com/pub/player/audit-player/games/2024/01';
+  await page.route('https://api.chess.com/pub/player/audit-player/**', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(
+        route.request().url().endsWith('/archives') ? { archives: [month] } : { games: scopeGames }
+      ),
+    })
+  );
+}
+
+export async function installLongNameWorkspaceFixtures(page: Page) {
+  const opponent = 'opponent-with-a-very-long-name-for-layout-regressions';
+  await installRoutes(
+    page,
+    longGames.map((g) => ({
+      ...g,
+      black: { ...g.black, username: opponent },
+      pgn: g.pgn.replace('opponent-long', opponent),
+    }))
+  );
+}
+
+// Both archive URLs and records are deliberately oldest-first; no timing dependence.
+export async function installOldestFirstWorkspaceFixtures(page: Page) {
+  await installRoutes(page, games);
+  const decemberUrl = archiveUrl.replace('2024/01', '2023/12');
+  await page.route('https://api.chess.com/pub/player/fixture-user/games/archives', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ archives: [decemberUrl, archiveUrl] }),
+    })
+  );
+  await page.route(decemberUrl, (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        games: [
+          {
+            ...games[0]!,
+            uuid: 'fixture-older-game',
+            url: 'https://www.chess.com/game/live/409999999',
+            end_time: 1703000000,
+            pgn: games[0]!.pgn.replace('2024.01.15', '2023.12.19'),
+          },
+        ],
+      }),
+    })
+  );
 }

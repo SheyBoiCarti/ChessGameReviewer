@@ -1,0 +1,212 @@
+import { expect, test } from '@playwright/test';
+import { installEngineFixtures, createEvaluationFixture } from './helpers/engineFixtures';
+import {
+  installWorkspaceFixtures,
+  loadFixtureGames,
+  installOpeningScopeWorkspaceFixtures,
+  installOldestFirstWorkspaceFixtures,
+  installLongNameWorkspaceFixtures,
+} from './helpers/workspaceFixtures';
+import type { EngineWorkerRequest } from '../../workers/stockfish.protocol';
+
+test('pauses after one completed move, cancels, and ignores a stale evaluation', async ({
+  page,
+}) => {
+  const engine = await installEngineFixtures(page);
+  await installWorkspaceFixtures(page);
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Openings', exact: true }).click();
+  await expect(page.getByRole('table', { name: 'Opening candidates' })).toBeVisible();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect
+    .poll(async () => (await engine.requests()).filter((r) => r.type === 'INITIALIZE').length)
+    .toBe(1);
+  await engine.releaseReady();
+  await page.getByRole('button', { name: 'Run review (Start analysis)', exact: true }).click();
+  // Adjacent annotations share their boundary position: two evaluations complete ply 1.
+  await engine.releaseEvaluations(2);
+  await expect
+    .poll(async () => (await engine.requests()).filter((r) => r.type === 'EVALUATE').length)
+    .toBe(3);
+  await expect(page.getByText('1 of 8 eligible plies analysed.', { exact: true })).toBeVisible();
+  const pending = (await engine.requests())
+    .filter((r): r is Extract<EngineWorkerRequest, { type: 'EVALUATE' }> => r.type === 'EVALUATE')
+    .at(-1)!;
+  await page.getByRole('button', { name: 'Cancel analysis', exact: true }).click();
+  // Current scheduler does not forward the parent abort into an active evaluation.
+  // Settle that held request explicitly; later lifecycle tasks own this behavior.
+  await engine.deliver({
+    protocolVersion: 1,
+    jobId: pending.jobId,
+    type: 'FAILED',
+    code: 'ABORTED',
+    message: 'Analysis aborted.',
+  });
+  await expect(
+    page
+      .getByRole('region', { name: 'Game Review Summary', exact: true })
+      .getByText('Coverage: 1 of 8 eligible plies', { exact: true })
+  ).toBeVisible();
+  await engine.deliver({
+    protocolVersion: 1,
+    jobId: pending.jobId,
+    type: 'RESULT',
+    result: createEvaluationFixture(pending.fen),
+  });
+  await expect(
+    page
+      .getByRole('region', { name: 'Game Review Summary', exact: true })
+      .getByText('Coverage: 1 of 8 eligible plies', { exact: true })
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Games', exact: true }).click();
+  await page.getByRole('button', { name: /opponent-one/i }).click();
+  await expect(
+    page
+      .getByRole('region', { name: 'Game Review Summary', exact: true })
+      .getByText('Coverage: 1 of 8 eligible plies', { exact: true })
+  ).toHaveCount(0);
+  await engine.reset();
+  expect(await engine.requests()).toEqual([]);
+});
+
+test('controls READY, failure, STOP, stale job delivery, disposal and per-document reset', async ({
+  page,
+}) => {
+  const engine = await installEngineFixtures(page, { delayMs: 5 });
+  await page.goto('/');
+  await page.evaluate(() => {
+    const worker = new Worker('/test-owned-worker-not-fetched.js');
+    const state = window as unknown as { fixtureWorker: Worker; replies: unknown[] };
+    state.fixtureWorker = worker;
+    state.replies = [];
+    worker.onmessage = (e) => state.replies.push(e.data);
+    worker.postMessage({
+      protocolVersion: 1,
+      jobId: 'init',
+      type: 'INITIALIZE',
+      mode: 'single-thread',
+      resources: { threads: 1, hashMb: 16 },
+    });
+  });
+  expect((await engine.requests()).map((r) => r.jobId)).toEqual(['init']);
+  expect(await page.evaluate(() => (window as unknown as { replies: unknown[] }).replies)).toEqual(
+    []
+  );
+  await engine.releaseReady();
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { replies: unknown[] }).replies))
+    .toEqual([{ protocolVersion: 1, jobId: 'init', type: 'READY' }]);
+  await engine.failNextInitialization();
+  await page.evaluate(() =>
+    (window as unknown as { fixtureWorker: Worker }).fixtureWorker.postMessage({
+      protocolVersion: 1,
+      jobId: 'bad-init',
+      type: 'INITIALIZE',
+      mode: 'single-thread',
+      resources: { threads: 1, hashMb: 16 },
+    })
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { replies: { type: string }[] }).replies.at(-1)?.type
+      )
+    )
+    .toBe('FAILED');
+  await page.evaluate(() => {
+    const w = (window as unknown as { fixtureWorker: Worker }).fixtureWorker;
+    w.postMessage({
+      protocolVersion: 1,
+      jobId: 'held',
+      type: 'EVALUATE',
+      fen: 'missing',
+      limit: { depth: 12 },
+      multiPv: 2,
+    });
+    w.postMessage({ protocolVersion: 1, jobId: 'stop', type: 'STOP' });
+  });
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { replies: unknown[] }).replies))
+    .toContainEqual({
+      protocolVersion: 1,
+      jobId: 'held',
+      type: 'FAILED',
+      code: 'ABORTED',
+      message: 'Analysis aborted.',
+    });
+  await engine.deliver({
+    protocolVersion: 1,
+    jobId: 'held',
+    type: 'RESULT',
+    result: { bestMove: '0000', lines: [] },
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { replies: { type: string }[] }).replies.at(-1)?.type
+      )
+    )
+    .toBe('RESULT');
+  await page.evaluate(() =>
+    (window as unknown as { fixtureWorker: Worker }).fixtureWorker.terminate()
+  );
+  const before = await page.evaluate(
+    () => (window as unknown as { replies: unknown[] }).replies.length
+  );
+  await engine.deliver({ protocolVersion: 1, jobId: 'held', type: 'READY' });
+  expect(
+    await page.evaluate(() => (window as unknown as { replies: unknown[] }).replies.length)
+  ).toBe(before);
+  await page.reload();
+  expect(await engine.requests()).toEqual([]);
+});
+
+for (const scenario of ['mate', 'indeterminate'] as const) {
+  test(`provides ${scenario} evaluation responses`, async ({ page }) => {
+    const engine = await installEngineFixtures(page, {
+      manualReady: false,
+      manualEvaluations: false,
+      ...(scenario === 'mate' ? { score: { kind: 'mate', value: 3 } } : { indeterminate: true }),
+    });
+    await installWorkspaceFixtures(page);
+    await page.goto('/?engine=single');
+    await loadFixtureGames(page);
+    await page.getByRole('button', { name: /opponent-two/i }).click();
+    await page.getByRole('button', { name: 'Review', exact: true }).click();
+    await page.getByRole('button', { name: 'Run review (Start analysis)', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Game Review Summary' })).toBeVisible();
+    expect((await engine.requests()).filter((r) => r.type === 'EVALUATE').length).toBe(9);
+  });
+}
+
+test('routes copied scope records, oldest-first archives and long names deterministically', async ({
+  page,
+}) => {
+  await installOpeningScopeWorkspaceFixtures(page);
+  await page.goto('/');
+  const scope = await page.evaluate(async () =>
+    (await fetch('https://api.chess.com/pub/player/audit-player/games/2024/01')).json()
+  );
+  expect(scope.games).toHaveLength(20);
+  expect(scope.games[0].uuid).toBe('audit-0');
+  expect(scope.games[19].uuid).toBe('audit-19');
+  await installOldestFirstWorkspaceFixtures(page);
+  const archives = await page.evaluate(async () =>
+    (await fetch('https://api.chess.com/pub/player/fixture-user/games/archives')).json()
+  );
+  expect(archives.archives).toEqual([
+    'https://api.chess.com/pub/player/fixture-user/games/2023/12',
+    'https://api.chess.com/pub/player/fixture-user/games/2024/01',
+  ]);
+  const older = await page.evaluate(async () =>
+    (await fetch('https://api.chess.com/pub/player/fixture-user/games/2023/12')).json()
+  );
+  expect(older.games[0].uuid).toBe('fixture-older-game');
+  await installLongNameWorkspaceFixtures(page);
+  await loadFixtureGames(page, 1);
+  await expect(
+    page.getByRole('button', { name: /opponent-with-a-very-long-name-for-layout-regressions/ })
+  ).toBeVisible();
+});

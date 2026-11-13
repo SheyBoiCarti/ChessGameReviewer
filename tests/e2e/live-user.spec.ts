@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+test.skip(process.env.RUN_LIVE_CHESSCOM !== '1', 'Live upstream check is opt-in');
+
 test('loads live games for user iamsheyboicarti and checks graph build', async ({ page }) => {
   test.setTimeout(90_000);
 
