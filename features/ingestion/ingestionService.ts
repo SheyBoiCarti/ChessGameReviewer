@@ -275,6 +275,10 @@ function normalizeRawGame(raw: RawChesscomGame, username: string): Normalization
   };
 }
 
+function newestFirst(a: GameRecord, b: GameRecord): number {
+  return b.endedAt - a.endedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
 function matchesQuery(game: GameRecord, query: GameQuery): boolean {
   const from = query.dateFrom ? Date.parse(`${query.dateFrom}T00:00:00.000Z`) / 1000 : -Infinity;
   const to = query.dateTo ? Date.parse(`${query.dateTo}T23:59:59.999Z`) / 1000 : Infinity;
@@ -416,7 +420,7 @@ async function executeIngestion(
         const cachedGames = await runtime.deps.readMonthGames(query.username, month);
         recordsFetched += cachedGames.length;
         const validCachedGames = await validateGames(cachedGames);
-        for (const game of validCachedGames) {
+        for (const game of [...validCachedGames].sort(newestFirst)) {
           if (matchesQuery(game, query) && !seen.has(game.id)) {
             seen.add(game.id);
             games.push(game);
@@ -434,7 +438,7 @@ async function executeIngestion(
         const cachedGames = await runtime.deps.readMonthGames(query.username, month);
         recordsFetched += cachedGames.length;
         const validCachedGames = await validateGames(cachedGames);
-        for (const game of validCachedGames) {
+        for (const game of [...validCachedGames].sort(newestFirst)) {
           if (matchesQuery(game, query) && !seen.has(game.id)) {
             seen.add(game.id);
             games.push(game);
@@ -486,7 +490,7 @@ async function executeIngestion(
         const validMonthGames = await validateGames(normalizedMonthGames);
         const stagedMatches: GameRecord[] = [];
         const stagedIds = new Set<string>();
-        for (const game of validMonthGames) {
+        for (const game of [...validMonthGames].sort(newestFirst)) {
           if (matchesQuery(game, query) && !seen.has(game.id) && !stagedIds.has(game.id)) {
             if (games.length + stagedMatches.length < query.maxGames) {
               stagedIds.add(game.id);
