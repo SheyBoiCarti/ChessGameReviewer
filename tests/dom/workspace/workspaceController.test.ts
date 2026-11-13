@@ -204,6 +204,41 @@ describe('workspace controller', () => {
     controller.dispose();
   });
 
+  it('does not let bulk restore claim a game already owned by a run at ingestion delivery', async () => {
+    const services = createServices(async () => result(secondQuery, [game]));
+    const saved = await services.analysis.analyze(
+      game,
+      'balanced',
+      {} as never,
+      { bookMoveKeys: [] },
+      new AbortController().signal,
+      vi.fn()
+    );
+    const pending = deferred<typeof saved>();
+    services.analysis.analyze = vi.fn(() => pending.promise);
+    services.analysis.restore = vi.fn(async () => ({
+      [game.id]: { ...saved, status: 'partial' as const },
+    }));
+    const controller = createWorkspaceController(services);
+    const capability = await services.engine.initialize();
+    let started: Promise<void> | undefined;
+    const unsubscribe = controller.subscribe(() => {
+      if (!started && controller.getState().ingestion.result) {
+        // Mark ownership before the nested started event reaches this subscriber.
+        started = Promise.resolve();
+        controller.dispatch({ type: 'analysis/capability', capability });
+        started = controller.startAnalysis();
+      }
+    });
+    await controller.submitQuery(secondQuery);
+    expect(controller.getState().analysis.status).toBe('running');
+    pending.resolve(saved);
+    await started;
+    expect(controller.getState().analysis.status).toBe('complete');
+    unsubscribe();
+    controller.dispose();
+  });
+
   it('shares a delayed selected restore with direct start and ignores it after a view change', async () => {
     const services = createServices(async () => result(secondQuery, [game]));
     const saved = await services.analysis.analyze(

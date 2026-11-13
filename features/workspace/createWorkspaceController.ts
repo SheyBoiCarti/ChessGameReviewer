@@ -388,6 +388,7 @@ export function createWorkspaceController(
               if (disposed || token !== state.query.token) return;
               for (const [gameId, saved] of Object.entries(restored)) {
                 if (
+                  generations.get(gameId) !== 0 ||
                   (restoreGenerations.get(gameId) ?? 0) !== generations.get(gameId) ||
                   strength !== state.preferences.analysisStrength
                 )
