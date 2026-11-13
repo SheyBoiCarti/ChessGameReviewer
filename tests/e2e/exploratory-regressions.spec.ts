@@ -114,9 +114,11 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
   await page.getByRole('button', { name: /Run review/ }).click();
-  await expect(page.locator('.analyzer-lifecycle-text')).toContainText(/Analysing [1-7] of 8/, {
-    timeout: 30_000,
-  });
+  await expect(page.getByRole('progressbar', { name: 'Review progress' })).toHaveAttribute(
+    'aria-valuenow',
+    /^[1-7]$/,
+    { timeout: 30_000 }
+  );
   await expect(page.locator('html')).toHaveAttribute('data-review-evaluation-held', 'true');
   await page.getByRole('button', { name: 'Cancel analysis', exact: true }).click();
   await page.evaluate(() => window.dispatchEvent(new Event('release-review-evaluation')));

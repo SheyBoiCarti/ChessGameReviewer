@@ -102,6 +102,17 @@ describe('EngineService', () => {
     expect((await service.initialize()).mode).toBe('unavailable');
     expect((await service.retryInitialize()).mode).toBe('single-thread');
     expect(workers[0]!.terminated).toBe(true);
+    await expect(
+      service.evaluate({
+        id: 'after-retry',
+        priority: 1,
+        relevanceToken: 'board',
+        deadlineAt: Date.now() + 1_000,
+        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        limit: { depth: 4 },
+        multiPv: 1,
+      })
+    ).resolves.toMatchObject({ bestMove: 'e2e4' });
     service.dispose();
     expect(workers[1]!.terminated).toBe(true);
   });

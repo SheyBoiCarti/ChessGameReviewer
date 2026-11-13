@@ -114,10 +114,7 @@ export function AnalyzerWorkspace({
       <div className="analyzer-lifecycle-row">
         <div className="analyzer-lifecycle-status" role="status" aria-live="polite">
           {unavailable ? (
-            <p className="analyzer-lifecycle-text">
-              Analysis is unavailable on this device. You can retry or continue with playback and
-              Openings.
-            </p>
+            <p className="analyzer-lifecycle-text">Analysis is unavailable on this device.</p>
           ) : probing ? (
             <p className="analyzer-lifecycle-text">Checking analysis engine…</p>
           ) : status === 'idle' ? (
@@ -201,6 +198,10 @@ export function AnalyzerWorkspace({
           ) : null}
         </div>
       </div>
+
+      {unavailable ? (
+        <p className="analysis-coverage-notice">Playback and Openings remain available.</p>
+      ) : null}
 
       <details className="analysis-settings-disclosure">
         <summary>Settings</summary>

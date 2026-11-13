@@ -214,7 +214,9 @@ test('routes copied scope records, oldest-first archives and long names determin
   ).toBeVisible();
 });
 
-test('retries failed initialization while preserving playback and Openings', async ({ page }) => {
+test('retries failed initialization while preserving playback and Openings', async ({
+  page,
+}, testInfo) => {
   const engine = await installEngineFixtures(page, {
     failInitialization: true,
     manualReady: false,
@@ -229,7 +231,18 @@ test('retries failed initialization while preserving playback and Openings', asy
   await engine.failNextInitialization();
   await page.getByRole('button', { name: 'Retry engine' }).click();
   await expect(page.getByRole('button', { name: 'Retry engine' })).toBeEnabled();
-  await expect(page.getByText(/continue with playback and Openings/i)).toBeVisible();
+  await expect(page.getByText('Playback and Openings remain available.')).toBeVisible();
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.screenshot({
+      path: testInfo.outputPath(`retry-engine-${viewport.width}.png`),
+      fullPage: true,
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole('button', { name: 'Openings', exact: true }).click();
   await expect(page.getByRole('table', { name: 'Opening candidates' })).toBeVisible();
   await page.getByRole('button', { name: 'Review', exact: true }).click();

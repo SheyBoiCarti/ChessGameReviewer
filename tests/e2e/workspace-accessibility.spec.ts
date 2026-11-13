@@ -161,7 +161,8 @@ test('keeps playback available while engine readiness is delayed', async ({ page
   await closeUtilityDrawer(page);
   await page.getByRole('button', { name: /opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
-  if (testInfo.project.name === 'mobile-chromium') await page.setViewportSize({ width: 390, height: 844 });
+  if (testInfo.project.name === 'mobile-chromium')
+    await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByText('Checking analysis engine…')).toBeVisible();
   await expect(page.getByText(/analysis is unavailable on this device/i)).toHaveCount(0);
   await expect(page.locator('.analyzer-workspace').getByRole('alert')).toHaveCount(0);
