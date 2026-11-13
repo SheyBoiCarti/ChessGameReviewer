@@ -2426,6 +2426,7 @@ li[data-selected='true'] {
 }
 
 .review-feedback {
+  min-height: calc(44px + 2 * var(--space-3) + 2px);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -3917,16 +3918,57 @@ li[data-selected='true'] {
   }
 }
 
+.analysis-progress-slot {
+  display: contents;
+}
+
+.analysis-progress-slot--review {
+  display: block;
+  height: 1rem;
+}
+
+.analysis-progress-slot--review .analysis-progress {
+  display: block;
+  height: 1rem;
+}
+
 .analysis-progress {
   width: 100%;
   accent-color: var(--accent-primary);
 }
 
-.workspace-layout__header:empty {
+/* Review keeps one board in the same owner while arranging its surrounding slots. */
+.workspace-layout__header:empty,
+.workspace-layout__feedback:empty {
   display: none;
 }
-.workspace-layout__header {
-  grid-column: 1 / -1;
+
+.workspace-layout--review {
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 26rem);
+  grid-template-areas: 'header header' 'board feedback' 'board context';
+  grid-template-rows: auto auto 1fr;
+  gap: 0.75rem 1.25rem;
+}
+
+.workspace-layout--review > * {
+  min-width: 0;
+}
+.workspace-layout--review .workspace-layout__header {
+  grid-area: header;
+}
+.workspace-layout--review .workspace-layout__feedback {
+  grid-area: feedback;
+}
+.workspace-layout--review .workspace-layout__board {
+  grid-area: board;
+}
+.workspace-layout--review .workspace-layout__context {
+  grid-area: context;
+  height: auto;
+  overflow: visible;
+}
+.workspace-layout--review .board-shell {
+  width: min(100%, calc(100vh - 290px), calc(100dvh - 290px), 788px);
 }
 .review-header {
   display: flex;

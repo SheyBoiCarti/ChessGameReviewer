@@ -41,6 +41,8 @@ import type { ParsedGame } from '@/lib/chess/pgnParser';
 import { parseSelectedGame } from '@/features/workspace/parseSelectedGame';
 import { OpeningView } from '@/components/opening/OpeningView';
 import { ReviewView } from '@/components/analysis/ReviewView';
+import { ReviewFeedback } from '@/components/analysis/ReviewFeedback';
+import { nextMistakePly } from '@/features/stockfish-analysis/reviewNavigation';
 import { deserializeOpeningGraph } from '@/lib/chess/graph/serialization';
 import type { MoveQuality } from '@/lib/engine/accuracy';
 import type { EvaluationScore } from '@/lib/engine/evaluation';
@@ -731,6 +733,7 @@ export function ChessWorkspace({
           ) : (
             <WorkspaceLayout
               board={shouldRenderBoard ? board : null}
+              review={tab === 'analysis'}
               header={
                 tab === 'analysis' && selectedRecord ? (
                   <div className="review-header">
@@ -753,6 +756,22 @@ export function ChessWorkspace({
                       </p>
                     </div>
                   </div>
+                ) : null
+              }
+              feedback={
+                tab === 'analysis' && reviewMode === 'review' && selectedRecord && parsedGame ? (
+                  <ReviewFeedback
+                    annotation={selectedAnnotation ?? null}
+                    selectedPly={state.selection.ply}
+                    startFen={fenByPly[state.selection.ply]}
+                    nextMistake={
+                      state.analysis.result
+                        ? nextMistakePly(state.analysis.result.annotations, state.selection.ply)
+                        : null
+                    }
+                    onSelectPly={handlePlyChange}
+                    hasAnnotations={Boolean(state.analysis.result?.annotations.length)}
+                  />
                 ) : null
               }
               tabs={
@@ -814,9 +833,7 @@ export function ChessWorkspace({
                                 onRetry={() => {
                                   const active = state.query.active;
                                   if (active)
-                                    void controller.submitQuery(active, {
-                                      manualRefresh: true,
-                                    });
+                                    void controller.submitQuery(active, { manualRefresh: true });
                                 }}
                               />
                             </details>
@@ -890,9 +907,7 @@ export function ChessWorkspace({
                               onRetry={() => {
                                 const active = state.query.active;
                                 if (active)
-                                  void controller.submitQuery(active, {
-                                    manualRefresh: true,
-                                  });
+                                  void controller.submitQuery(active, { manualRefresh: true });
                               }}
                               onViewGames={() => {
                                 const firstGame = state.ingestion.result?.games[0];
@@ -976,6 +991,7 @@ export function ChessWorkspace({
                   {tab === 'analysis' ? (
                     selectedRecord && parsedGame ? (
                       <ReviewView
+                        feedbackInLayout
                         mode={reviewMode}
                         game={parsedGame}
                         players={{

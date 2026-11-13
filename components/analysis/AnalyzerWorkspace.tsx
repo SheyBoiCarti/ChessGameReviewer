@@ -22,6 +22,7 @@ import { ReviewFeedback } from './ReviewFeedback';
 
 export interface AnalyzerWorkspaceProps {
   mode?: ReviewMode | undefined;
+  feedbackInLayout?: boolean | undefined;
   game?: ParsedGame | undefined;
   players?:
     | {
@@ -58,6 +59,7 @@ export interface AnalyzerWorkspaceProps {
 
 export function AnalyzerWorkspace({
   mode = 'review',
+  feedbackInLayout = false,
   game,
   players,
   isVariationActive = false,
@@ -203,41 +205,23 @@ export function AnalyzerWorkspace({
         <p className="analysis-coverage-notice">Playback and Openings remain available.</p>
       ) : null}
 
-      <details className="analysis-settings-disclosure">
-        <summary>Settings</summary>
-        <div className="analysis-settings-body">
-          <AnalysisSettings
-            strength={strength}
-            disabled={probing || unavailable || status === 'running'}
-            onChange={onStrengthChange}
-          />
-          <details className="analysis-engine-details">
-            <summary>Engine details</summary>
-            <EngineStatus
-              capability={probing ? null : capability}
-              engineBuild={engineBuild}
-              limitLabel={limitLabel}
-              multiPv={preset.multiPv}
-              heuristicVersion={ACCURACY_HEURISTIC_VERSION}
-              jobStatus={status}
-            />
-          </details>
-        </div>
-      </details>
-
-      {status === 'running' ? (
-        <progress
-          className="analysis-progress"
-          aria-label="Review progress"
-          aria-valuemin={0}
-          aria-valuemax={progress?.totalPlies || game?.plies.length || 1}
-          aria-valuenow={progress?.analyzedPlies ?? 0}
-          max={progress?.totalPlies || game?.plies.length || 1}
-          value={progress?.analyzedPlies ?? 0}
-        >
-          {progress?.analyzedPlies ?? 0} positions analysed
-        </progress>
-      ) : null}
+      <div
+        className={`analysis-progress-slot${mode === 'review' ? ' analysis-progress-slot--review' : ''}`}
+      >
+        {status === 'running' ? (
+          <progress
+            className="analysis-progress"
+            aria-label="Review progress"
+            aria-valuemin={0}
+            aria-valuemax={progress?.totalPlies || game?.plies.length || 1}
+            aria-valuenow={progress?.analyzedPlies ?? 0}
+            max={progress?.totalPlies || game?.plies.length || 1}
+            value={progress?.analyzedPlies ?? 0}
+          >
+            {progress?.analyzedPlies ?? 0} positions analysed
+          </progress>
+        ) : null}
+      </div>
       {(status === 'partial' || status === 'cancelled') && result ? (
         <p className="analysis-coverage-notice">
           Coverage: {result.analyzedPlies} of {result.totalPlies} eligible plies
@@ -253,14 +237,16 @@ export function AnalyzerWorkspace({
       {mode === 'review' ? (
         /* Review Mode Order */
         <>
-          <ReviewFeedback
-            annotation={selectedAnnotation}
-            selectedPly={selectedPly}
-            startFen={fenByPly[selectedPly]}
-            nextMistake={nextMistake}
-            onSelectPly={handleSelectPly}
-            hasAnnotations={hasResults}
-          />
+          {!feedbackInLayout ? (
+            <ReviewFeedback
+              annotation={selectedAnnotation}
+              selectedPly={selectedPly}
+              startFen={fenByPly[selectedPly]}
+              nextMistake={nextMistake}
+              onSelectPly={handleSelectPly}
+              hasAnnotations={hasResults}
+            />
+          ) : null}
           <AnalysisMoveList
             id="analysis-move-list"
             moves={game?.plies}
@@ -340,6 +326,28 @@ export function AnalyzerWorkspace({
           ) : null}
         </>
       )}
+
+      <details className="analysis-settings-disclosure">
+        <summary>Settings</summary>
+        <div className="analysis-settings-body">
+          <AnalysisSettings
+            strength={strength}
+            disabled={probing || unavailable || status === 'running'}
+            onChange={onStrengthChange}
+          />
+          <details className="analysis-engine-details">
+            <summary>Engine details</summary>
+            <EngineStatus
+              capability={probing ? null : capability}
+              engineBuild={engineBuild}
+              limitLabel={limitLabel}
+              multiPv={preset.multiPv}
+              heuristicVersion={ACCURACY_HEURISTIC_VERSION}
+              jobStatus={status}
+            />
+          </details>
+        </div>
+      </details>
     </section>
   );
 }

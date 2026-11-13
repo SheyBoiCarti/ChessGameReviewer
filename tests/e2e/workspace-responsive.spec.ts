@@ -337,19 +337,8 @@ test('desktop analyzer layout stays bounded within usable viewport height for lo
   const moveListLocator = page.locator('.analysis-move-list');
   const contextMetrics = await scrollMetrics(contextLocator);
   const moveListMetrics = await scrollMetrics(moveListLocator);
-
-  const maxContextHeight = await page.evaluate(
-    () =>
-      window.innerHeight -
-      Number.parseFloat(
-        getComputedStyle(document.querySelector('.workspace-shell')!).getPropertyValue(
-          '--workspace-chrome-height'
-        )
-      ) *
-        Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
-  );
-  expect(contextMetrics.clientHeight).toBeLessThanOrEqual(maxContextHeight + 5);
-  expect(contextMetrics.scrollHeight).toBeGreaterThan(contextMetrics.clientHeight);
+  // The document owns the outer scroll; only the move list has a bounded viewport.
+  expect(contextMetrics.scrollHeight).toBe(contextMetrics.clientHeight);
 
   expect(moveListMetrics.scrollHeight).toBeGreaterThan(moveListMetrics.clientHeight);
 
