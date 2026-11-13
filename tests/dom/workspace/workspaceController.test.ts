@@ -35,6 +35,31 @@ const game: GameRecord = {
 };
 
 describe('workspace controller', () => {
+  it('retries the engine without changing the selected game or ply', async () => {
+    const services = createServices(async () => result(secondQuery, [game]));
+    const ready = await services.engine.initialize();
+    services.engine.initialize = vi.fn(async () => ({
+      ...ready,
+      mode: 'unavailable' as const,
+      reason: 'Startup failed',
+    }));
+    const retry = deferred<typeof ready>();
+    services.engine.retryInitialize = vi.fn(() => retry.promise);
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    controller.selectGame(game.id);
+    controller.selectPly(1);
+    await controller.probeEngine();
+    const pending = controller.retryEngine();
+    expect(controller.getState().analysis.status).toBe('probing');
+    expect(controller.getState().selection).toMatchObject({ gameId: game.id, ply: 1 });
+    retry.resolve(ready);
+    await pending;
+    expect(controller.getState().analysis.status).toBe('idle');
+    expect(controller.getState().selection).toMatchObject({ gameId: game.id, ply: 1 });
+    controller.dispose();
+  });
+
   it('ignores a stale first query after a rapid second submission', async () => {
     const first = deferred<IngestionResult>();
     const second = deferred<IngestionResult>();
@@ -406,6 +431,7 @@ function createServices(
       },
     },
     engine: {
+      retryInitialize: vi.fn(),
       initialize: async () => ({
         mode: 'single-thread',
         crossOriginIsolated: false,

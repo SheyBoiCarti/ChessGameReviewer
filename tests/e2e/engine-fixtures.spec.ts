@@ -213,3 +213,33 @@ test('routes copied scope records, oldest-first archives and long names determin
     page.getByRole('button', { name: /opponent-with-a-very-long-name-for-layout-regressions/ })
   ).toBeVisible();
 });
+
+test('retries failed initialization while preserving playback and Openings', async ({ page }) => {
+  const engine = await installEngineFixtures(page, {
+    failInitialization: true,
+    manualReady: false,
+  });
+  await installWorkspaceFixtures(page);
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Retry engine' })).toBeEnabled();
+  await page.getByRole('button', { name: /select ply 1\b/i }).click();
+  await engine.failNextInitialization();
+  await page.getByRole('button', { name: 'Retry engine' }).click();
+  await expect(page.getByRole('button', { name: 'Retry engine' })).toBeEnabled();
+  await expect(page.getByText(/continue with playback and Openings/i)).toBeVisible();
+  await page.getByRole('button', { name: 'Openings', exact: true }).click();
+  await expect(page.getByRole('table', { name: 'Opening candidates' })).toBeVisible();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry engine' }).click();
+  await expect(page.getByText('Ready to review', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /select ply 1\b/i })).toHaveAttribute(
+    'aria-current',
+    'true'
+  );
+  expect((await engine.requests()).filter((request) => request.type === 'INITIALIZE')).toHaveLength(
+    3
+  );
+});

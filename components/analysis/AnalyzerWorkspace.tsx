@@ -48,6 +48,7 @@ export interface AnalyzerWorkspaceProps {
   onStart(value: AnalysisStrength): void;
   onCancel(): void;
   onResume(): void;
+  onRetryEngine?(): void;
   onSelectPly(ply: number): void;
   selectedPly: number;
   fenByPly: Readonly<Record<number, string>>;
@@ -70,6 +71,7 @@ export function AnalyzerWorkspace({
   onStart,
   onCancel,
   onResume,
+  onRetryEngine,
   onSelectPly,
   selectedPly,
   fenByPly,
@@ -112,7 +114,10 @@ export function AnalyzerWorkspace({
       <div className="analyzer-lifecycle-row">
         <div className="analyzer-lifecycle-status" role="status" aria-live="polite">
           {unavailable ? (
-            <p className="analyzer-lifecycle-text">Analysis is unavailable on this device.</p>
+            <p className="analyzer-lifecycle-text">
+              Analysis is unavailable on this device. You can retry or continue with playback and
+              Openings.
+            </p>
           ) : probing ? (
             <p className="analyzer-lifecycle-text">Checking analysis engine…</p>
           ) : status === 'idle' ? (
@@ -189,6 +194,10 @@ export function AnalyzerWorkspace({
                 Run again
               </button>
             ) : null
+          ) : onRetryEngine ? (
+            <button type="button" className="button-primary" onClick={onRetryEngine}>
+              Retry engine
+            </button>
           ) : null}
         </div>
       </div>

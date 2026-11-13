@@ -185,6 +185,7 @@ function makeMockServices(games: GameRecord[] = [sampleGame]): WorkspaceServices
       dispose: vi.fn(),
     },
     engine: {
+      retryInitialize: vi.fn(),
       initialize: vi.fn().mockResolvedValue({
         mode: 'single-thread',
         threads: 1,

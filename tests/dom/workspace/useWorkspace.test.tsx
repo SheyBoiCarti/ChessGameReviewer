@@ -10,7 +10,7 @@ describe('useWorkspace', () => {
     const services: WorkspaceServices = {
       ingestion: { start: vi.fn(), cancel: vi.fn(), dispose: vi.fn() },
       graph: { build: vi.fn(), cancel: vi.fn(), dispose },
-      engine: { initialize: vi.fn(), dispose: vi.fn() },
+      engine: { retryInitialize: vi.fn(), initialize: vi.fn(), dispose: vi.fn() },
       data: { deleteUsername: vi.fn(), clearAll: vi.fn(), dispose: vi.fn() },
       analysis: { analyze: vi.fn() },
     };

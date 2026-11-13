@@ -34,6 +34,7 @@ export interface WorkspaceServices {
   };
   engine: {
     initialize(): Promise<EngineCapability>;
+    retryInitialize(): Promise<EngineCapability>;
     dispose(): void;
   };
   data: {
@@ -65,6 +66,7 @@ export interface WorkspaceController {
   cancelIngestion(): void;
   dismissIngestionError(): void;
   probeEngine(): Promise<void>;
+  retryEngine(): Promise<void>;
   selectGame(gameId: string | null): void;
   navigateGraph(positionKey: string, pathId: number | null): void;
   selectPly(ply: number): void;
@@ -96,6 +98,7 @@ export function createWorkspaceController(
   // See the T03 transition/caller inventory in docs/implementation-progress.md.
   let nextToken = 0;
   let disposed = false;
+  let engineSequence = 0;
   // Local run generation guards progress; per-game generations guard terminal projections.
   // This does not yet guard service persistence or provide an independent restore generation.
   let analysisSequence = 0;
@@ -164,6 +167,21 @@ export function createWorkspaceController(
       .finally(() => {
         if (maintenance === work) maintenance = null;
       });
+  }
+
+  async function initializeEngine(retry = false): Promise<void> {
+    if (disposed || maintenance) return;
+    const sequence = ++engineSequence;
+    dispatch({ type: 'analysis/probing' });
+    try {
+      const capability = await (retry
+        ? services.engine.retryInitialize()
+        : services.engine.initialize());
+      if (sequence === engineSequence) dispatch({ type: 'analysis/capability', capability });
+    } catch (error) {
+      if (sequence === engineSequence)
+        dispatch({ type: 'analysis/capability', capability: unavailableCapability(error) });
+    }
   }
 
   return {
@@ -244,18 +262,8 @@ export function createWorkspaceController(
     dismissIngestionError() {
       dispatch({ type: 'ingestion/errorDismissed' });
     },
-    async probeEngine() {
-      dispatch({ type: 'analysis/probing' });
-      try {
-        const capability = await services.engine.initialize();
-        dispatch({ type: 'analysis/capability', capability });
-      } catch (error) {
-        dispatch({
-          type: 'analysis/capability',
-          capability: unavailableCapability(error),
-        });
-      }
-    },
+    probeEngine: () => initializeEngine(),
+    retryEngine: () => initializeEngine(true),
     selectGame(gameId) {
       analysisSequence += 1;
       analysisController?.abort();
@@ -349,6 +357,7 @@ export function createWorkspaceController(
       analysisController?.abort();
       services.graph.cancel();
       services.graph.dispose();
+      engineSequence++;
       services.engine.dispose();
       services.data.dispose();
       listeners.clear();

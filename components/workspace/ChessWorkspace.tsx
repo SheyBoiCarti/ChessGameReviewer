@@ -1006,6 +1006,7 @@ export function ChessWorkspace({
                           })
                         }
                         onStart={(strength) => void controller.startAnalysis(strength)}
+                        onRetryEngine={() => void controller.retryEngine()}
                         onCancel={controller.cancelAnalysis}
                         onResume={() => void controller.startAnalysis()}
                         onSelectPly={handlePlyChange}
