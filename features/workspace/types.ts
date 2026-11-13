@@ -19,6 +19,9 @@ export interface WorkspacePreferences {
   analysisStrength: AnalysisStrength;
 }
 
+/** Authoritative main-game selection; variation/opening/browser histories are separate.
+ * Ownership and future identity contracts: docs/implementation-progress.md#t03--state-transitions-and-contracts
+ */
 export interface WorkspaceSelection {
   gameId: string | null;
   positionKey: string | null;
@@ -62,6 +65,8 @@ export interface WorkspaceState {
       | 'complete';
     capability: EngineCapability | null;
     result: GameAnalysisResult | null;
+    // Baseline count-only progress, emitted after a completed annotation, never raw UCI depth.
+    // Completed annotation snapshots and per-run identities are introduced by T14–T16.
     progress: { analyzedPlies: number; totalPlies: number } | null;
     error: string | null;
     resultsByGameId: Record<string, GameAnalysisResult>;

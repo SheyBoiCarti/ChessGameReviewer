@@ -13,6 +13,27 @@ const query: GameQuery = {
 };
 
 describe('workspace reducer', () => {
+  // T03 baseline: query ownership precedes every ingestion progress projection.
+  it('ignores stale ingestion progress without changing state identity', () => {
+    expect(
+      reduceWorkspace(initialWorkspaceState, {
+        type: 'ingestion/progress',
+        token: 99,
+        progress: {
+          jobId: 'stale',
+          phase: 'fetching',
+          monthsPlanned: 1,
+          monthsCompleted: 0,
+          recordsFetched: 0,
+          recordsAccepted: 0,
+          recordsExcluded: 0,
+          recordsFailed: 0,
+          diagnostics: [],
+        },
+      })
+    ).toBe(initialWorkspaceState);
+  });
+
   it('clears the previous graph, selection and active review after a successful empty import', () => {
     const snapshot = { rootKey: 'old-root' } as never;
     let state: WorkspaceState = {

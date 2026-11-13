@@ -82,6 +82,15 @@ describe('workspace controller', () => {
     });
 
     expect(controller.getState().ingestion.progress?.monthsCompleted).toBe(1);
+    // T03 transition table: old service callbacks retain their captured query token.
+    controller.dispatch({ type: 'operations/invalidated', token: 2 });
+    const invalidated = controller.getState();
+    reportProgress!.onProgress?.({
+      ...invalidated.ingestion.progress!,
+      jobId: 'stale',
+      monthsCompleted: 2,
+    });
+    expect(controller.getState()).toBe(invalidated);
     pending.resolve(result(firstQuery, []));
     await submission;
   });

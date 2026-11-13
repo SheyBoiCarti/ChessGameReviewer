@@ -92,8 +92,12 @@ export function createWorkspaceController(
     ...initialWorkspaceState,
     preferences: { ...initialWorkspaceState.preferences, ...initialPreferences },
   };
+  // Query relevance token also invalidates work during deletion; it is not an engine job ID.
+  // See the T03 transition/caller inventory in docs/implementation-progress.md.
   let nextToken = 0;
   let disposed = false;
+  // Local run generation guards progress; per-game generations guard terminal projections.
+  // This does not yet guard service persistence or provide an independent restore generation.
   let analysisSequence = 0;
   let analysisController: AbortController | null = null;
   let activeQuery: Promise<void> | null = null;
