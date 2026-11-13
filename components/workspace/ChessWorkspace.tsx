@@ -165,14 +165,6 @@ export function ChessWorkspace({
     setVariation(null);
   }, [state.selection.gameId]);
 
-  useEffect(() => {
-    if (tab === 'games' && state.selection.gameId) {
-      if (typeof boardRef.current?.scrollIntoView === 'function') {
-        boardRef.current.scrollIntoView({ block: 'start' });
-      }
-    }
-  }, [tab, state.selection.gameId]);
-
   const selectedAnnotation =
     tab === 'analysis' && !variation ? annotationsByPly.get(state.selection.ply) : undefined;
   const isSuboptimalMove =

@@ -213,45 +213,45 @@ describe('AnalysisMoveList', () => {
     expect(buttons[2]).toHaveTextContent(/Nf3/);
   });
 
-  it('adjusts scrollTop of the list container without moving the document window or stealing focus', () => {
+  it('scrolls only the list to reveal a distant selection without stealing focus', () => {
     const onSelectPly = vi.fn();
-    const { container } = render(
+    const { container, rerender } = render(
       <AnalysisMoveList
         annotations={fixture.annotations}
         selectedPly={1}
         onSelectPly={onSelectPly}
       />
     );
-
-    const listElement = container.querySelector('.analysis-move-list') as HTMLDivElement;
-    expect(listElement).not.toBeNull();
-
-    // Mock bounding rects
-    vi.spyOn(listElement, 'getBoundingClientRect').mockReturnValue({
-      top: 100,
-      bottom: 300,
+    const list = container.querySelector('.analysis-move-list') as HTMLDivElement;
+    const target = screen.getByRole('button', { name: /select ply 15\b/i });
+    const focusTarget = screen.getByRole('button', { name: /select ply 1\b/i });
+    const rect = (top: number, bottom: number): DOMRect => ({
+      top,
+      bottom,
       left: 0,
       right: 200,
-      height: 200,
       width: 200,
+      height: bottom - top,
       x: 0,
-      y: 100,
-      toJSON: () => {},
+      y: top,
+      toJSON: () => ({}),
     });
-
-    const scrollIntoViewSpy = vi.fn();
-    window.HTMLElement.prototype.scrollIntoView = scrollIntoViewSpy;
-
-    // Trigger selected ply change
-    render(
+    vi.spyOn(list, 'getBoundingClientRect').mockReturnValue(rect(100, 300));
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rect(500, 530));
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    focusTarget.focus();
+    rerender(
       <AnalysisMoveList
         annotations={fixture.annotations}
         selectedPly={15}
         onSelectPly={onSelectPly}
       />
     );
-
-    // scrollIntoView should NOT have been called because we use bounding box calculation on container
-    expect(scrollIntoViewSpy).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(230);
+    expect(focusTarget).toHaveFocus();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
   });
 });

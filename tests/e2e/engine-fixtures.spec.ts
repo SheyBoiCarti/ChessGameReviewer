@@ -25,6 +25,9 @@ test('pauses after one completed move, cancels, and ignores a stale evaluation',
     .toBe(1);
   await engine.releaseReady();
   await page.getByRole('button', { name: 'Run review (Start analysis)', exact: true }).click();
+  const nextMove = page.getByRole('button', { name: 'Next move', exact: true });
+  await nextMove.click();
+  const scrollBeforeProgress = await page.evaluate(() => window.scrollY);
   // Adjacent annotations share their boundary position: two evaluations complete ply 1.
   await engine.releaseEvaluations(2);
   await expect
@@ -34,6 +37,8 @@ test('pauses after one completed move, cancels, and ignores a stale evaluation',
     'aria-valuenow',
     '1'
   );
+  await expect(nextMove).toBeFocused();
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforeProgress);
   const pending = (await engine.requests())
     .filter((r): r is Extract<EngineWorkerRequest, { type: 'EVALUATE' }> => r.type === 'EVALUATE')
     .at(-1)!;
@@ -315,6 +320,27 @@ test('switching game or view during readiness cancels the pending automatic star
   await expect(page.getByText('Ready to review')).toBeVisible();
   await page.getByRole('tab', { name: 'Analysis', exact: true }).click();
   expect((await engine.requests()).filter((r) => r.type === 'EVALUATE')).toEqual([]);
+});
+
+test('keeps Summary open and focused when review progress arrives', async ({ page }) => {
+  const engine = await installEngineFixtures(page, { manualReady: false });
+  await installWorkspaceFixtures(page);
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: 'Run review (Start analysis)', exact: true }).click();
+  const summary = page.locator('.review-summary > summary');
+  await summary.focus();
+  await page.keyboard.press('Enter');
+  await expect(summary.locator('..')).toHaveAttribute('open', '');
+  await engine.releaseEvaluations(2);
+  await expect(page.getByRole('progressbar', { name: 'Review progress' })).toHaveAttribute(
+    'aria-valuenow',
+    '1'
+  );
+  await expect(summary).toBeFocused();
+  await expect(summary.locator('..')).toHaveAttribute('open', '');
 });
 
 test('keeps the review position and move list stable through completion and disclosures', async ({
