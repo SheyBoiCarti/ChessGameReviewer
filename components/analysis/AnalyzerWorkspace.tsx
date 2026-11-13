@@ -83,7 +83,7 @@ export function AnalyzerWorkspace({
     ? `Depth ${preset.limit.depth}`
     : `${preset.limit.movetimeMs ?? 0} ms per position`;
   const engineBuild = result?.annotations[0]?.settings.engineBuild ?? 'Stockfish 18';
-  const probing = status === 'probing' || capability === null;
+  const probing = status === 'probing' || (capability === null && !result);
   const unavailable = !probing && capability?.mode === 'unavailable';
 
   const selectedAnnotation =

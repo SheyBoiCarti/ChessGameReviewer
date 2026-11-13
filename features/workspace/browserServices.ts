@@ -11,7 +11,11 @@ import {
   createIndexedDbEvaluationRepository,
   EvaluationCache,
 } from '@/features/stockfish-analysis/evaluationCache';
-import { restoreReviews, saveReview } from '@/features/stockfish-analysis/reviewRepository';
+import {
+  restoreReviews,
+  restoreSelected,
+  saveReview,
+} from '@/features/stockfish-analysis/reviewRepository';
 import { analysisPreset } from '@/features/stockfish-analysis/presentation';
 import { fetchMonthlyGames, fetchPlayerArchives } from '@/lib/api/chesscomClient';
 import { STORES } from '@/lib/db/schema';
@@ -131,6 +135,7 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
       },
     },
     analysis: {
+      restoreSelected: async (game, strength) => restoreSelected(await db(), game, strength),
       restore: async (games, strength) => restoreReviews(await db(), games, strength),
       async analyze(game, strength, capability, context, signal, onProgress) {
         const parsed = parseGamePgn({

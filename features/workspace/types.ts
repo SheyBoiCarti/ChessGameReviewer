@@ -94,6 +94,7 @@ export type WorkspaceAction =
   | { type: 'selection/position'; positionKey: string; pathId: number | null }
   | { type: 'selection/ply'; ply: number }
   | { type: 'analysis/probing' }
+  | { type: 'analysis/preparationCancelled' }
   | { type: 'analysis/capability'; capability: EngineCapability }
   | { type: 'analysis/started'; token: number }
   | {

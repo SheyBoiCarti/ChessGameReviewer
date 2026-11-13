@@ -15,7 +15,12 @@ export function EngineStatus({
   heuristicVersion: string;
   jobStatus: string;
 }) {
-  if (!capability) return <p>Checking engine capability…</p>;
+  if (!capability)
+    return (
+      <p>
+        {jobStatus === 'probing' ? 'Checking engine capability…' : 'Engine has not been started.'}
+      </p>
+    );
   if (capability.mode === 'unavailable') {
     return (
       <div className="engine-status engine-unavailable">

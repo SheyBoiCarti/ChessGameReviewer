@@ -64,11 +64,14 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
             !usernames.includes(startupQuery.username)
           )
             return;
-          await controller.submitQuery(startupQuery);
+          const submission = controller.submitQuery(startupQuery);
+          const navigationVersion = controller.getNavigationVersion();
+          await submission;
           const loaded = controller.getState();
           if (
             !active ||
             loaded.query.token !== 1 ||
+            controller.getNavigationVersion() !== navigationVersion ||
             !startupSession ||
             startupSession.username !== startupQuery.username
           )

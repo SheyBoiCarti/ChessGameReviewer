@@ -224,10 +224,15 @@ export function ChessWorkspace({
   }, [state.ingestion.status, state.ingestion.result]);
 
   useEffect(() => {
-    if (tab === 'analysis' && state.analysis.status !== 'probing' && !state.analysis.capability) {
+    if (
+      tab === 'analysis' &&
+      state.analysis.status !== 'probing' &&
+      !state.analysis.capability &&
+      !state.analysis.result
+    ) {
       void controller.probeEngine();
     }
-  }, [controller, state.analysis.capability, state.analysis.status, tab]);
+  }, [controller, state.analysis.capability, state.analysis.status, state.analysis.result, tab]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = state.preferences.theme;
@@ -263,6 +268,7 @@ export function ChessWorkspace({
   }, [storedUsernames, state.query.active]);
 
   const selectTab = (next: WorkspaceTab) => {
+    if (next !== tab) controller.invalidateReviewIntent();
     setTab(next);
     if (next !== 'opening') {
       setMoveOrdersOpen(false);
@@ -584,6 +590,7 @@ export function ChessWorkspace({
   );
 
   const handleReviewModeChange = (mode: ReviewMode) => {
+    if (mode !== reviewMode) controller.invalidateReviewIntent();
     if (mode === 'review') {
       setVariation(null);
     }
@@ -803,11 +810,11 @@ export function ChessWorkspace({
                             controller.selectGame(gameId);
                             setVariation(null);
                           }}
-                          onAnalyze={(gameId) => {
-                            controller.selectGame(gameId);
+                          onReview={(gameId) => {
                             setVariation(null);
                             setReviewMode('review');
                             selectTab('analysis');
+                            void controller.openReview(gameId);
                           }}
                           analysisStatus={analysisStatusMap}
                           hasLoaded={hasGamesLoaded}

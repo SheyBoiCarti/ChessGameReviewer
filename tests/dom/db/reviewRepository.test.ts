@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { restoreReviews, saveReview } from '@/features/stockfish-analysis/reviewRepository';
+import {
+  restoreReviews,
+  restoreSelected,
+  saveReview,
+} from '@/features/stockfish-analysis/reviewRepository';
 import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGame';
 import { closeDatabase, openDatabase } from '@/lib/db/openDatabase';
 import { clearAllData, deleteUserData } from '@/lib/db/deleteLocalData';
@@ -30,6 +34,15 @@ describe('saved game reviews', () => {
     expect(await restoreReviews(db, [game], 'quick')).toEqual({ one: review });
     expect(await restoreReviews(db, [game], 'deep')).toEqual({});
     expect(await restoreReviews(db, [{ ...game, pgn: '1. d4 d5' }], 'quick')).toEqual({});
+  });
+
+  it('reads only the selected review and preserves content and preset isolation', async () => {
+    await saveReview(db, game, 'balanced', review);
+    await saveReview(db, { ...game, id: 'other' }, 'balanced', { ...review, status: 'complete' });
+    expect(await restoreSelected(db, game, 'balanced')).toEqual(review);
+    expect(await restoreSelected(db, game, 'quick')).toBeNull();
+    expect(await restoreSelected(db, { ...game, pgn: '1. d4 d5' }, 'balanced')).toBeNull();
+    expect(await restoreSelected(db, { ...game, username: 'another' }, 'balanced')).toBeNull();
   });
 
   it('deletes every strength for the requested username, retaining other players', async () => {

@@ -270,9 +270,7 @@ describe('Bug fixes exploratory verification', () => {
     const reviewBtn = screen.getByRole('button', { name: /review game/i });
     await user.click(reviewBtn);
 
-    // Start analysis
-    const startAnalysisBtn = await screen.findByRole('button', { name: /run review/i });
-    await user.click(startAnalysisBtn);
+    // The explicit Review game action starts analysis.
 
     // Wait for analysis to complete and navigate to ply 3 (an inaccuracy)
     const ply3Button = await screen.findByRole('button', { name: /ply 3/i });

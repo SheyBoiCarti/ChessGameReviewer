@@ -252,6 +252,16 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
       };
     case 'selection/ply':
       return { ...state, selection: { ...state.selection, ply: Math.max(0, action.ply) } };
+    case 'analysis/preparationCancelled':
+      return {
+        ...state,
+        analysis: {
+          ...state.analysis,
+          status:
+            state.analysis.result?.status ??
+            (state.analysis.capability?.mode === 'unavailable' ? 'unavailable' : 'idle'),
+        },
+      };
     case 'analysis/probing':
       return { ...state, analysis: { ...state.analysis, status: 'probing' } };
     case 'analysis/capability':

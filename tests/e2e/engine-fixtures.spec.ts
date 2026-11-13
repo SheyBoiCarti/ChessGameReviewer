@@ -243,3 +243,61 @@ test('retries failed initialization while preserving playback and Openings', asy
     3
   );
 });
+
+test('one explicit Review game action starts once, then reopens its saved review without an engine', async ({
+  page,
+}) => {
+  const engine = await installEngineFixtures(page);
+  await installWorkspaceFixtures(page);
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review game', exact: true }).click();
+  await expect(page.getByText('Checking analysis engine…')).toBeVisible();
+  await engine.releaseReady();
+  await expect(page.getByRole('progressbar', { name: 'Review progress' })).toBeVisible();
+  await engine.releaseEvaluations(100);
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  const evaluations = (await engine.requests()).filter(
+    (request) => request.type === 'EVALUATE'
+  ).length;
+  expect(evaluations).toBe(9);
+  expect((await engine.requests()).filter((request) => request.type === 'INITIALIZE')).toHaveLength(
+    1
+  );
+  await page.getByRole('tab', { name: 'Analysis', exact: true }).click();
+  await page.getByRole('tab', { name: 'Review', exact: true }).click();
+  expect((await engine.requests()).filter((request) => request.type === 'EVALUATE')).toHaveLength(
+    evaluations
+  );
+  await page.getByRole('button', { name: 'Games', exact: true }).click();
+  await page.reload();
+  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await page.getByRole('button', { name: 'Review game', exact: true }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  expect(
+    (await engine.requests()).filter((request) => ['INITIALIZE', 'EVALUATE'].includes(request.type))
+  ).toEqual([]);
+});
+
+test('switching game or view during readiness cancels the pending automatic start', async ({
+  page,
+}) => {
+  const engine = await installEngineFixtures(page);
+  await installWorkspaceFixtures(page);
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review game', exact: true }).click();
+  await expect(page.getByText('Checking analysis engine…')).toBeVisible();
+  await expect
+    .poll(async () => (await engine.requests()).filter((r) => r.type === 'INITIALIZE').length)
+    .toBe(1);
+  await page.getByRole('button', { name: 'Games', exact: true }).click();
+  await page.getByRole('button', { name: /opponent-one/i }).click();
+  await engine.releaseReady();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(page.getByText('Ready to review')).toBeVisible();
+  await page.getByRole('tab', { name: 'Analysis', exact: true }).click();
+  expect((await engine.requests()).filter((r) => r.type === 'EVALUATE')).toEqual([]);
+});

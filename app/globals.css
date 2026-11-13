@@ -3919,5 +3919,5 @@ li[data-selected='true'] {
 
 .analysis-progress {
   width: 100%;
-  accent-color: var(--accent);
+  accent-color: var(--accent-primary);
 }

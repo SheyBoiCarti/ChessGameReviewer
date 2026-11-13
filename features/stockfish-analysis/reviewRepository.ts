@@ -19,6 +19,27 @@ export async function saveReview(
   await setMeta(db, reviewKey(game, strength), { version: REVIEW_VERSION, pgn: game.pgn, result });
 }
 
+export async function restoreSelected(
+  db: IDBDatabase,
+  game: GameRecord,
+  strength: AnalysisStrength
+): Promise<GameAnalysisResult | null> {
+  const record = await getMeta(db, reviewKey(game, strength));
+  const saved = record?.value as
+    | { version?: string; pgn?: string; result?: GameAnalysisResult }
+    | undefined;
+  if (
+    saved?.version !== REVIEW_VERSION ||
+    saved.pgn !== game.pgn ||
+    !saved.result ||
+    !['complete', 'partial', 'cancelled', 'failed'].includes(saved.result.status) ||
+    !Array.isArray(saved.result.annotations) ||
+    !saved.result.summary
+  )
+    return null;
+  return saved.result;
+}
+
 export async function restoreReviews(
   db: IDBDatabase,
   games: readonly GameRecord[],
@@ -26,20 +47,8 @@ export async function restoreReviews(
 ): Promise<Record<string, GameAnalysisResult>> {
   const entries = await Promise.all(
     games.map(async (game) => {
-      const record = await getMeta(db, reviewKey(game, strength));
-      const saved = record?.value as
-        | { version?: string; pgn?: string; result?: GameAnalysisResult }
-        | undefined;
-      if (
-        saved?.version !== REVIEW_VERSION ||
-        saved.pgn !== game.pgn ||
-        !saved.result ||
-        !['complete', 'partial', 'cancelled', 'failed'].includes(saved.result.status) ||
-        !Array.isArray(saved.result.annotations) ||
-        !saved.result.summary
-      )
-        return null;
-      return [game.id, saved.result] as const;
+      const result = await restoreSelected(db, game, strength);
+      return result ? ([game.id, result] as const) : null;
     })
   );
   return Object.fromEntries(entries.filter((entry) => entry !== null));

@@ -35,6 +35,205 @@ const game: GameRecord = {
 };
 
 describe('workspace controller', () => {
+  it('opens a review once on double activation and preserves the same game ply', async () => {
+    const services = createServices(async () => result(secondQuery, [game]));
+    services.analysis.analyze = vi.fn(services.analysis.analyze);
+    services.engine.initialize = vi.fn(services.engine.initialize);
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    controller.selectGame(game.id);
+    controller.selectPly(1);
+    await Promise.all([controller.openReview(game.id), controller.openReview(game.id)]);
+    expect(services.analysis.analyze).toHaveBeenCalledTimes(1);
+    expect(services.engine.initialize).toHaveBeenCalledTimes(1);
+    expect(controller.getState().selection.ply).toBe(1);
+    controller.dispose();
+  });
+
+  it('deduplicates direct starts while the same analysis is running', async () => {
+    const services = createServices(async () => result(secondQuery, [game]));
+    const pending = deferred<Awaited<ReturnType<WorkspaceServices['analysis']['analyze']>>>();
+    const saved = await services.analysis.analyze(
+      game,
+      'balanced',
+      {} as never,
+      { bookMoveKeys: [] },
+      new AbortController().signal,
+      vi.fn()
+    );
+    services.analysis.analyze = vi.fn(() => pending.promise);
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    controller.selectGame(game.id);
+    await controller.probeEngine();
+    const first = controller.startAnalysis();
+    const second = controller.startAnalysis();
+    expect(services.analysis.analyze).toHaveBeenCalledTimes(1);
+    pending.resolve(saved);
+    await Promise.all([first, second]);
+    controller.dispose();
+  });
+
+  it.each(['selection', 'view', 'query', 'deletion', 'disposal'] as const)(
+    'invalidates a review waiting for READY after %s',
+    async (change) => {
+      const other = { ...game, id: 'game-2' };
+      const services = createServices(async () => result(secondQuery, [game, other]));
+      const ready = await services.engine.initialize();
+      const delayed = deferred<typeof ready>();
+      services.engine.initialize = vi.fn(() => delayed.promise);
+      services.analysis.analyze = vi.fn(services.analysis.analyze);
+      const controller = createWorkspaceController(services);
+      await controller.submitQuery(secondQuery);
+      const opening = controller.openReview(game.id);
+      await vi.waitFor(() => expect(services.engine.initialize).toHaveBeenCalledTimes(1));
+      if (change === 'selection') controller.selectGame(other.id);
+      if (change === 'view') controller.invalidateReviewIntent();
+      if (change === 'query') await controller.submitQuery(firstQuery);
+      if (change === 'deletion') await controller.clearAllData();
+      if (change === 'disposal') controller.dispose();
+      delayed.resolve(ready);
+      await opening;
+      expect(services.analysis.analyze).not.toHaveBeenCalled();
+      if (change === 'selection') expect(controller.getState().selection.gameId).toBe(other.id);
+      controller.dispose();
+    }
+  );
+
+  it.each(['complete', 'partial', 'cancelled'] as const)(
+    'opens a compatible %s saved review without probing or starting',
+    async (status) => {
+      const services = createServices(async () => result(secondQuery, [game]));
+      const saved = {
+        ...(await services.analysis.analyze(
+          game,
+          'balanced',
+          {} as never,
+          { bookMoveKeys: [] },
+          new AbortController().signal,
+          vi.fn()
+        )),
+        status,
+      };
+      services.analysis.restoreSelected = vi.fn(async () => saved);
+      services.analysis.analyze = vi.fn(services.analysis.analyze);
+      services.engine.initialize = vi.fn(services.engine.initialize);
+      const controller = createWorkspaceController(services);
+      await controller.submitQuery(secondQuery);
+      await controller.openReview(game.id);
+      expect(controller.getState().analysis.result).toEqual(saved);
+      expect(services.engine.initialize).not.toHaveBeenCalled();
+      expect(services.analysis.analyze).not.toHaveBeenCalled();
+      controller.dispose();
+    }
+  );
+
+  it('does not start when unavailable, and shares open with a direct pending start', async () => {
+    const services = createServices(async () => result(secondQuery, [game]));
+    const ready = await services.engine.initialize();
+    services.engine.initialize = vi.fn(async () => ({ ...ready, mode: 'unavailable' as const }));
+    services.analysis.analyze = vi.fn(services.analysis.analyze);
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    await Promise.all([controller.openReview(game.id), controller.startAnalysis()]);
+    expect(services.engine.initialize).toHaveBeenCalledTimes(1);
+    expect(services.analysis.analyze).not.toHaveBeenCalled();
+    expect(controller.getState().analysis.status).toBe('unavailable');
+    controller.dispose();
+  });
+
+  it('keeps a delayed bulk restore from replacing a newly started review', async () => {
+    const services = createServices(async () => result(secondQuery, [game]));
+    const saved = {
+      ...(await services.analysis.analyze(
+        game,
+        'balanced',
+        {} as never,
+        { bookMoveKeys: [] },
+        new AbortController().signal,
+        vi.fn()
+      )),
+      status: 'partial' as const,
+    };
+    const restore = deferred<Record<string, typeof saved>>();
+    services.analysis.restore = vi.fn(() => restore.promise);
+    services.analysis.restoreSelected = vi.fn(async () => null);
+    const controller = createWorkspaceController(services);
+    const importing = controller.submitQuery(secondQuery);
+    await vi.waitFor(() => expect(services.analysis.restore).toHaveBeenCalled());
+    await controller.openReview(game.id);
+    restore.resolve({ [game.id]: saved });
+    await importing;
+    expect(controller.getState().analysis.status).toBe('complete');
+    controller.dispose();
+  });
+
+  it('shares a delayed selected restore with direct start and ignores it after a view change', async () => {
+    const services = createServices(async () => result(secondQuery, [game]));
+    const saved = await services.analysis.analyze(
+      game,
+      'balanced',
+      {} as never,
+      { bookMoveKeys: [] },
+      new AbortController().signal,
+      vi.fn()
+    );
+    const selected = deferred<typeof saved | null>();
+    services.analysis.restoreSelected = vi.fn(() => selected.promise);
+    services.analysis.analyze = vi.fn(services.analysis.analyze);
+    services.engine.initialize = vi.fn(services.engine.initialize);
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    const opening = controller.openReview(game.id);
+    const direct = controller.startAnalysis();
+    expect(services.analysis.restoreSelected).toHaveBeenCalledTimes(1);
+    controller.invalidateReviewIntent();
+    expect(controller.getState().analysis.status).toBe('idle');
+    selected.resolve(saved);
+    await Promise.all([opening, direct]);
+    expect(controller.getState().analysis.result).toBeNull();
+    expect(services.engine.initialize).not.toHaveBeenCalled();
+    expect(services.analysis.analyze).not.toHaveBeenCalled();
+    controller.dispose();
+  });
+
+  it('checks captured content after readiness and never starts a replaced PGN', async () => {
+    const record = { ...game };
+    const services = createServices(async () => result(secondQuery, [record]));
+    const ready = await services.engine.initialize();
+    const delayed = deferred<typeof ready>();
+    services.engine.initialize = vi.fn(() => delayed.promise);
+    services.analysis.analyze = vi.fn(services.analysis.analyze);
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    const opening = controller.openReview(game.id);
+    await vi.waitFor(() => expect(services.engine.initialize).toHaveBeenCalled());
+    record.pgn = '[Result "1-0"]\n\n1. d4 d5 1-0';
+    delayed.resolve(ready);
+    await opening;
+    expect(services.analysis.analyze).not.toHaveBeenCalled();
+    controller.dispose();
+  });
+
+  it('does not restore or build a graph for a superseded ingestion result', async () => {
+    const stale = deferred<IngestionResult>();
+    const services = createServices((query) =>
+      query.username === firstQuery.username
+        ? stale.promise
+        : Promise.resolve(result(secondQuery, [game]))
+    );
+    services.analysis.restore = vi.fn(async () => ({}));
+    services.graph.build = vi.fn(services.graph.build);
+    const controller = createWorkspaceController(services);
+    const first = controller.submitQuery(firstQuery);
+    await controller.submitQuery(secondQuery);
+    stale.resolve(result(firstQuery, [{ ...game, username: firstQuery.username }]));
+    await first;
+    expect(services.analysis.restore).toHaveBeenCalledTimes(1);
+    expect(services.graph.build).toHaveBeenCalledTimes(1);
+    controller.dispose();
+  });
+
   it('retries the engine without changing the selected game or ply', async () => {
     const services = createServices(async () => result(secondQuery, [game]));
     const ready = await services.engine.initialize();

@@ -9,7 +9,7 @@ export function GameSelector({
   games,
   selectedGameId,
   onSelect,
-  onAnalyze,
+  onReview,
   analysisStatus = {},
   hasLoaded = false,
   reviewDisabledReason,
@@ -17,7 +17,7 @@ export function GameSelector({
   games: readonly GameRecord[];
   selectedGameId: string | null;
   onSelect(gameId: string): void;
-  onAnalyze?(gameId: string): void;
+  onReview?(gameId: string): void;
   analysisStatus?: Readonly<Record<string, string>>;
   hasLoaded?: boolean;
   reviewDisabledReason?: string | undefined;
@@ -83,7 +83,7 @@ export function GameSelector({
           </select>
         </label>
       </div>
-      {visibleSelectedGame && onAnalyze ? (
+      {visibleSelectedGame && onReview ? (
         <div className="game-selector-selected-bar">
           <div
             className="selected-game-detail"
@@ -102,7 +102,7 @@ export function GameSelector({
             disabled={Boolean(reviewDisabledReason)}
             onClick={() => {
               if (!reviewDisabledReason) {
-                onAnalyze(visibleSelectedGame.id);
+                onReview(visibleSelectedGame.id);
               }
             }}
           >

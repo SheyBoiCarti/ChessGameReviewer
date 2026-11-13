@@ -14,10 +14,10 @@ describe('GameSelector', () => {
   it('sorts a copy, displays required metadata, and selects by stable game id without starting analysis', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
-    const onAnalyze = vi.fn();
+    const onReview = vi.fn();
     const originalOrder = games.map(({ id }) => id);
     render(
-      <GameSelector games={games} selectedGameId={null} onSelect={onSelect} onAnalyze={onAnalyze} />
+      <GameSelector games={games} selectedGameId={null} onSelect={onSelect} onReview={onReview} />
     );
 
     const gameResults = screen.getByRole('region', { name: 'Game results' });
@@ -34,10 +34,10 @@ describe('GameSelector', () => {
     expect(screen.getAllByText(/rated/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/not reviewed/i).length).toBeGreaterThan(0);
 
-    // Clicking row calls onSelect but NOT onAnalyze
+    // Clicking row calls onSelect but NOT onReview
     await user.click(screen.getByRole('button', { name: /magnus carlsen/i }));
     expect(onSelect).toHaveBeenCalledWith('older');
-    expect(onAnalyze).not.toHaveBeenCalled();
+    expect(onReview).not.toHaveBeenCalled();
     expect(games.map(({ id }) => id)).toEqual(originalOrder);
   });
 
@@ -66,14 +66,9 @@ describe('GameSelector', () => {
   it('updates heading and auto-selects first visible game when filter omits currently selected game', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
-    const onAnalyze = vi.fn();
+    const onReview = vi.fn();
     const { rerender } = render(
-      <GameSelector
-        games={games}
-        selectedGameId="older"
-        onSelect={onSelect}
-        onAnalyze={onAnalyze}
-      />
+      <GameSelector games={games} selectedGameId="older" onSelect={onSelect} onReview={onReview} />
     );
 
     // Initial heading
@@ -90,12 +85,7 @@ describe('GameSelector', () => {
 
     // When rerendered with updated selectedGameId
     rerender(
-      <GameSelector
-        games={games}
-        selectedGameId="newer"
-        onSelect={onSelect}
-        onAnalyze={onAnalyze}
-      />
+      <GameSelector games={games} selectedGameId="newer" onSelect={onSelect} onReview={onReview} />
     );
     expect(screen.getByText('player-one (1800) vs Judit Polgar (1850)')).toBeInTheDocument();
   });
@@ -103,7 +93,7 @@ describe('GameSelector', () => {
   it('shows an unbounded empty state when the filter matches no games', async () => {
     const user = userEvent.setup();
     render(
-      <GameSelector games={games} selectedGameId="older" onSelect={vi.fn()} onAnalyze={vi.fn()} />
+      <GameSelector games={games} selectedGameId="older" onSelect={vi.fn()} onReview={vi.fn()} />
     );
 
     await user.type(screen.getByLabelText(/filter games/i), 'No such opponent');
@@ -138,11 +128,11 @@ describe('GameSelector', () => {
     expect(screen.getByRole('button', { name: /displaycasedopponent/i })).toBeInTheDocument();
   });
 
-  it('displays matchup detail line and calls onAnalyze exactly once on Review game click', async () => {
+  it('displays matchup detail line and calls onReview exactly once on Review game click', async () => {
     const user = userEvent.setup();
-    const onAnalyze = vi.fn();
+    const onReview = vi.fn();
     render(
-      <GameSelector games={games} selectedGameId="newer" onSelect={vi.fn()} onAnalyze={onAnalyze} />
+      <GameSelector games={games} selectedGameId="newer" onSelect={vi.fn()} onReview={onReview} />
     );
 
     expect(screen.getByText('player-one (1800) vs Judit Polgar (1850)')).toBeInTheDocument();
@@ -150,19 +140,19 @@ describe('GameSelector', () => {
     expect(reviewButton).toBeEnabled();
 
     await user.click(reviewButton);
-    expect(onAnalyze).toHaveBeenCalledTimes(1);
-    expect(onAnalyze).toHaveBeenCalledWith('newer');
+    expect(onReview).toHaveBeenCalledTimes(1);
+    expect(onReview).toHaveBeenCalledWith('newer');
   });
 
   it('disables Review game and shows warning when reviewDisabledReason is provided', async () => {
     const user = userEvent.setup();
-    const onAnalyze = vi.fn();
+    const onReview = vi.fn();
     render(
       <GameSelector
         games={games}
         selectedGameId="newer"
         onSelect={vi.fn()}
-        onAnalyze={onAnalyze}
+        onReview={onReview}
         reviewDisabledReason="This game has no reviewable moves."
       />
     );
@@ -172,7 +162,7 @@ describe('GameSelector', () => {
     expect(screen.getByText('This game has no reviewable moves.')).toBeInTheDocument();
 
     await user.click(reviewButton);
-    expect(onAnalyze).not.toHaveBeenCalled();
+    expect(onReview).not.toHaveBeenCalled();
   });
 
   it('distinguishes analysis result statuses: Reviewed, Partial review, Review failed, Analysing…', () => {
