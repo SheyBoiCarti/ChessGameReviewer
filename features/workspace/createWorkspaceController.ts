@@ -259,6 +259,7 @@ export function createWorkspaceController(
     if (gameId === state.selection.gameId) return;
     invalidateReviewIntent();
     analysisSequence++;
+    runningReview = null;
     analysisController?.abort();
     analysisController = null;
     dispatch({ type: 'selection/game', gameId });
@@ -462,6 +463,7 @@ export function createWorkspaceController(
     },
     cancelAnalysis() {
       invalidateReviewIntent();
+      runningReview = null;
       analysisController?.abort();
       analysisController = null;
       dispatch({ type: 'analysis/cancelled', token: state.query.token });

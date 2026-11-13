@@ -47,6 +47,11 @@ describe('workspace controller', () => {
     expect(services.analysis.analyze).toHaveBeenCalledTimes(1);
     expect(services.engine.initialize).toHaveBeenCalledTimes(1);
     expect(controller.getState().selection.ply).toBe(1);
+    await controller.openReview(game.id);
+    expect(services.analysis.analyze).toHaveBeenCalledTimes(1);
+    await controller.startAnalysis();
+    expect(services.analysis.analyze).toHaveBeenCalledTimes(2);
+    expect(controller.getState().selection.ply).toBe(1);
     controller.dispose();
   });
 
@@ -71,6 +76,37 @@ describe('workspace controller', () => {
     expect(services.analysis.analyze).toHaveBeenCalledTimes(1);
     pending.resolve(saved);
     await Promise.all([first, second]);
+    controller.dispose();
+  });
+
+  it('allows Resume to start a new run while an aborted run settles, deduplicating the resumed run', async () => {
+    const services = createServices(async () => result(secondQuery, [game]));
+    const saved = await services.analysis.analyze(
+      game,
+      'balanced',
+      {} as never,
+      { bookMoveKeys: [] },
+      new AbortController().signal,
+      vi.fn()
+    );
+    const first = deferred<typeof saved>();
+    const resumed = deferred<typeof saved>();
+    services.analysis.analyze = vi
+      .fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => resumed.promise);
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    await controller.probeEngine();
+    const old = controller.startAnalysis();
+    controller.cancelAnalysis();
+    const next = controller.startAnalysis();
+    const duplicate = controller.startAnalysis();
+    expect(services.analysis.analyze).toHaveBeenCalledTimes(2);
+    first.resolve({ ...saved, status: 'partial' });
+    resumed.resolve(saved);
+    await Promise.all([old, next, duplicate]);
+    expect(controller.getState().analysis.status).toBe('complete');
     controller.dispose();
   });
 
