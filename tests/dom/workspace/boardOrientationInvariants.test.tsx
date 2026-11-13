@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChessWorkspace } from '@/components/workspace/ChessWorkspace';
+import * as parser from '@/features/workspace/parseSelectedGame';
 import type { WorkspaceServices } from '@/features/workspace/createWorkspaceController';
 import type { GameRecord } from '@/lib/db/schema';
 
@@ -86,6 +87,28 @@ function makeMockServices(games: GameRecord[] = [sampleGame]): WorkspaceServices
 describe('Board orientation and player metadata invariants', () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  it('does not parse other games for opening membership in Games or Review', async () => {
+    const user = userEvent.setup();
+    const otherGame = {
+      ...sampleGame,
+      id: 'other-game',
+      whitePlayer: { username: 'other-player', rating: 1200 },
+    };
+    const spy = vi.spyOn(parser, 'parseSelectedGame');
+    try {
+      const services = makeMockServices([sampleGame, otherGame]);
+      render(<ChessWorkspace createServices={() => services} />);
+      await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
+      await user.click(screen.getByRole('button', { name: /load games/i }));
+      await user.click(screen.getByRole('button', { name: /cmzulu/i }));
+      await user.click(screen.getByRole('button', { name: /^review$/i }));
+      expect(spy.mock.calls.some(([record]) => record?.id === 'other-game')).toBe(false);
+      expect(spy.mock.calls.some(([record]) => record?.id === sampleGame.id)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('toggles board orientation via Flip board button and synchronizes with Settings', async () => {

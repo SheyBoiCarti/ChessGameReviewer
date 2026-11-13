@@ -1,6 +1,5 @@
 'use client';
 
-import dynamic from 'next/dynamic';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react';
 import type { Square } from 'chess.js';
 
@@ -38,9 +37,11 @@ import type { WorkspaceServices } from '@/features/workspace/createWorkspaceCont
 import { useWorkspace } from '@/features/workspace/useWorkspace';
 import { saveWorkspaceSession } from '@/features/workspace/session';
 import type { PlayerMetadata } from '@/lib/api/contracts';
-import { parseGamePgn, type ParsedGame } from '@/lib/chess/pgnParser';
+import type { ParsedGame } from '@/lib/chess/pgnParser';
+import { parseSelectedGame } from '@/features/workspace/parseSelectedGame';
+import { OpeningView } from '@/components/opening/OpeningView';
+import { ReviewView } from '@/components/analysis/ReviewView';
 import { deserializeOpeningGraph } from '@/lib/chess/graph/serialization';
-import type { GameRecord } from '@/lib/db/schema';
 import type { MoveQuality } from '@/lib/engine/accuracy';
 import type { EvaluationScore } from '@/lib/engine/evaluation';
 
@@ -51,12 +52,6 @@ import { WorkspaceLayout } from './WorkspaceLayout';
 import { WorkspaceNavigation } from './WorkspaceNavigation';
 import { WorkspaceTabs, type ReviewMode, type WorkspaceTab } from './WorkspaceTabs';
 import { ProfileInsightsDashboard } from '@/components/profile-insights/ProfileInsightsDashboard';
-
-const LazyAnalyzerWorkspace = dynamic(
-  () =>
-    import('@/components/analysis/AnalyzerWorkspace').then((module) => module.AnalyzerWorkspace),
-  { loading: () => <p role="status">Loading the local analyzer…</p>, ssr: false }
-);
 
 export function ChessWorkspace({
   createServices = createBrowserWorkspaceServices,
@@ -132,18 +127,18 @@ export function ChessWorkspace({
   const selectedRecord =
     state.ingestion.result?.games.find(({ id }) => id === state.selection.gameId) ?? null;
   const parsedGame = useMemo(() => parseSelectedGame(selectedRecord), [selectedRecord]);
-  const displayedFen = boardFen(tab, graph, navigation, parsedGame, state.selection.ply);
-  const openingGames = useMemo(
+  const fenByPly = useMemo(
+    () => Object.fromEntries(parsedGame?.plies.map((move) => [move.ply, move.fenBefore]) ?? []),
+    [parsedGame]
+  );
+  const annotationsByPly = useMemo(
     () =>
-      (state.ingestion.result?.games ?? [])
-        .map((record) => ({ record, game: parseSelectedGame(record) }))
-        .filter(({ game }) => game !== null),
-    [state.ingestion.result?.games]
+      new Map(
+        state.analysis.result?.annotations.map((annotation) => [annotation.ply, annotation]) ?? []
+      ),
+    [state.analysis.result]
   );
-  const openingSequence = graph && navigation ? graph.paths.sequence(navigation.pathId) : [];
-  const matchingOpeningGames = openingGames.filter(({ game }) =>
-    openingSequence.every((move, index) => game?.plies[index]?.uci === move.uci)
-  );
+  const displayedFen = boardFen(tab, graph, navigation, parsedGame, state.selection.ply);
 
   const analysisStatusMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -177,9 +172,7 @@ export function ChessWorkspace({
   }, [tab, state.selection.gameId]);
 
   const selectedAnnotation =
-    tab === 'analysis' && !variation
-      ? state.analysis.result?.annotations.find(({ ply }) => ply === state.selection.ply)
-      : undefined;
+    tab === 'analysis' && !variation ? annotationsByPly.get(state.selection.ply) : undefined;
   const isSuboptimalMove =
     selectedAnnotation?.accuracy.status === 'classified' &&
     ['inaccuracy', 'mistake', 'blunder', 'miss'].includes(selectedAnnotation.accuracy.quality);
@@ -797,7 +790,9 @@ export function ChessWorkspace({
                                 onRetry={() => {
                                   const active = state.query.active;
                                   if (active)
-                                    void controller.submitQuery(active, { manualRefresh: true });
+                                    void controller.submitQuery(active, {
+                                      manualRefresh: true,
+                                    });
                                 }}
                               />
                             </details>
@@ -871,7 +866,9 @@ export function ChessWorkspace({
                               onRetry={() => {
                                 const active = state.query.active;
                                 if (active)
-                                  void controller.submitQuery(active, { manualRefresh: true });
+                                  void controller.submitQuery(active, {
+                                    manualRefresh: true,
+                                  });
                               }}
                               onViewGames={() => {
                                 const firstGame = state.ingestion.result?.games[0];
@@ -893,51 +890,14 @@ export function ChessWorkspace({
                         {displayedBoardFen ? (
                           <OpeningPositionAnalysis fen={displayedBoardFen} />
                         ) : null}
-                        <section className="surface-panel" aria-label="Games in this opening">
-                          <h3>Your games in this line</h3>
-                          <p>
-                            {
-                              matchingOpeningGames.filter(
-                                ({ record }) => record.userColor === 'white'
-                              ).length
-                            }{' '}
-                            as White ·{' '}
-                            {
-                              matchingOpeningGames.filter(
-                                ({ record }) => record.userColor === 'black'
-                              ).length
-                            }{' '}
-                            as Black
-                          </p>
-                          <p className="field-help">
-                            This tree combines your imported games. Your playing color is shown for
-                            each game below.
-                          </p>
-                          <details>
-                            <summary>Show matching games ({matchingOpeningGames.length})</summary>
-                            <div className="result-viewport">
-                              <ul>
-                                {matchingOpeningGames.map(({ record }) => (
-                                  <li key={record.id}>
-                                    <button
-                                      type="button"
-                                      className="button-secondary"
-                                      onClick={() => {
-                                        controller.selectGame(record.id);
-                                        selectTab('analysis');
-                                      }}
-                                    >
-                                      {record.whitePlayer.username ?? 'White'} vs{' '}
-                                      {record.blackPlayer.username ?? 'Black'} · You played{' '}
-                                      {record.userColor === 'white' ? 'White' : 'Black'} ·{' '}
-                                      {new Date(record.endedAt * 1000).toLocaleDateString()}
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          </details>
-                        </section>
+                        <OpeningView
+                          games={state.ingestion.result?.games ?? []}
+                          sequence={graph.paths.sequence(navigation.pathId)}
+                          onSelectGame={(id) => {
+                            controller.selectGame(id);
+                            selectTab('analysis');
+                          }}
+                        />
                         <OpeningTreeTable
                           graph={graph}
                           navigation={navigation}
@@ -991,7 +951,7 @@ export function ChessWorkspace({
 
                   {tab === 'analysis' ? (
                     selectedRecord && parsedGame ? (
-                      <LazyAnalyzerWorkspace
+                      <ReviewView
                         mode={reviewMode}
                         game={parsedGame}
                         players={{
@@ -1018,9 +978,7 @@ export function ChessWorkspace({
                         onResume={() => void controller.startAnalysis()}
                         onSelectPly={handlePlyChange}
                         selectedPly={state.selection.ply}
-                        fenByPly={Object.fromEntries(
-                          parsedGame.plies.map((move) => [move.ply, move.fenBefore])
-                        )}
+                        fenByPly={fenByPly}
                         onExplorePv={(pvFen, uciMoves) => {
                           const variationState = createVariationFromUciSequence(
                             state.selection.ply,
@@ -1228,32 +1186,6 @@ function uciArrow(uci: string | undefined): { from: Square; to: Square } | undef
 
 function EmptyWorkspace({ message }: { message: string }) {
   return <p className="empty-workspace">{message}</p>;
-}
-
-function parseSelectedGame(record: GameRecord | null): ParsedGame | null {
-  if (!record) return null;
-  const result = parseGamePgn({
-    game: {
-      id: record.id,
-      url: record.url,
-      ...(record.uuid ? { uuid: record.uuid } : {}),
-      usernameKey: record.username,
-      userColor: record.userColor,
-      result: record.result,
-      endedAt: record.endedAt,
-      timeClass: record.timeClass,
-      ...(record.timeControl ? { timeControl: record.timeControl } : {}),
-      rated: record.rated,
-      userRating: record.userRating,
-      opponentRating: record.opponentRating,
-      whitePlayer: record.whitePlayer,
-      blackPlayer: record.blackPlayer,
-      ...(record.accuracies ? { accuracies: record.accuracies } : {}),
-      pgn: record.pgn,
-      rules: record.rules,
-    },
-  });
-  return result.ok ? result.game : null;
 }
 
 function boardFen(
