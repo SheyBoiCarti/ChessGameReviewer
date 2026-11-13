@@ -127,6 +127,12 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   // partial result has been saved and delivered to the workspace.
   await expect(
     page
+      .locator('.analysis-coverage-notice')
+      .filter({ hasText: /Coverage: [1-7] of 8 eligible plies/ })
+  ).toBeVisible();
+  await page.locator('.review-summary > summary').click();
+  await expect(
+    page
       .getByRole('region', { name: 'Game Review Summary', exact: true })
       .getByText(/Coverage: [1-7] of 8 eligible plies/)
   ).toBeVisible();
@@ -135,6 +141,7 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   await page.getByRole('button', { name: /opponent-two/i }).click();
   await openTab(page, 'Review');
   await expect(page.getByRole('button', { name: 'Resume analysis' })).toBeVisible();
+  await page.locator('.review-summary > summary').click();
   await expect(
     page
       .getByRole('region', { name: 'Game Review Summary', exact: true })
@@ -153,6 +160,7 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   await openTab(page, 'Review');
   await expect(page.getByText('Review complete', { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByLabel('Position 8 of 8')).toBeVisible();
+  await page.locator('.review-summary > summary').click();
   await expect(page.getByRole('heading', { name: 'Game Review Summary' })).toBeVisible();
   await openTab(page, 'Insights');
   await expect(page.locator('.profile-tactics-moves-meta')).toHaveText(evaluated);

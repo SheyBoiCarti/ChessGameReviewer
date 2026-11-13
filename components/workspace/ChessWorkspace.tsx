@@ -731,6 +731,30 @@ export function ChessWorkspace({
           ) : (
             <WorkspaceLayout
               board={shouldRenderBoard ? board : null}
+              header={
+                tab === 'analysis' && selectedRecord ? (
+                  <div className="review-header">
+                    <button
+                      type="button"
+                      className="button-secondary"
+                      onClick={() => selectTab('games')}
+                    >
+                      Back to games
+                    </button>
+                    <div>
+                      <strong>
+                        {selectedRecord.whitePlayer.username ?? 'White'} vs{' '}
+                        {selectedRecord.blackPlayer.username ?? 'Black'}
+                      </strong>
+                      <p>
+                        {selectedRecord.result} ·{' '}
+                        {new Date(selectedRecord.endedAt * 1000).toLocaleDateString()} · You played{' '}
+                        {selectedRecord.userColor}
+                      </p>
+                    </div>
+                  </div>
+                ) : null
+              }
               tabs={
                 tab === 'analysis' ? (
                   <WorkspaceTabs selected={reviewMode} onSelect={handleReviewModeChange} />

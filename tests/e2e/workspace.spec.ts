@@ -58,6 +58,7 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
       timeout: 60_000,
     });
     await page.getByRole('tab', { name: 'Review' }).click();
+    await page.locator('.review-summary > summary').click();
     await expect(page.getByRole('heading', { name: 'Game Review Summary' })).toBeVisible();
     await expect(page.getByRole('meter', { name: /white-perspective evaluation/i })).toBeVisible();
   }

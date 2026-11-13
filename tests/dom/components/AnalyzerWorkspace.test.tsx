@@ -87,7 +87,7 @@ describe('AnalyzerWorkspace', () => {
     expect(screen.queryByRole('button', { name: /start analysis/i })).not.toBeInTheDocument();
   });
 
-  it('keeps cached annotations readable when the engine is unavailable', () => {
+  it('keeps cached annotations readable when the engine is unavailable', async () => {
     render(
       <AnalyzerWorkspace
         capability={capability('unavailable')}
@@ -104,8 +104,36 @@ describe('AnalyzerWorkspace', () => {
         onSelectPly={vi.fn()}
       />
     );
+    const summary = screen.getByText('Summary', { selector: 'summary' });
+    expect(summary.closest('details')).not.toHaveAttribute('open');
+    await userEvent.setup().click(summary);
     expect(screen.getByText('Game Review Summary')).toBeVisible();
     expect(screen.getByRole('button', { name: /ply 1/i })).toBeEnabled();
+  });
+
+  it('retains the open Summary disclosure when analysis results arrive', async () => {
+    const user = userEvent.setup();
+    const props = {
+      capability: capability('single-thread'),
+      status: 'running' as const,
+      result: null,
+      progress: { analyzedPlies: 0, totalPlies: 2 },
+      strength: 'balanced' as const,
+      selectedPly: 1,
+      fenByPly: {},
+      onStrengthChange: vi.fn(),
+      onStart: vi.fn(),
+      onCancel: vi.fn(),
+      onResume: vi.fn(),
+      onSelectPly: vi.fn(),
+    };
+    const { rerender } = render(<AnalyzerWorkspace {...props} />);
+    const summary = screen.getByText('Summary', { selector: 'summary' });
+    await user.click(summary);
+    expect(summary.closest('details')).toHaveAttribute('open');
+    rerender(<AnalyzerWorkspace {...props} result={analysisResult()} />);
+    expect(screen.getByText('Summary', { selector: 'summary' })).toBe(summary);
+    expect(summary.closest('details')).toHaveAttribute('open');
   });
 
   it('shows build/resources and starts a validated preset', async () => {

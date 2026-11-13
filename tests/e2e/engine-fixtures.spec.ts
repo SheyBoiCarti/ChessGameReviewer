@@ -47,6 +47,7 @@ test('pauses after one completed move, cancels, and ignores a stale evaluation',
     code: 'ABORTED',
     message: 'Analysis aborted.',
   });
+  await page.locator('.review-summary > summary').click();
   await expect(
     page
       .getByRole('region', { name: 'Game Review Summary', exact: true })
@@ -179,6 +180,7 @@ for (const scenario of ['mate', 'indeterminate'] as const) {
     await page.getByRole('button', { name: /opponent-two/i }).click();
     await page.getByRole('button', { name: 'Review', exact: true }).click();
     await page.getByRole('button', { name: 'Run review (Start analysis)', exact: true }).click();
+    await page.locator('.review-summary > summary').click();
     await expect(page.getByRole('heading', { name: 'Game Review Summary' })).toBeVisible();
     expect((await engine.requests()).filter((r) => r.type === 'EVALUATE').length).toBe(9);
   });

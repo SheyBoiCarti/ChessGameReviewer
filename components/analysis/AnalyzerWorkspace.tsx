@@ -253,21 +253,6 @@ export function AnalyzerWorkspace({
       {mode === 'review' ? (
         /* Review Mode Order */
         <>
-          {hasResults ? (
-            <>
-              <GameReviewSummaryCard
-                result={result!}
-                upstreamAccuracies={upstreamAccuracies}
-                players={players}
-              />
-              <MoveAccuracyGraph
-                annotations={result!.annotations}
-                onSelectPly={handleSelectPly}
-                title="Evaluation"
-                className="accuracy-graph--review"
-              />
-            </>
-          ) : null}
           <ReviewFeedback
             annotation={selectedAnnotation}
             selectedPly={selectedPly}
@@ -283,6 +268,26 @@ export function AnalyzerWorkspace({
             selectedPly={selectedPly}
             onSelectPly={handleSelectPly}
           />
+          {hasResults ? (
+            <MoveAccuracyGraph
+              annotations={result!.annotations}
+              onSelectPly={handleSelectPly}
+              title="Evaluation"
+              className="accuracy-graph--review"
+            />
+          ) : null}
+          <details className="review-summary">
+            <summary>Summary</summary>
+            {result ? (
+              <GameReviewSummaryCard
+                result={result}
+                upstreamAccuracies={upstreamAccuracies}
+                players={players}
+              />
+            ) : (
+              <p>No completed positions yet.</p>
+            )}
+          </details>
         </>
       ) : (
         /* Analysis Mode Order */
