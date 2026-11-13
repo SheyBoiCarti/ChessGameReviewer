@@ -316,3 +316,33 @@ test('switching game or view during readiness cancels the pending automatic star
   await page.getByRole('tab', { name: 'Analysis', exact: true }).click();
   expect((await engine.requests()).filter((r) => r.type === 'EVALUATE')).toEqual([]);
 });
+
+test('keeps the review position and move list stable through completion and disclosures', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  const engine = await installEngineFixtures(page, { manualReady: false });
+  await installWorkspaceFixtures(page);
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: 'Run review (Start analysis)', exact: true }).click();
+  await page.getByRole('button', { name: 'Next move', exact: true }).click();
+  const moveList = page.locator('.analysis-move-list');
+  const before = await moveList.boundingBox();
+  await engine.releaseEvaluations(20);
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  const after = await moveList.boundingBox();
+  expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(1);
+  const summary = page.locator('.review-summary > summary');
+  await summary.click();
+  await expect(page.getByLabel('Position 1 of 8')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Review', selected: true })).toBeVisible();
+  await expect(page.locator('.review-header')).toContainText('opponent-two');
+  await summary.click();
+  const beforeSettings = await moveList.boundingBox();
+  await page.locator('.analysis-settings-disclosure > summary').click();
+  const afterSettings = await moveList.boundingBox();
+  expect(Math.abs(afterSettings!.y - beforeSettings!.y)).toBeLessThanOrEqual(1);
+});

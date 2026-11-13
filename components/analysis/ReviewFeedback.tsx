@@ -69,36 +69,40 @@ export function ReviewFeedback({
 
   return (
     <div className="review-feedback" role="region" aria-label="Selected move feedback">
-      <div className="review-feedback__header">
-        {quality ? <MoveClassificationBadge quality={quality} size="inline" ariaHidden /> : null}
-        <span className="review-feedback__title">
-          {isClassified ? `${annotation.san} — ${qualityLabel}` : 'Move quality unavailable'}
-        </span>
-      </div>
+      <details className="review-feedback__details">
+        <summary className="review-feedback__header">
+          {quality ? <MoveClassificationBadge quality={quality} size="inline" ariaHidden /> : null}
+          <span className="review-feedback__title">
+            {isClassified ? `${annotation.san} — ${qualityLabel}` : 'Move quality unavailable'}
+          </span>
+        </summary>
 
-      <p className="review-feedback__best-move">Best move: {bestSan ?? 'Best move unavailable'}</p>
+        <p className="review-feedback__best-move">
+          Best move: {bestSan ?? 'Best move unavailable'}
+        </p>
 
-      {hasAnnotations ? (
-        <div className="review-feedback__actions">
-          <button
-            type="button"
-            className="button-secondary review-feedback__next-btn"
-            onClick={() => {
-              if (nextMistake !== null) {
-                onSelectPly(nextMistake);
-              }
-            }}
-            disabled={nextMistake === null}
-          >
-            Next mistake
-          </button>
-          {nextMistake === null ? (
-            <span className="review-feedback__no-mistakes">
-              No later mistakes in the analysed moves.
-            </span>
-          ) : null}
-        </div>
-      ) : null}
+        {hasAnnotations ? (
+          <div className="review-feedback__actions">
+            <button
+              type="button"
+              className="button-secondary review-feedback__next-btn"
+              onClick={() => {
+                if (nextMistake !== null) {
+                  onSelectPly(nextMistake);
+                }
+              }}
+              disabled={nextMistake === null}
+            >
+              Next mistake
+            </button>
+            {nextMistake === null ? (
+              <span className="review-feedback__no-mistakes">
+                No later mistakes in the analysed moves.
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </details>
     </div>
   );
 }

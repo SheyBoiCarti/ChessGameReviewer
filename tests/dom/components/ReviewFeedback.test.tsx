@@ -150,6 +150,10 @@ describe('ReviewFeedback', () => {
       />
     );
 
+    const summary = screen.getByText(/e4 — Best/).closest('summary')!;
+    expect(summary.closest('details')).not.toHaveAttribute('open');
+    await user.click(summary);
+    expect(summary.closest('details')).toHaveAttribute('open');
     const button = screen.getByRole('button', { name: /Next mistake/i });
     expect(button).toBeEnabled();
     await user.click(button);

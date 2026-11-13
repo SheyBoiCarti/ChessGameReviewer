@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
+import { installEngineFixtures } from './helpers/engineFixtures';
 
 import {
   installLongGameWorkspaceFixtures,
+  installLongNameWorkspaceFixtures,
   installOverflowWorkspaceFixtures,
   installWorkspaceFixtures,
   loadFixtureGames,
@@ -488,3 +490,85 @@ async function contrastAgainstBackground(
     return (lighter + 0.05) / (darker + 0.05);
   }, backgroundLocator);
 }
+
+test('keeps review feedback and playback together without navigation scroll jumps', async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.clear());
+  await installWorkspaceFixtures(page);
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 1366, height: 768 },
+    { width: 390, height: 844 },
+    { width: 320, height: 740 },
+  ]) {
+    await page.setViewportSize(size);
+    await page.goto('/?engine=unavailable');
+    await loadFixtureGames(page);
+    await page.getByRole('button', { name: /opponent-two/i }).click();
+    if (size.width < 960) await page.getByRole('button', { name: /open menu/i }).click();
+    await page.getByRole('button', { name: 'Review', exact: true }).click();
+    const board = page.getByRole('grid', { name: 'Chess board' });
+    const feedback = page.getByRole('region', { name: 'Selected move feedback' });
+    await expect(feedback).toBeVisible();
+    const boardBox = await board.boundingBox();
+    const feedbackBox = await feedback.boundingBox();
+    expect(boardBox!.y + boardBox!.height).toBeLessThanOrEqual(size.height);
+    expect(feedbackBox!.y).toBeLessThan(size.height);
+    expect(await overflow(page)).toBeLessThanOrEqual(1);
+    if (size.width === 390) {
+      const next = page.getByRole('button', { name: 'Next move', exact: true });
+      const nextBox = await next.boundingBox();
+      expect(nextBox!.y + nextBox!.height).toBeLessThanOrEqual(size.height);
+      const before = await page.evaluate(() => window.scrollY);
+      await next.click();
+      expect(await page.evaluate(() => window.scrollY)).toBe(before);
+      await expect(next).toBeFocused();
+    }
+  }
+});
+
+test('review accommodates long names and expandable feedback on a narrow phone', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await installLongNameWorkspaceFixtures(page);
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page, 1);
+  await page
+    .getByRole('button', { name: /opponent-with-a-very-long-name-for-layout-regressions/i })
+    .click();
+  await page.getByRole('button', { name: /open menu/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(page.locator('.review-header')).toContainText(
+    'opponent-with-a-very-long-name-for-layout-regressions'
+  );
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+});
+
+test('expanded review feedback remains usable and keeps its toggle focused', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /open menu/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Next move', exact: true }).click();
+  expect(
+    (await page.getByRole('button', { name: /select ply 1\b/i }).boundingBox())!.height
+  ).toBeGreaterThanOrEqual(43.99);
+  const toggle = page.locator('.review-feedback summary');
+  await expect(toggle).toBeVisible();
+  expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(43.99);
+  await toggle.click();
+  await expect(toggle).toBeFocused();
+  await expect(page.getByText(/Best move:/)).toBeVisible();
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 320, height: 740 });
+  await expect(page.getByRole('grid', { name: 'Chess board' })).toBeVisible();
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+});
