@@ -47,7 +47,7 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
     await page.locator('.analysis-settings-disclosure > summary').click();
     await page.getByText('Engine details', { exact: true }).click();
     await expect(page.getByText('single-thread', { exact: true })).toBeVisible({ timeout: 30_000 });
-    await page.getByRole('button', { name: 'Start analysis' }).click();
+    await page.getByRole('button', { name: 'Run review (Start analysis)' }).click();
     await expect(page.getByRole('button', { name: 'Cancel analysis' })).toBeVisible();
     await page.getByRole('button', { name: 'Cancel analysis' }).click();
     await expect(page.getByRole('button', { name: 'Resume analysis' })).toBeVisible();
@@ -119,7 +119,9 @@ test('keeps opening data usable when Stockfish is unavailable', async ({ page })
   await page.getByRole('button', { name: /opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
-  await expect(page.getByText(/Engine unavailable/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Analysis is unavailable on this device/i)).toBeVisible({
+    timeout: 15_000,
+  });
   await page.getByRole('button', { name: 'Openings' }).click();
   await expect(page.getByRole('heading', { name: 'Openings', level: 3 })).toBeVisible();
 });

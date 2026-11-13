@@ -163,13 +163,13 @@ test('aligns the evaluation meter to the framed board and uses its full track', 
   await page.getByRole('button', { name: /opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
-  await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
+  await expect(page.getByRole('button', { name: 'Run review (Start analysis)' })).toBeEnabled({
     timeout: 30_000,
   });
   await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
-  await page.getByRole('button', { name: 'Start analysis' }).click();
-  await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
+  await page.getByRole('button', { name: 'Run review (Start analysis)' }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({
     timeout: 60_000,
   });
   await page.getByRole('button', { name: 'Select ply 1' }).click();
@@ -323,13 +323,13 @@ test('desktop analyzer layout stays bounded within usable viewport height for lo
   await page.getByRole('button', { name: /opponent-long/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
-  await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
+  await expect(page.getByRole('button', { name: 'Run review (Start analysis)' })).toBeEnabled({
     timeout: 30_000,
   });
   await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
-  await page.getByRole('button', { name: 'Start analysis' }).click();
-  await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
+  await page.getByRole('button', { name: 'Run review (Start analysis)' }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({
     timeout: 60_000,
   });
 
@@ -379,13 +379,13 @@ test('mobile analyzer layout uses natural document flow with bounded move list',
   await page.getByRole('button', { name: /open menu/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
-  await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
+  await expect(page.getByRole('button', { name: 'Run review (Start analysis)' })).toBeEnabled({
     timeout: 30_000,
   });
   await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
-  await page.getByRole('button', { name: 'Start analysis' }).click();
-  await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
+  await page.getByRole('button', { name: 'Run review (Start analysis)' }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({
     timeout: 60_000,
   });
 

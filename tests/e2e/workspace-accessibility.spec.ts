@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+import { installEngineFixtures } from './helpers/engineFixtures';
 import { installWorkspaceFixtures, loadFixtureGames } from './helpers/workspaceFixtures';
 
 test.describe.configure({ timeout: 60_000 });
@@ -35,7 +36,7 @@ test('has no serious or critical axe findings in opening-tree, analysis-unavaila
 
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
-  await expect(page.getByText(/Engine unavailable/i)).toBeVisible();
+  await expect(page.getByText(/Analysis is unavailable on this device/i)).toBeVisible();
   await assertAccessible(page);
 
   await page.getByRole('button', { name: 'Openings' }).click();
@@ -94,13 +95,13 @@ test('has no serious or critical axe findings with completed analysis and bounde
   await page.getByRole('button', { name: /opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
-  await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
+  await expect(page.getByRole('button', { name: 'Run review (Start analysis)' })).toBeEnabled({
     timeout: 30_000,
   });
   await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
-  await page.getByRole('button', { name: 'Start analysis' }).click();
-  await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
+  await page.getByRole('button', { name: 'Run review (Start analysis)' }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({
     timeout: 60_000,
   });
   await expect(page.locator('.analysis-move-list')).toBeVisible();
@@ -151,3 +152,30 @@ async function waitForModalReady(
   await expect(page.getByRole('button', { name: closeButtonName })).toBeFocused();
   await expect.poll(() => page.locator('[inert]').count()).toBeGreaterThan(0);
 }
+
+test('keeps playback available while engine readiness is delayed', async ({ page }, testInfo) => {
+  await installWorkspaceFixtures(page);
+  const engine = await installEngineFixtures(page);
+  await page.goto('/');
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  if (testInfo.project.name === 'mobile-chromium') await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByText('Checking analysis engine…')).toBeVisible();
+  await expect(page.getByText(/analysis is unavailable on this device/i)).toHaveCount(0);
+  await expect(page.locator('.analyzer-workspace').getByRole('alert')).toHaveCount(0);
+  await page.getByRole('button', { name: /select ply 1\b/i }).click();
+  await expect(page.getByRole('button', { name: /select ply 1\b/i })).toHaveAttribute(
+    'aria-current',
+    'true'
+  );
+  await page.screenshot({ path: testInfo.outputPath('engine-preparing.png'), fullPage: true });
+  await engine.releaseReady();
+  await expect(page.getByText('Ready to review')).toBeVisible();
+  await page.getByRole('button', { name: 'Run review (Start analysis)', exact: true }).click();
+  await expect(page.getByRole('progressbar', { name: 'Review progress' })).toBeVisible();
+  await engine.releaseEvaluations(100);
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  await assertAccessible(page);
+});

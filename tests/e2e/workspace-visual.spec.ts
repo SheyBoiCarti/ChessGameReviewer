@@ -43,7 +43,7 @@ test.describe('workspace visual regression', () => {
     await page.getByRole('button', { name: /opponent-two/i }).click();
     await page.getByRole('button', { name: 'Review', exact: true }).click();
     await page.getByRole('tab', { name: 'Analysis' }).click();
-    await expect(page.getByText(/Engine unavailable/i)).toBeVisible();
+    await expect(page.getByText(/Analysis is unavailable on this device/i)).toBeVisible();
     await waitForStableLayout(page);
 
     await expect(page).toHaveScreenshot('analyzer-unavailable.png', screenshotOptions());

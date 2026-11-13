@@ -30,7 +30,10 @@ test('pauses after one completed move, cancels, and ignores a stale evaluation',
   await expect
     .poll(async () => (await engine.requests()).filter((r) => r.type === 'EVALUATE').length)
     .toBe(3);
-  await expect(page.getByText('1 of 8 eligible plies analysed.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('progressbar', { name: 'Review progress' })).toHaveAttribute(
+    'aria-valuenow',
+    '1'
+  );
   const pending = (await engine.requests())
     .filter((r): r is Extract<EngineWorkerRequest, { type: 'EVALUATE' }> => r.type === 'EVALUATE')
     .at(-1)!;

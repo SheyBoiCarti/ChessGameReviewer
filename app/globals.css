@@ -3916,3 +3916,8 @@ li[data-selected='true'] {
     flex-shrink: 0;
   }
 }
+
+.analysis-progress {
+  width: 100%;
+  accent-color: var(--accent);
+}

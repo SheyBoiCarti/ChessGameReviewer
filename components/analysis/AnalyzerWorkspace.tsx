@@ -81,8 +81,8 @@ export function AnalyzerWorkspace({
     ? `Depth ${preset.limit.depth}`
     : `${preset.limit.movetimeMs ?? 0} ms per position`;
   const engineBuild = result?.annotations[0]?.settings.engineBuild ?? 'Stockfish 18';
-  const unavailable = !capability || capability.mode === 'unavailable';
   const probing = status === 'probing' || capability === null;
+  const unavailable = !probing && capability?.mode === 'unavailable';
 
   const selectedAnnotation =
     result?.annotations.find((annotation) => annotation.ply === selectedPly) ?? null;
@@ -103,9 +103,6 @@ export function AnalyzerWorkspace({
 
   return (
     <section className="analyzer-workspace" aria-labelledby="analyzer-heading">
-      <span className={`status-label status-label--${status}`}>
-        Analysis status: {analyzerStatusLabel(status)}
-      </span>
       <h3 id="analyzer-heading">Local Stockfish analysis</h3>
       <p className="visually-hidden">
         Review key moments with Stockfish. Results stay on this device.
@@ -113,7 +110,7 @@ export function AnalyzerWorkspace({
 
       {/* Lifecycle row */}
       <div className="analyzer-lifecycle-row">
-        <div className="analyzer-lifecycle-status">
+        <div className="analyzer-lifecycle-status" role="status" aria-live="polite">
           {unavailable ? (
             <p className="analyzer-lifecycle-text">Analysis is unavailable on this device.</p>
           ) : probing ? (
@@ -121,11 +118,7 @@ export function AnalyzerWorkspace({
           ) : status === 'idle' ? (
             <p className="analyzer-lifecycle-text">Ready to review</p>
           ) : status === 'running' ? (
-            <p className="analyzer-lifecycle-text">
-              {progress && progress.totalPlies > 0
-                ? `Analysing ${progress.analyzedPlies} of ${progress.totalPlies} positions`
-                : 'Analysing positions…'}
-            </p>
+            <p className="analyzer-lifecycle-text">Analysing positions…</p>
           ) : status === 'partial' || status === 'cancelled' ? (
             <p className="analyzer-lifecycle-text">Partial review</p>
           ) : status === 'failed' ? (
@@ -200,58 +193,45 @@ export function AnalyzerWorkspace({
         </div>
       </div>
 
-      {unavailable || !capability ? (
-        <EngineStatus
-          capability={capability}
-          engineBuild={engineBuild}
-          limitLabel={limitLabel}
-          multiPv={preset.multiPv}
-          heuristicVersion={ACCURACY_HEURISTIC_VERSION}
-          jobStatus={status}
-        />
-      ) : (
-        <details className="analysis-settings-disclosure">
-          <summary>Settings</summary>
-          <div className="analysis-settings-body">
-            <AnalysisSettings
-              strength={strength}
-              disabled={status === 'running'}
-              onChange={onStrengthChange}
+      <details className="analysis-settings-disclosure">
+        <summary>Settings</summary>
+        <div className="analysis-settings-body">
+          <AnalysisSettings
+            strength={strength}
+            disabled={probing || unavailable || status === 'running'}
+            onChange={onStrengthChange}
+          />
+          <details className="analysis-engine-details">
+            <summary>Engine details</summary>
+            <EngineStatus
+              capability={probing ? null : capability}
+              engineBuild={engineBuild}
+              limitLabel={limitLabel}
+              multiPv={preset.multiPv}
+              heuristicVersion={ACCURACY_HEURISTIC_VERSION}
+              jobStatus={status}
             />
-            <details className="analysis-engine-details">
-              <summary>Engine details</summary>
-              <EngineStatus
-                capability={capability}
-                engineBuild={engineBuild}
-                limitLabel={limitLabel}
-                multiPv={preset.multiPv}
-                heuristicVersion={ACCURACY_HEURISTIC_VERSION}
-                jobStatus={status}
-              />
-            </details>
-          </div>
-        </details>
-      )}
+          </details>
+        </div>
+      </details>
 
-      {progress ? (
-        <p role="status" aria-live="polite">
-          {progress.analyzedPlies} of {progress.totalPlies} eligible plies analysed.
-        </p>
-      ) : null}
-
-      {status === 'partial' ? (
-        <p role="alert">Partial analysis: completed positions remain cached and can be resumed.</p>
+      {status === 'running' ? (
+        <progress
+          className="analysis-progress"
+          aria-label="Review progress"
+          aria-valuemin={0}
+          aria-valuemax={progress?.totalPlies || game?.plies.length || 1}
+          aria-valuenow={progress?.analyzedPlies ?? 0}
+          max={progress?.totalPlies || game?.plies.length || 1}
+          value={progress?.analyzedPlies ?? 0}
+        >
+          {progress?.analyzedPlies ?? 0} positions analysed
+        </progress>
       ) : null}
       {(status === 'partial' || status === 'cancelled') && result ? (
-        <p className="analysis-coverage-notice" role="status">
-          Partial review: {result.analyzedPlies}/{result.totalPlies} positions analysed
-          <span className="visually-hidden">
-            Coverage: {result.analyzedPlies} of {result.totalPlies} eligible plies
-          </span>
+        <p className="analysis-coverage-notice">
+          Coverage: {result.analyzedPlies} of {result.totalPlies} eligible plies
         </p>
-      ) : null}
-      {status === 'failed' ? (
-        <p role="alert">Analysis failed. Completed cached positions remain available.</p>
       ) : null}
       {result?.warnings && result.warnings.length ? (
         <p className="analysis-cache-warning" role="status">
@@ -347,25 +327,4 @@ export function AnalyzerWorkspace({
       )}
     </section>
   );
-}
-
-function analyzerStatusLabel(status: AnalyzerWorkspaceProps['status']): string {
-  switch (status) {
-    case 'unavailable':
-      return 'Unavailable';
-    case 'partial':
-      return 'Partial';
-    case 'failed':
-      return 'Failed';
-    case 'running':
-      return 'Running';
-    case 'cancelled':
-      return 'Cancelled';
-    case 'complete':
-      return 'Complete';
-    case 'probing':
-      return 'Checking engine';
-    case 'idle':
-      return 'Ready';
-  }
 }

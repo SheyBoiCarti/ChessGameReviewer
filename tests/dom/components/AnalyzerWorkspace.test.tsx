@@ -9,32 +9,59 @@ import type { EngineCapability } from '@/lib/engine/capabilities';
 import { createLongGameAnalysisResult } from '../../fixtures/longAnalysisFixture';
 
 describe('AnalyzerWorkspace', () => {
+  it.each([null, capability('unavailable')])(
+    'shows preparing before unavailable capability %s',
+    (engine) => {
+      render(
+        <AnalyzerWorkspace
+          capability={engine}
+          status="probing"
+          result={null}
+          progress={null}
+          strength="balanced"
+          selectedPly={0}
+          fenByPly={{}}
+          onStrengthChange={vi.fn()}
+          onStart={vi.fn()}
+          onCancel={vi.fn()}
+          onResume={vi.fn()}
+          onSelectPly={vi.fn()}
+        />
+      );
+      expect(screen.getByText(/checking analysis engine/i)).toBeVisible();
+      expect(screen.queryByText(/analysis is unavailable on this device/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /run review/i })).toBeDisabled();
+    }
+  );
+
   it.each([
-    ['unavailable', 'Unavailable'],
-    ['partial', 'Partial'],
-    ['failed', 'Failed'],
-    ['running', 'Running'],
-    ['cancelled', 'Cancelled'],
-    ['complete', 'Complete'],
-  ] as const)('shows a visible non-colour status label for %s analysis', (status, label) => {
+    ['idle', /ready to review/i, /run review/i],
+    ['partial', /partial review/i, /resume analysis/i],
+    ['failed', /analysis failed/i, /retry analysis/i],
+    ['running', /analysing positions/i, /cancel analysis/i],
+    ['cancelled', /partial review/i, /resume analysis/i],
+    ['complete', /review complete/i, /run again/i],
+  ] as const)('shows one lifecycle status and action for %s', (status, text, action) => {
     render(
       <AnalyzerWorkspace
-        capability={capability(status === 'unavailable' ? 'unavailable' : 'single-thread')}
+        capability={capability('single-thread')}
         status={status}
         result={null}
         progress={null}
         strength="balanced"
+        selectedPly={0}
+        fenByPly={{}}
         onStrengthChange={vi.fn()}
         onStart={vi.fn()}
         onCancel={vi.fn()}
         onResume={vi.fn()}
         onSelectPly={vi.fn()}
-        selectedPly={0}
-        fenByPly={{}}
       />
     );
-
-    expect(screen.getByText(`Analysis status: ${label}`, { exact: true })).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent(text);
+    expect(screen.getByRole('button', { name: action })).toBeEnabled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('keeps the opening workspace usable when the engine is unavailable', () => {
@@ -55,10 +82,30 @@ describe('AnalyzerWorkspace', () => {
       />
     );
 
-    expect(screen.getByRole('alert')).toHaveTextContent(/engine unavailable/i);
-    expect(screen.getByText('Analysis status: Unavailable', { exact: true })).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent(/analysis is unavailable/i);
     expect(screen.getByText(/opening tree remains available/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /start analysis/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps cached annotations readable when the engine is unavailable', () => {
+    render(
+      <AnalyzerWorkspace
+        capability={capability('unavailable')}
+        status="complete"
+        result={analysisResult()}
+        progress={null}
+        strength="balanced"
+        selectedPly={1}
+        fenByPly={{}}
+        onStrengthChange={vi.fn()}
+        onStart={vi.fn()}
+        onCancel={vi.fn()}
+        onResume={vi.fn()}
+        onSelectPly={vi.fn()}
+      />
+    );
+    expect(screen.getByText('Game Review Summary')).toBeVisible();
+    expect(screen.getByRole('button', { name: /ply 1/i })).toBeEnabled();
   });
 
   it('shows build/resources and starts a validated preset', async () => {
@@ -213,7 +260,12 @@ describe('AnalyzerWorkspace', () => {
         fenByPly={{}}
       />
     );
-    expect(screen.getByRole('status')).toHaveTextContent(/3 of 12 eligible plies/i);
+    expect(screen.getByRole('progressbar', { name: 'Review progress' })).toHaveAttribute(
+      'aria-valuenow',
+      '3'
+    );
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuemax', '12');
+    expect(screen.getAllByRole('status')).toHaveLength(1);
     await user.click(screen.getByRole('button', { name: /cancel analysis/i }));
     expect(onCancel).toHaveBeenCalledTimes(1);
 
@@ -236,7 +288,7 @@ describe('AnalyzerWorkspace', () => {
         }}
       />
     );
-    expect(screen.getByRole('alert')).toHaveTextContent(/partial analysis/i);
+    expect(screen.getByRole('status')).toHaveTextContent(/partial review/i);
     expect(screen.getByText(/Coverage: 1 of 2 eligible plies/i)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /resume analysis/i }));
     expect(onResume).toHaveBeenCalledTimes(1);
