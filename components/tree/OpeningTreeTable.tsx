@@ -26,6 +26,8 @@ export interface OpeningTreeTableProps {
   onPerspectiveChange?(value: OutcomePerspective): void;
   showArrows?: boolean | undefined;
   onToggleArrows?(value: boolean): void;
+  activeUci?: string | null;
+  onHoverCandidate?(uci: string | null): void;
 }
 
 export function OpeningTreeTable({
@@ -39,6 +41,8 @@ export function OpeningTreeTable({
   onPerspectiveChange,
   showArrows = true,
   onToggleArrows,
+  activeUci = null,
+  onHoverCandidate,
 }: OpeningTreeTableProps) {
   const [sort, setSort] = useState<MoveSort>('games');
   const [localPerspective, setLocalPerspective] = useState<OutcomePerspective>(perspective);
@@ -114,69 +118,14 @@ export function OpeningTreeTable({
 
       <PathBreadcrumbs graph={graph} navigation={navigation} onNavigate={onNavigate} />
 
-      <div className="opening-position-sample" aria-label="Position sample context">
-        <p>
-          <strong>Position sample:</strong> <span className="tabular-nums">{positionTotal}</span>{' '}
-          {positionTotal === 1 ? 'game' : 'games'}
-          {positionTotal !== continuationTotal ? (
-            <span className="field-help">
-              {' '}
-              (<span className="tabular-nums">{continuationTotal}</span> observed continuations
-              {nonContinuingCount > 0 ? `, ${nonContinuingCount} ended or reached horizon` : ''})
-            </span>
-          ) : (
-            <span className="field-help">
-              {' '}
-              (<span className="tabular-nums">{continuationTotal}</span> continuations)
-            </span>
-          )}
-        </p>
-      </div>
-
-      <div className="opening-tree-controls">
-        <label className="sort-candidates-label">
-          Sort candidate moves
-          <select value={sort} onChange={(event) => setSort(event.currentTarget.value as MoveSort)}>
-            <option value="games">Games</option>
-            <option value="score">Expected score</option>
-            <option value="san">Move</option>
-          </select>
-        </label>
-
-        <div className="opening-perspective-toggle" role="group" aria-label="Result perspective">
-          <span className="perspective-toggle-label">Perspective:</span>
-          <button
-            type="button"
-            className={`button-toggle ${effectivePerspective === 'user' ? 'button-toggle--active' : ''}`}
-            onClick={() => handlePerspectiveChange('user')}
-            aria-pressed={effectivePerspective === 'user'}
-          >
-            Your results
-          </button>
-          <button
-            type="button"
-            className={`button-toggle ${effectivePerspective === 'board' ? 'button-toggle--active' : ''}`}
-            onClick={() => handlePerspectiveChange('board')}
-            aria-pressed={effectivePerspective === 'board'}
-          >
-            White / Black
-          </button>
-        </div>
-
-        {onToggleArrows ? (
-          <label className="opening-arrows-toggle-label">
-            <input
-              type="checkbox"
-              checked={showArrows}
-              onChange={(e) => onToggleArrows(e.target.checked)}
-            />
-            Arrows
-          </label>
-        ) : null}
-      </div>
-      <p className="field-help" aria-live="polite">
-        Position-wide candidate moves across all observed move orders, sorted by {sort}.
-      </p>
+      <label className="sort-candidates-label">
+        Sort candidate moves
+        <select value={sort} onChange={(event) => setSort(event.currentTarget.value as MoveSort)}>
+          <option value="games">Games</option>
+          <option value="score">Expected score</option>
+          <option value="san">Move</option>
+        </select>
+      </label>
 
       {candidates.length === 0 ? (
         isHorizonReached ? (
@@ -196,7 +145,11 @@ export function OpeningTreeTable({
           aria-label="Opening candidate results"
           tabIndex={0}
         >
-          <table className="opening-candidate-table" aria-label="Opening candidates">
+          <table
+            className="opening-candidate-table"
+            aria-label="Opening candidates"
+            onMouseLeave={() => onHoverCandidate?.(null)}
+          >
             <thead>
               <tr>
                 <th scope="col" className="opening-col--move">
@@ -220,8 +173,34 @@ export function OpeningTreeTable({
                   candidate.continuationShare !== null
                     ? `${(candidate.continuationShare * 100).toFixed(1)}%`
                     : null;
+                const isActive = activeUci === candidate.uci;
                 return (
-                  <tr key={candidate.uci} className="opening-candidate-row">
+                  <tr
+                    key={candidate.uci}
+                    className={`opening-candidate-row ${isActive ? 'opening-candidate-row--active' : ''}`}
+                    onMouseEnter={() => onHoverCandidate?.(candidate.uci)}
+                    onMouseLeave={() => onHoverCandidate?.(null)}
+                    onFocus={() => onHoverCandidate?.(candidate.uci)}
+                    onBlur={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                        onHoverCandidate?.(null);
+                      }
+                    }}
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement | null;
+                      if (!target) return;
+                      if (
+                        target.closest(
+                          'button, a, summary, input, select, textarea, [role="button"]'
+                        )
+                      ) {
+                        return;
+                      }
+                      if (edge) {
+                        onNavigate(navigateCandidate(graph, navigation, edge));
+                      }
+                    }}
+                  >
                     <td className="opening-cell--move">
                       <button
                         type="button"
@@ -256,6 +235,58 @@ export function OpeningTreeTable({
           </table>
         </div>
       )}
+
+      <div className="opening-position-sample" aria-label="Position sample context">
+        <p>
+          <strong>Position sample:</strong> <span className="tabular-nums">{positionTotal}</span>{' '}
+          {positionTotal === 1 ? 'game' : 'games'}
+          {positionTotal !== continuationTotal ? (
+            <span className="field-help">
+              {' '}
+              (<span className="tabular-nums">{continuationTotal}</span> observed continuations
+              {nonContinuingCount > 0 ? `, ${nonContinuingCount} ended or reached horizon` : ''})
+            </span>
+          ) : (
+            <span className="field-help">
+              {' '}
+              (<span className="tabular-nums">{continuationTotal}</span> continuations)
+            </span>
+          )}
+        </p>
+      </div>
+
+      <div className="opening-tree-controls">
+        <div className="opening-perspective-toggle" role="group" aria-label="Result perspective">
+          <span className="perspective-toggle-label">Perspective:</span>
+          <button
+            type="button"
+            className={`button-toggle ${effectivePerspective === 'user' ? 'button-toggle--active' : ''}`}
+            onClick={() => handlePerspectiveChange('user')}
+            aria-pressed={effectivePerspective === 'user'}
+          >
+            Your results
+          </button>
+          <button
+            type="button"
+            className={`button-toggle ${effectivePerspective === 'board' ? 'button-toggle--active' : ''}`}
+            onClick={() => handlePerspectiveChange('board')}
+            aria-pressed={effectivePerspective === 'board'}
+          >
+            White / Black
+          </button>
+        </div>
+
+        {onToggleArrows ? (
+          <label className="opening-arrows-toggle-label">
+            <input
+              type="checkbox"
+              checked={showArrows}
+              onChange={(e) => onToggleArrows(e.target.checked)}
+            />
+            Arrows
+          </label>
+        ) : null}
+      </div>
 
       {candidates.length > 0 ? (
         <OpeningDisclosure label="More statistics" className="more-statistics-disclosure">

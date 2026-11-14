@@ -529,7 +529,7 @@ function OpeningArrows({
             >
               <path
                 d="M0,0 L5,2.5 L0,5 Z"
-                className={`arrow-head arrow-head--${arrow.band} ${arrow.active ? 'arrow-head--active' : ''}`}
+                className={`arrow-head arrow-head--${arrow.band} arrow-head--${arrow.palette ?? 'neutral'} ${arrow.active ? 'arrow-head--active' : ''}`}
               />
             </marker>
           );
@@ -556,7 +556,7 @@ function OpeningArrows({
             x2={x2}
             y2={y2}
             markerEnd={`url(#${markerId})`}
-            className={`opening-arrow opening-arrow--${arrow.band} ${arrow.active ? 'opening-arrow--active' : ''}`}
+            className={`opening-arrow opening-arrow--${arrow.band} opening-arrow--${arrow.palette ?? 'neutral'} ${arrow.active ? 'opening-arrow--active' : ''}`}
           />
         );
       })}

@@ -303,4 +303,62 @@ describe('OpeningTreeTable', () => {
     await user.click(whiteBlackBtn);
     expect(onPerspectiveChange).toHaveBeenCalledWith('board');
   });
+
+  it('T54: triggers hover callbacks on row mouse enter/leave and focus', async () => {
+    const user = userEvent.setup();
+    const whiteGraph = buildAuditScopeGraph('white');
+    const onHoverCandidate = vi.fn();
+    render(
+      <OpeningTreeTable
+        graph={whiteGraph}
+        navigation={createGraphNavigation(whiteGraph)}
+        perspective="user"
+        onHoverCandidate={onHoverCandidate}
+        onNavigate={vi.fn()}
+      />
+    );
+
+    const playBtn = screen.getByRole('button', { name: /play e4/i });
+    const row = playBtn.closest('tr')!;
+
+    await user.hover(row);
+    expect(onHoverCandidate).toHaveBeenCalledWith('e2e4');
+
+    await user.unhover(row);
+    expect(onHoverCandidate).toHaveBeenCalledWith(null);
+
+    playBtn.focus();
+    expect(onHoverCandidate).toHaveBeenCalledWith('e2e4');
+  });
+
+  it('T54: navigates candidate when clicking on noninteractive cells, but ignores nested buttons', async () => {
+    const user = userEvent.setup();
+    const whiteGraph = buildAuditScopeGraph('white');
+    const onNavigate = vi.fn();
+    render(
+      <OpeningTreeTable
+        graph={whiteGraph}
+        navigation={createGraphNavigation(whiteGraph)}
+        perspective="user"
+        onNavigate={onNavigate}
+      />
+    );
+
+    const playBtn = screen.getByRole('button', { name: /play e4/i });
+    const row = playBtn.closest('tr')!;
+    const gamesCell = row.querySelector('.opening-cell--games')!;
+
+    // Clicking non-interactive games cell navigates
+    await user.click(gamesCell);
+    expect(onNavigate).toHaveBeenCalledWith(
+      expect.objectContaining({ positionKey: fixtureKeyAfter('e4') })
+    );
+
+    // Clicking Play button also navigates directly through button
+    onNavigate.mockClear();
+    await user.click(playBtn);
+    expect(onNavigate).toHaveBeenCalledWith(
+      expect.objectContaining({ positionKey: fixtureKeyAfter('e4') })
+    );
+  });
 });

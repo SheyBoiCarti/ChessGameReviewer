@@ -6,10 +6,19 @@ import type { ParsedGame } from '../../lib/chess/pgnParser';
 import type { Square } from 'chess.js';
 
 export type FrequencyBand = 'strong' | 'medium' | 'rare';
+export type ArrowPalette = 'own' | 'opponent' | 'neutral';
 
 export function openingFrequencyBand(count: number, max: number): FrequencyBand {
   const ratio = max > 0 ? count / max : 0;
   return ratio > 0.8 ? 'strong' : ratio > 0.3 ? 'medium' : 'rare';
+}
+
+export function arrowPaletteForScope(
+  scope: 'white' | 'black' | 'both' | null | undefined,
+  sideToMove: 'white' | 'black'
+): ArrowPalette {
+  if (!scope || scope === 'both') return 'neutral';
+  return scope === sideToMove ? 'own' : 'opponent';
 }
 
 export interface OpeningArrow {
@@ -17,14 +26,18 @@ export interface OpeningArrow {
   to: Square;
   uci: string;
   band: FrequencyBand;
+  palette?: ArrowPalette;
   active: boolean;
 }
 
 export function selectOpeningArrows(
   candidates: readonly CandidateMove[],
-  activeUci: string | null = null
+  activeUci: string | null = null,
+  scope?: 'white' | 'black' | 'both' | null,
+  sideToMove?: 'white' | 'black'
 ): readonly OpeningArrow[] {
   const maxGames = candidates.reduce((max, c) => Math.max(max, c.metrics.sampleSize), 0);
+  const palette = arrowPaletteForScope(scope, sideToMove ?? 'white');
   return candidates.flatMap((c) => {
     if (c.uci.length < 4) return [];
     const from = c.uci.slice(0, 2) as Square;
@@ -35,6 +48,7 @@ export function selectOpeningArrows(
         to,
         uci: c.uci,
         band: openingFrequencyBand(c.metrics.sampleSize, maxGames),
+        palette,
         active: activeUci === c.uci,
       },
     ];

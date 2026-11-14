@@ -405,7 +405,7 @@ export function ChessWorkspace({
 
   useEffect(() => {
     setActiveOpeningUci(null);
-  }, [navigation?.positionKey, state.graph.scope]);
+  }, [navigation?.positionKey, state.graph.scope, tab]);
 
   const openingArrows = useMemo(() => {
     if (tab !== 'opening' || !showOpeningArrows || !graph || !navigation || !navigation.observed) {
@@ -414,7 +414,8 @@ export function ChessWorkspace({
     const node = graph.positions.get(navigation.positionKey);
     if (!node) return undefined;
     const candidates = selectCandidateMoves(node, 'games', state.preferences.resultPerspective);
-    return selectOpeningArrows(candidates, activeOpeningUci);
+    const sideToMove: 'white' | 'black' = navigation.fen.split(' ')[1] === 'b' ? 'black' : 'white';
+    return selectOpeningArrows(candidates, activeOpeningUci, state.graph.scope, sideToMove);
   }, [
     tab,
     showOpeningArrows,
@@ -422,6 +423,7 @@ export function ChessWorkspace({
     navigation,
     state.preferences.resultPerspective,
     activeOpeningUci,
+    state.graph.scope,
   ]);
 
   // Initialize once per committed import. Horizon changes made outside Openings
@@ -1394,7 +1396,10 @@ export function ChessWorkspace({
                           diagnosticCodes={state.graph.diagnosticCodes}
                           showArrows={showOpeningArrows}
                           onToggleArrows={setShowOpeningArrows}
+                          activeUci={activeOpeningUci}
+                          onHoverCandidate={setActiveOpeningUci}
                           onNavigate={(next) => {
+                            setActiveOpeningUci(null);
                             setNavigation(next);
                             controller.navigateGraph(next.positionKey, next.pathId);
                           }}
