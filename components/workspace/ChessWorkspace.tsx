@@ -1,5 +1,7 @@
 'use client';
 
+import { selectMovePresentation } from '@/features/stockfish-analysis/presentation';
+
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react';
 import type { Square } from 'chess.js';
 
@@ -133,13 +135,6 @@ export function ChessWorkspace({
     () => Object.fromEntries(parsedGame?.plies.map((move) => [move.ply, move.fenBefore]) ?? []),
     [parsedGame]
   );
-  const annotationsByPly = useMemo(
-    () =>
-      new Map(
-        state.analysis.result?.annotations.map((annotation) => [annotation.ply, annotation]) ?? []
-      ),
-    [state.analysis.result]
-  );
   const displayedFen = boardFen(tab, graph, navigation, parsedGame, state.selection.ply);
 
   const analysisStatusMap = useMemo(() => {
@@ -165,15 +160,17 @@ export function ChessWorkspace({
     setVariation(null);
   }, [state.selection.gameId]);
 
+  const selectedPresentation = parsedGame
+    ? selectMovePresentation(parsedGame, state.analysis.result, state.selection.ply)
+    : null;
   const selectedAnnotation =
-    tab === 'analysis' && !variation ? annotationsByPly.get(state.selection.ply) : undefined;
-  const isSuboptimalMove =
-    selectedAnnotation?.accuracy.status === 'classified' &&
-    ['inaccuracy', 'mistake', 'blunder', 'miss'].includes(selectedAnnotation.accuracy.quality);
+    tab === 'analysis' && !variation && selectedPresentation?.state === 'ready'
+      ? (selectedPresentation.annotation ?? undefined)
+      : undefined;
   const selectedArrow = uciArrow(
-    isSuboptimalMove
-      ? (selectedAnnotation?.before.bestMove ?? selectedAnnotation?.before.pv[0])
-      : (selectedAnnotation?.after.pv[0] ?? selectedAnnotation?.before.bestMove)
+    selectedAnnotation && selectedPresentation?.state === 'ready'
+      ? (selectedPresentation.reply ?? undefined)
+      : undefined
   );
   const selectedBadge =
     selectedAnnotation && selectedAnnotation.accuracy.status === 'classified'

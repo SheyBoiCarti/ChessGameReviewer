@@ -256,7 +256,7 @@ describe('Bug fixes exploratory verification', () => {
     expect(screen.getByRole('button', { name: /opponent/i })).toBeInTheDocument();
   });
 
-  it('Bug 4: draws best move arrow (before.bestMove) for inaccuracies instead of opponent response', async () => {
+  it('draws the legal reply on the selected after-position', async () => {
     const user = userEvent.setup();
     const services = makeMockServices([sampleGame]);
 
@@ -278,11 +278,11 @@ describe('Bug fixes exploratory verification', () => {
 
     // Move 3 is Nf3?! (inaccuracy). Best move was d2d4 (d4).
     // Opponent's response in after.pv[0] was b8c6.
-    // The PV arrow on the board must show d2 to d4 (the best move), NOT b8 to c6!
-    const arrow = screen.getByRole('img', { name: /principal variation d2 to d4/i });
+    // The board shows the position after Nf3, so only Black's legal reply belongs here.
+    const arrow = screen.getByRole('img', { name: /principal variation b8 to c6/i });
     expect(arrow).toBeInTheDocument();
     expect(
-      screen.queryByRole('img', { name: /principal variation b8 to c6/i })
+      screen.queryByRole('img', { name: /principal variation d2 to d4/i })
     ).not.toBeInTheDocument();
   });
 

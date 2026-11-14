@@ -5,6 +5,8 @@ import { toGraphPoints } from '@/features/stockfish-analysis/presentation';
 
 export interface MoveAccuracyGraphProps {
   annotations: readonly GameAnnotation[];
+  totalPlies?: number | undefined;
+  selectedPly?: number | undefined;
   onSelectPly?: ((ply: number) => void) | undefined;
   title?: string | undefined;
   className?: string | undefined;
@@ -12,6 +14,8 @@ export interface MoveAccuracyGraphProps {
 
 export function MoveAccuracyGraph({
   annotations,
+  totalPlies,
+  selectedPly,
   onSelectPly,
   title = 'Evaluation',
   className,
@@ -26,8 +30,8 @@ export function MoveAccuracyGraph({
       ),
     [annotations]
   );
-  const segments = useMemo(() => graphSegments(points), [points]);
-  const coords = useMemo(() => pointCoordinates(points), [points]);
+  const segments = useMemo(() => graphSegments(points, totalPlies), [points, totalPlies]);
+  const coords = useMemo(() => pointCoordinates(points, totalPlies), [points, totalPlies]);
 
   return (
     <section className={className} aria-labelledby="accuracy-graph-title">
@@ -63,6 +67,7 @@ export function MoveAccuracyGraph({
               role={onSelectPly ? 'button' : undefined}
               tabIndex={onSelectPly ? 0 : undefined}
               aria-label={`Graph evaluation point ${p.ply}`}
+              aria-current={p.ply === selectedPly ? 'true' : undefined}
               onClick={() => onSelectPly?.(p.ply)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -77,8 +82,8 @@ export function MoveAccuracyGraph({
   );
 }
 
-function pointCoordinates(points: ReturnType<typeof toGraphPoints>) {
-  const maximumPly = Math.max(1, ...points.map(({ ply }) => ply));
+function pointCoordinates(points: ReturnType<typeof toGraphPoints>, totalPlies?: number) {
+  const maximumPly = Math.max(1, totalPlies ?? 0, ...points.map(({ ply }) => ply));
   return points.map((point) => {
     if (point.value === null) return null;
     const x = (point.ply / maximumPly) * 100;
@@ -87,8 +92,8 @@ function pointCoordinates(points: ReturnType<typeof toGraphPoints>) {
   });
 }
 
-function graphSegments(points: ReturnType<typeof toGraphPoints>): string[] {
-  const maximumPly = Math.max(1, ...points.map(({ ply }) => ply));
+function graphSegments(points: ReturnType<typeof toGraphPoints>, totalPlies?: number): string[] {
+  const maximumPly = Math.max(1, totalPlies ?? 0, ...points.map(({ ply }) => ply));
   const segments: string[][] = [];
   let current: string[] = [];
   for (const point of points) {

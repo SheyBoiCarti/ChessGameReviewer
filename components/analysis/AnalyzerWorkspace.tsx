@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 
 import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGame';
-import { analysisPreset } from '@/features/stockfish-analysis/presentation';
+import { analysisPreset, selectMovePresentation } from '@/features/stockfish-analysis/presentation';
 import { nextMistakePly } from '@/features/stockfish-analysis/reviewNavigation';
 import type { AnalysisStrength } from '@/features/workspace/types';
 import type { PlayerMetadata, SideAccuracy } from '@/lib/api/contracts';
@@ -88,8 +88,11 @@ export function AnalyzerWorkspace({
   const probing = status === 'probing' || (capability === null && !result);
   const unavailable = !probing && capability?.mode === 'unavailable';
 
+  const selected = game ? selectMovePresentation(game, result, selectedPly) : null;
   const selectedAnnotation =
-    result?.annotations.find((annotation) => annotation.ply === selectedPly) ?? null;
+    selected && selected.state !== 'starting'
+      ? selected.annotation
+      : (result?.annotations.find((annotation) => annotation.ply === selectedPly) ?? null);
 
   const hasResults = Boolean(result && result.annotations.length > 0);
 
@@ -257,6 +260,8 @@ export function AnalyzerWorkspace({
           {hasResults ? (
             <MoveAccuracyGraph
               annotations={result!.annotations}
+              totalPlies={game?.plies.length ?? result!.totalPlies}
+              selectedPly={selectedPly}
               onSelectPly={handleSelectPly}
               title="Evaluation"
               className="accuracy-graph--review"
@@ -319,6 +324,8 @@ export function AnalyzerWorkspace({
           {hasResults ? (
             <MoveAccuracyGraph
               annotations={result!.annotations}
+              totalPlies={game?.plies.length ?? result!.totalPlies}
+              selectedPly={selectedPly}
               onSelectPly={handleSelectPly}
               title={isVariationActive ? 'Original game evaluation' : 'Evaluation'}
               className="accuracy-graph--analysis"
