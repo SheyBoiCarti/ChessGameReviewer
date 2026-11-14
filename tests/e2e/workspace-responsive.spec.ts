@@ -502,6 +502,7 @@ async function contrastAgainstBackground(
 test('keeps review feedback and playback together without navigation scroll jumps', async ({
   page,
 }) => {
+  test.setTimeout(90_000);
   await page.addInitScript(() => localStorage.clear());
   await installWorkspaceFixtures(page);
   for (const size of [

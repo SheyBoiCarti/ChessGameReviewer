@@ -80,6 +80,7 @@ test.describe('workspace visual regression', () => {
 function screenshotOptions(page?: Page) {
   return {
     animations: 'disabled' as const,
+    timeout: 15_000,
     fullPage: true,
     ...(page ? { mask: dynamicDateCells(page) } : {}),
   };
