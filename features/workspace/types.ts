@@ -3,7 +3,7 @@ import type { SerializedOpeningGraph } from '@/lib/chess/graph/serialization';
 import type { GameRecord } from '@/lib/db/schema';
 import type { EngineCapability } from '@/lib/engine/capabilities';
 
-import type { GameAnalysisResult } from '../stockfish-analysis/analyzeGame';
+import type { AnalysisUpdate, GameAnalysisResult } from '../stockfish-analysis/analyzeGame';
 import type { IngestionProgress, IngestionResult } from '../ingestion/types';
 
 export type ResultPerspective = 'user' | 'board';
@@ -27,6 +27,15 @@ export interface WorkspaceSelection {
   positionKey: string | null;
   pathId: number | null;
   ply: number;
+}
+
+export interface ReviewRunIdentity {
+  queryToken: number;
+  username: string;
+  gameId: string;
+  pgnDigest: string;
+  strength: AnalysisStrength;
+  jobId: number;
 }
 
 export interface WorkspaceState {
@@ -59,17 +68,27 @@ export interface WorkspaceState {
       | 'probing'
       | 'unavailable'
       | 'running'
+      | 'stopping'
       | 'partial'
       | 'cancelled'
       | 'failed'
       | 'complete';
     capability: EngineCapability | null;
+    identity?: ReviewRunIdentity | null;
     result: GameAnalysisResult | null;
-    // Baseline count-only progress, emitted after a completed annotation, never raw UCI depth.
-    // Completed annotation snapshots and per-run identities are introduced by T14–T16.
+    previousResult?: GameAnalysisResult | null;
+    resultStrength?: AnalysisStrength | null;
+    previousStrength?: AnalysisStrength | null;
+    showingPrevious?: boolean;
+    // Coverage derives from completed annotations, never raw engine-depth messages.
     progress: { analyzedPlies: number; totalPlies: number } | null;
     error: string | null;
     resultsByGameId: Record<string, GameAnalysisResult>;
+    reviewEntries?: Record<
+      string,
+      { lastComplete: GameAnalysisResult | null; latestAttempt: GameAnalysisResult }
+    >;
+    resultStrengthsByGameId?: Record<string, AnalysisStrength>;
   };
   preferences: WorkspacePreferences;
 }
@@ -96,13 +115,23 @@ export type WorkspaceAction =
   | { type: 'analysis/probing' }
   | { type: 'analysis/preparationCancelled' }
   | { type: 'analysis/capability'; capability: EngineCapability }
-  | { type: 'analysis/started'; token: number }
+  | { type: 'analysis/started'; token: number; identity?: ReviewRunIdentity }
+  | { type: 'analysis/update'; identity: ReviewRunIdentity; update: AnalysisUpdate }
+  | { type: 'analysis/stopping'; identity: ReviewRunIdentity }
   | {
       type: 'analysis/progress';
       token: number;
       progress: { analyzedPlies: number; totalPlies: number };
     }
-  | { type: 'analysis/terminal'; token: number; result: GameAnalysisResult; gameId?: string }
+  | {
+      type: 'analysis/terminal';
+      token: number;
+      result: GameAnalysisResult;
+      gameId?: string;
+      identity?: ReviewRunIdentity;
+      strength?: AnalysisStrength;
+      reviewKey?: string;
+    }
   | { type: 'analysis/cancelled'; token: number }
   | { type: 'analysis/failed'; token: number; error: string }
   | { type: 'preferences/changed'; preferences: Partial<WorkspacePreferences> }

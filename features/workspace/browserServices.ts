@@ -195,7 +195,8 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
           ...(onUpdate ? { onUpdate } : {}),
         });
         try {
-          await saveReview(await db(), game, strength, result);
+          if (context.isCurrent?.() !== false)
+            await saveReview(await db(), game, strength, result, context.isCurrent);
         } catch {
           return {
             ...result,

@@ -1,5 +1,5 @@
-import type { GameRecord } from '@/lib/db/schema';
-import { getMeta, setMeta } from '@/lib/db/repositories';
+import { STORES, type GameRecord } from '@/lib/db/schema';
+import { getMeta } from '@/lib/db/repositories';
 import type { AnalysisStrength } from '@/features/workspace/types';
 import type { GameAnalysisResult } from './analyzeGame';
 
@@ -14,9 +14,27 @@ export async function saveReview(
   db: IDBDatabase,
   game: GameRecord,
   strength: AnalysisStrength,
-  result: GameAnalysisResult
+  result: GameAnalysisResult,
+  isCurrent: () => boolean = () => true
 ): Promise<void> {
-  await setMeta(db, reviewKey(game, strength), { version: REVIEW_VERSION, pgn: game.pgn, result });
+  if (!isCurrent()) return;
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORES.META, 'readwrite');
+    const store = tx.objectStore(STORES.META);
+    const name = reviewKey(game, strength);
+    const request = store.get(name);
+    request.onsuccess = () => {
+      if (isCurrent())
+        store.put({
+          name,
+          value: { version: REVIEW_VERSION, pgn: game.pgn, result },
+          updatedAt: Date.now(),
+        });
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
 }
 
 export async function restoreSelected(

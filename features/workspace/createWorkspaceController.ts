@@ -5,8 +5,8 @@ import type { EngineCapability } from '@/lib/engine/capabilities';
 import type { ClearAllResult, DeletionResult } from '@/lib/db/deleteLocalData';
 import type { GameRecord } from '@/lib/db/schema';
 
-import { collectPersonalBookMoveKeys } from '../stockfish-analysis/bookMoves';
 import type { AnalysisUpdate, GameAnalysisResult } from '../stockfish-analysis/analyzeGame';
+import { computePgnDigest, reviewResultKey } from '../stockfish-analysis/reviewIdentity';
 import type { AnalysisStrength } from './types';
 import type { GraphBuildWorkerResult } from '../opening-tree/graphWorkerClient';
 import type { IngestionProgress, IngestionResult } from '../ingestion/types';
@@ -57,7 +57,7 @@ export interface WorkspaceServices {
       game: GameRecord,
       strength: AnalysisStrength,
       capability: EngineCapability,
-      context: { bookMoveKeys: readonly string[] },
+      context: { bookMoveKeys: readonly string[]; isCurrent?: () => boolean },
       signal: AbortSignal,
       onProgress: (progress: { analyzedPlies: number; totalPlies: number }) => void,
       onUpdate?: (update: AnalysisUpdate) => void
@@ -119,12 +119,27 @@ export function createWorkspaceController(
   const listeners = new Set<() => void>();
   const gameAnalysisSequences = new Map<string, number>();
   const restoreGenerations = new Map<string, number>();
-  const reviewResults = new Map<string, GameAnalysisResult>();
+  const reviewResults = new Map<
+    string,
+    { lastComplete: GameAnalysisResult | null; latestAttempt: GameAnalysisResult }
+  >();
   let reviewIntentSequence = 0;
   let pendingReview: { key: string; promise: Promise<void> } | null = null;
   let runningReview: { key: string; promise: Promise<void> } | null = null;
   const contentKey = (game: GameRecord, strength: AnalysisStrength) =>
     JSON.stringify([game.username, game.id, game.pgn, strength]);
+  const rememberReview = (
+    game: GameRecord,
+    strength: AnalysisStrength,
+    result: GameAnalysisResult
+  ) => {
+    const key = contentKey(game, strength);
+    const previous = reviewResults.get(key);
+    reviewResults.set(key, {
+      lastComplete: result.status === 'complete' ? result : (previous?.lastComplete ?? null),
+      latestAttempt: result,
+    });
+  };
   const invalidateReviewIntent = () => {
     reviewIntentSequence++;
     if (pendingReview && state.analysis.status === 'probing')
@@ -215,28 +230,50 @@ export function createWorkspaceController(
       analysisController?.abort();
       analysisController = new AbortController();
       restoreGenerations.set(game.id, (restoreGenerations.get(game.id) ?? 0) + 1);
-      dispatch({ type: 'analysis/started', token });
-      const bookMoveKeys = collectPersonalBookMoveKeys(state.graph.snapshot);
+      const pgnDigest = await computePgnDigest(game.pgn);
+      if (
+        disposed ||
+        token !== state.query.token ||
+        sequence !== analysisSequence ||
+        analysisController.signal.aborted
+      )
+        return;
+      const identity = {
+        queryToken: token,
+        username: game.username,
+        gameId: game.id,
+        pgnDigest,
+        strength,
+        jobId: sequence,
+      };
+      dispatch({ type: 'analysis/started', token, identity });
+      // The opening graph may be scoped or incomplete; it is not repertoire context.
+      const bookMoveKeys: readonly string[] = [];
       try {
         const result = await services.analysis.analyze(
           game,
           strength,
           capability,
-          { bookMoveKeys },
+          {
+            bookMoveKeys,
+            isCurrent: () =>
+              !disposed &&
+              token === state.query.token &&
+              gameAnalysisSequences.get(game.id) === sequence,
+          },
           analysisController.signal,
-          (progress) => {
-            if (sequence === analysisSequence) {
-              dispatch({ type: 'analysis/progress', token, progress });
-            }
-          }
+          () => {
+            /* Completed annotations own progressive coverage. */
+          },
+          (update) => dispatch({ type: 'analysis/update', identity, update })
         );
         if (
           !disposed &&
           token === state.query.token &&
           gameAnalysisSequences.get(game.id) === sequence
         ) {
-          reviewResults.set(contentKey(game, strength), result);
-          dispatch({ type: 'analysis/terminal', token, gameId: game.id, result });
+          rememberReview(game, strength, result);
+          dispatch({ type: 'analysis/terminal', token, gameId: game.id, result, identity });
         }
       } catch (error) {
         if (sequence === analysisSequence) {
@@ -259,6 +296,7 @@ export function createWorkspaceController(
   function selectGame(gameId: string | null): void {
     if (gameId === state.selection.gameId) return;
     invalidateReviewIntent();
+    if (gameId) restoreGenerations.set(gameId, (restoreGenerations.get(gameId) ?? 0) + 1);
     analysisSequence++;
     runningReview = null;
     analysisController?.abort();
@@ -271,7 +309,7 @@ export function createWorkspaceController(
     strength: AnalysisStrength,
     restore: boolean
   ): Promise<void> {
-    if (disposed || maintenance) return Promise.resolve();
+    if (disposed || maintenance || state.analysis.status === 'stopping') return Promise.resolve();
     const game = { ...source };
     const token = state.query.token;
     const key = JSON.stringify([token, contentKey(game, strength)]);
@@ -295,7 +333,8 @@ export function createWorkspaceController(
       if (restore) {
         // Block automatic probing until this selected review's storage read has settled.
         dispatch({ type: 'analysis/probing' });
-        let saved = reviewResults.get(contentKey(game, strength)) ?? null;
+        const remembered = reviewResults.get(contentKey(game, strength));
+        let saved = remembered?.lastComplete ?? remembered?.latestAttempt ?? null;
         if (!saved && services.analysis.restoreSelected) {
           try {
             saved = await services.analysis.restoreSelected(game, strength);
@@ -305,8 +344,17 @@ export function createWorkspaceController(
         }
         if (!current()) return;
         if (saved) {
-          reviewResults.set(contentKey(game, strength), saved);
-          dispatch({ type: 'analysis/terminal', token, gameId: game.id, result: saved });
+          const digest = await computePgnDigest(game.pgn);
+          if (!current()) return;
+          rememberReview(game, strength, saved);
+          dispatch({
+            type: 'analysis/terminal',
+            token,
+            gameId: game.id,
+            result: saved,
+            strength,
+            reviewKey: reviewResultKey(game.username, game.id, digest, strength),
+          });
           if (saved.status !== 'failed') return;
         }
       }
@@ -396,7 +444,7 @@ export function createWorkspaceController(
                   continue;
                 const game = result.games.find((game) => game.id === gameId);
                 if (!game) continue;
-                reviewResults.set(contentKey(game, strength), saved);
+                rememberReview(game, strength, saved);
                 dispatch({ type: 'analysis/terminal', token, gameId, result: saved });
               }
             } catch {
@@ -466,9 +514,15 @@ export function createWorkspaceController(
     cancelAnalysis() {
       invalidateReviewIntent();
       runningReview = null;
-      analysisController?.abort();
-      analysisController = null;
-      dispatch({ type: 'analysis/cancelled', token: state.query.token });
+      if (state.analysis.status === 'running' && state.analysis.identity) {
+        dispatch({ type: 'analysis/stopping', identity: state.analysis.identity });
+        analysisController?.abort();
+      } else if (analysisController) {
+        analysisSequence++;
+        analysisController.abort();
+        analysisController = null;
+        dispatch({ type: 'analysis/preparationCancelled' });
+      }
     },
     deleteUserData(username) {
       const normalized = username.toLowerCase();

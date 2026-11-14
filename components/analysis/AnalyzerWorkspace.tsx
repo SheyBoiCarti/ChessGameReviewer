@@ -38,6 +38,7 @@ export interface AnalyzerWorkspaceProps {
     | 'probing'
     | 'unavailable'
     | 'running'
+    | 'stopping'
     | 'partial'
     | 'cancelled'
     | 'failed'
@@ -124,6 +125,8 @@ export function AnalyzerWorkspace({
             <p className="analyzer-lifecycle-text">Checking analysis engine…</p>
           ) : status === 'idle' ? (
             <p className="analyzer-lifecycle-text">Ready to review</p>
+          ) : status === 'stopping' ? (
+            <p className="analyzer-lifecycle-text">Stopping analysis…</p>
           ) : status === 'running' ? (
             <p className="analyzer-lifecycle-text">Analysing positions…</p>
           ) : status === 'partial' || status === 'cancelled' ? (
@@ -158,6 +161,10 @@ export function AnalyzerWorkspace({
                 aria-label="Run review (Start analysis)"
               >
                 Run review
+              </button>
+            ) : status === 'stopping' ? (
+              <button type="button" className="button-secondary" disabled>
+                Stopping…
               </button>
             ) : status === 'running' ? (
               <button
@@ -211,7 +218,7 @@ export function AnalyzerWorkspace({
       <div
         className={`analysis-progress-slot${mode === 'review' ? ' analysis-progress-slot--review' : ''}`}
       >
-        {status === 'running' ? (
+        {status === 'running' || status === 'stopping' ? (
           <progress
             className="analysis-progress"
             aria-label="Review progress"
@@ -339,7 +346,7 @@ export function AnalyzerWorkspace({
         <div className="analysis-settings-body">
           <AnalysisSettings
             strength={strength}
-            disabled={probing || unavailable || status === 'running'}
+            disabled={probing || unavailable || status === 'running' || status === 'stopping'}
             onChange={onStrengthChange}
           />
           <details className="analysis-engine-details">

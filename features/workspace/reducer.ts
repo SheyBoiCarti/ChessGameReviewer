@@ -1,3 +1,5 @@
+import { reviewResultKey } from '../stockfish-analysis/reviewIdentity';
+import { summarizeAnnotations } from '../stockfish-analysis/analyzeGame';
 import type { GameQuery } from '@/lib/api/contracts';
 
 import type { WorkspaceAction, WorkspaceState } from './types';
@@ -20,6 +22,7 @@ const idleGraph = { status: 'idle', snapshot: null, diagnosticCodes: [], error: 
 const idleAnalysis = {
   status: 'idle',
   capability: null,
+  identity: null,
   result: null,
   progress: null,
   error: null,
@@ -127,11 +130,33 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
               game.endedAt > newest.endedAt ? game : newest
             ).id
           : null;
-      const cached = gameId ? (state.analysis.resultsByGameId[gameId] ?? null) : null;
+      const previousGames = new Map(
+        state.ingestion.result?.games.map((game) => [game.id, game]) ?? []
+      );
+      const resultsByGameId = Object.fromEntries(
+        Object.entries(state.analysis.resultsByGameId).filter(([id]) => {
+          const oldGame = previousGames.get(id);
+          const newGame = action.result.games.find((game) => game.id === id);
+          return (
+            oldGame &&
+            newGame &&
+            oldGame.username === newGame.username &&
+            oldGame.pgn === newGame.pgn
+          );
+        })
+      );
+      const cached = gameId ? (resultsByGameId[gameId] ?? null) : null;
       return {
         ...state,
         analysis: {
           ...state.analysis,
+          resultsByGameId,
+          resultStrength:
+            cached && gameId ? (state.analysis.resultStrengthsByGameId?.[gameId] ?? null) : null,
+          identity: null,
+          previousResult: null,
+          previousStrength: null,
+          showingPrevious: false,
           status:
             cached?.status ??
             (state.analysis.capability?.mode === 'unavailable' ? 'unavailable' : 'idle'),
@@ -225,6 +250,12 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           ...idleAnalysis,
           capability: state.analysis.capability,
           resultsByGameId: state.analysis.resultsByGameId,
+          reviewEntries: state.analysis.reviewEntries ?? {},
+          resultStrengthsByGameId: state.analysis.resultStrengthsByGameId ?? {},
+          resultStrength:
+            cached && action.gameId
+              ? (state.analysis.resultStrengthsByGameId?.[action.gameId] ?? null)
+              : null,
           status: cached
             ? cached.status
             : state.analysis.capability?.mode === 'unavailable'
@@ -283,28 +314,142 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         analysis: {
           ...state.analysis,
           status: 'running',
-          result: null,
+          identity: action.identity ?? null,
+          previousResult: state.analysis.result,
+          previousStrength: state.analysis.resultStrength ?? null,
+          showingPrevious: !!state.analysis.result,
+          result: state.analysis.result,
           progress: null,
           error: null,
         },
       };
+    case 'analysis/update': {
+      const identity = state.analysis.identity;
+      if (
+        !identity ||
+        state.analysis.status !== 'running' ||
+        identity.jobId !== action.identity.jobId ||
+        identity.queryToken !== state.query.token ||
+        JSON.stringify(identity) !== JSON.stringify(action.identity) ||
+        state.selection.gameId !== identity.gameId
+      )
+        return state;
+      const byPly = new Map(
+        (state.analysis.showingPrevious ? [] : (state.analysis.result?.annotations ?? [])).map(
+          (item) => [item.ply, item]
+        )
+      );
+      if (byPly.has(action.update.annotation.ply)) return state;
+      byPly.set(action.update.annotation.ply, action.update.annotation);
+      const annotations = [...byPly.values()].sort((a, b) => a.ply - b.ply);
+      const result = {
+        status: 'partial' as const,
+        annotations,
+        analyzedPlies: annotations.length,
+        totalPlies: action.update.totalPlies,
+        summary: summarizeAnnotations(annotations),
+        warnings: [],
+      };
+      const key = reviewResultKey(
+        identity.username,
+        identity.gameId,
+        identity.pgnDigest,
+        identity.strength
+      );
+      const previous = state.analysis.reviewEntries?.[key];
+      return {
+        ...state,
+        analysis: {
+          ...state.analysis,
+          reviewEntries: {
+            ...state.analysis.reviewEntries,
+            [key]: { lastComplete: previous?.lastComplete ?? null, latestAttempt: result },
+          },
+          result,
+          resultStrength: identity.strength,
+          showingPrevious: false,
+          progress: { analyzedPlies: annotations.length, totalPlies: result.totalPlies },
+        },
+      };
+    }
+    case 'analysis/stopping':
+      if (
+        state.analysis.status !== 'running' ||
+        JSON.stringify(state.analysis.identity) !== JSON.stringify(action.identity)
+      )
+        return state;
+      return { ...state, analysis: { ...state.analysis, status: 'stopping' } };
     case 'analysis/progress':
       return { ...state, analysis: { ...state.analysis, progress: action.progress } };
     case 'analysis/terminal': {
+      if (
+        action.identity &&
+        state.selection.gameId === action.identity.gameId &&
+        (state.analysis.identity?.jobId !== action.identity.jobId ||
+          !['running', 'stopping'].includes(state.analysis.status))
+      )
+        return state;
       const gameId = action.gameId ?? state.selection.gameId;
+      const key =
+        action.reviewKey ??
+        (action.identity
+          ? reviewResultKey(
+              action.identity.username,
+              action.identity.gameId,
+              action.identity.pgnDigest,
+              action.identity.strength
+            )
+          : null);
+      const previousEntry = key ? state.analysis.reviewEntries?.[key] : undefined;
+      const reviewEntries = key
+        ? {
+            ...state.analysis.reviewEntries,
+            [key]: {
+              lastComplete:
+                action.result.status === 'complete'
+                  ? action.result
+                  : (previousEntry?.lastComplete ?? null),
+              latestAttempt: action.result,
+            },
+          }
+        : (state.analysis.reviewEntries ?? {});
+      const existing = gameId ? state.analysis.resultsByGameId[gameId] : null;
+      const projected =
+        existing?.status === 'complete' && action.result.status !== 'complete'
+          ? existing
+          : action.result;
       const resultsByGameId = gameId
-        ? { ...state.analysis.resultsByGameId, [gameId]: action.result }
+        ? { ...state.analysis.resultsByGameId, [gameId]: projected }
         : state.analysis.resultsByGameId;
       return {
         ...state,
         analysis: {
           ...state.analysis,
           resultsByGameId,
+          reviewEntries,
+          resultStrengthsByGameId:
+            gameId && projected === action.result && (action.identity?.strength ?? action.strength)
+              ? {
+                  ...state.analysis.resultStrengthsByGameId,
+                  [gameId]: (action.identity?.strength ?? action.strength)!,
+                }
+              : (state.analysis.resultStrengthsByGameId ?? {}),
           ...(gameId !== state.selection.gameId
             ? {}
             : {
                 status: action.result.status,
-                result: action.result,
+                resultStrength:
+                  action.result.annotations.length === 0 && state.analysis.previousResult
+                    ? state.analysis.previousStrength
+                    : (action.identity?.strength ??
+                      action.strength ??
+                      state.analysis.resultStrength),
+                result:
+                  action.result.annotations.length === 0 && state.analysis.previousResult
+                    ? state.analysis.previousResult
+                    : action.result,
+                showingPrevious:
+                  action.result.annotations.length === 0 && !!state.analysis.previousResult,
                 error: action.result.error ?? null,
                 progress: {
                   analyzedPlies: action.result.analyzedPlies,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { createLongGameAnalysisResult } from '../../fixtures/longAnalysisFixture';
 import type { GameQuery } from '@/lib/api/contracts';
 import type { WorkspaceState } from '@/features/workspace/types';
 
@@ -13,6 +14,84 @@ const query: GameQuery = {
 };
 
 describe('workspace reducer', () => {
+  it('accumulates unique completed moves and rejects stale or stopped updates', () => {
+    const identity = {
+      queryToken: 0,
+      username: 'player',
+      gameId: 'one',
+      pgnDigest: 'digest',
+      strength: 'balanced' as const,
+      jobId: 1,
+    };
+    let state: WorkspaceState = {
+      ...initialWorkspaceState,
+      selection: { ...initialWorkspaceState.selection, gameId: 'one' },
+    };
+    state = reduceWorkspace(state, { type: 'analysis/started', token: 0, identity });
+    const annotations = createLongGameAnalysisResult(2).annotations;
+    const update = { annotation: annotations[0]!, analyzedPlies: 1, totalPlies: 8 };
+    const stale = reduceWorkspace(state, {
+      type: 'analysis/update',
+      identity: { ...identity, jobId: 2 },
+      update,
+    });
+    expect(stale).toBe(state);
+    state = reduceWorkspace(state, { type: 'analysis/update', identity, update });
+    expect(state.analysis.result?.analyzedPlies).toBe(1);
+    expect(reduceWorkspace(state, { type: 'analysis/update', identity, update })).toBe(state);
+    state = reduceWorkspace(state, {
+      type: 'analysis/update',
+      identity,
+      update: { ...update, annotation: annotations[1]!, analyzedPlies: 2 },
+    });
+    expect(state.analysis.result?.annotations.map((a) => a.ply)).toEqual([1, 2]);
+    expect(state.analysis.progress).toEqual({ analyzedPlies: 2, totalPlies: 8 });
+    state = reduceWorkspace(state, { type: 'analysis/stopping', identity });
+    expect(reduceWorkspace(state, { type: 'analysis/update', identity, update })).toBe(state);
+  });
+  it('keeps a labeled previous review until new preset annotations arrive', () => {
+    const previous = createLongGameAnalysisResult(2);
+    const identity = {
+      queryToken: 0,
+      username: 'player',
+      gameId: 'one',
+      pgnDigest: 'digest',
+      strength: 'deep' as const,
+      jobId: 1,
+    };
+    let state: WorkspaceState = {
+      ...initialWorkspaceState,
+      selection: { ...initialWorkspaceState.selection, gameId: 'one' },
+      analysis: {
+        ...initialWorkspaceState.analysis,
+        result: previous,
+        resultStrength: 'balanced',
+        status: 'complete',
+      },
+    };
+    state = reduceWorkspace(state, { type: 'analysis/started', token: 0, identity });
+    expect(state.analysis).toMatchObject({
+      result: previous,
+      previousStrength: 'balanced',
+      showingPrevious: true,
+    });
+    state = reduceWorkspace(state, {
+      type: 'analysis/update',
+      identity,
+      update: {
+        annotation: previous.annotations[0]!,
+        analyzedPlies: 1,
+        totalPlies: 8,
+      },
+    });
+    expect(state.analysis).toMatchObject({
+      showingPrevious: false,
+      resultStrength: 'deep',
+      progress: { analyzedPlies: 1, totalPlies: 8 },
+    });
+    expect(state.analysis.result?.annotations).toHaveLength(1);
+  });
+
   // T03 baseline: query ownership precedes every ingestion progress projection.
   it('ignores stale ingestion progress without changing state identity', () => {
     expect(
