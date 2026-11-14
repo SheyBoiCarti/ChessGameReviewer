@@ -2331,17 +2331,57 @@ li[data-selected='true'] {
 
 .accuracy-graph__point {
   fill: #60a5fa;
-  cursor: pointer;
-  transition:
-    r 120ms ease,
-    fill 120ms ease;
+  pointer-events: none;
 }
 
-.accuracy-graph__point:hover,
-.accuracy-graph__point:focus-visible {
-  fill: var(--accent-gold);
-  r: 3.5;
+.accuracy-graph__hit {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 22px;
+  pointer-events: all;
+  cursor: pointer;
   outline: none;
+}
+
+.accuracy-graph__hit:hover + .accuracy-graph__point,
+.accuracy-graph__hit:focus-visible + .accuracy-graph__point,
+.accuracy-graph__hit[aria-current='step'] + .accuracy-graph__point {
+  fill: var(--accent-gold);
+  stroke: var(--accent-gold);
+  stroke-width: 1px;
+}
+
+.accuracy-graph__cursor {
+  stroke: var(--accent-gold);
+  stroke-width: 1.5px;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
+.accuracy-graph__description {
+  margin: 0.25rem 0;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.review-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.review-filters p {
+  margin: 0;
+}
+
+.review-feedback__actions {
+  flex-wrap: wrap;
+}
+
+.review-evaluation p {
+  margin: 0.25rem 0;
 }
 
 .accuracy-graph--review .accuracy-graph {

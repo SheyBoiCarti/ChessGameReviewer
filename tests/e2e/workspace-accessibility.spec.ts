@@ -180,3 +180,70 @@ test('keeps playback available while engine readiness is delayed', async ({ page
   await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
   await assertAccessible(page);
 });
+
+test('synchronizes graph keyboard selection, count filters and original board', async ({
+  page,
+}, testInfo) => {
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  const graph = page.getByRole('group', { name: 'Evaluation graph' });
+  const points = graph.getByRole('button');
+  await expect(graph.locator('[tabindex="0"]')).toHaveCount(1);
+  await points.first().focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(points.nth(1)).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('Position 2 of 8')).toBeVisible();
+  await expect(points.nth(1)).toHaveAttribute('aria-current', 'step');
+  await expect(points.nth(1)).toHaveAccessibleName(/1… Nf6.*perspective/);
+  await page.keyboard.press('End');
+  await page.keyboard.press('Space');
+  await expect(page.getByLabel('Position 8 of 8')).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect(points.last()).not.toBeFocused();
+  await points.first().click();
+  await expect(page.getByLabel('Position 1 of 8')).toBeVisible();
+  await page.locator('.review-summary > summary').click();
+  await page.getByText('Move breakdown', { exact: true }).click();
+  const count = page.getByRole('button', { name: /White Mistake: [1-9]/ });
+  await count.click();
+  await expect(page.getByLabel('Position 1 of 8')).toBeVisible();
+  const feedback = page.getByRole('region', { name: 'Selected move feedback' });
+  await feedback.getByRole('button', { name: 'Next moment' }).click();
+  await expect(page.getByLabel('Position 3 of 8')).toBeVisible();
+  await expect(page.getByRole('button', { name: /select ply 3\b/i })).toHaveAttribute(
+    'aria-current',
+    'true'
+  );
+  await expect(points.nth(2)).toHaveAttribute('aria-current', 'step');
+  await page.getByRole('combobox', { name: 'Review players' }).selectOption('black');
+  await feedback.getByRole('button', { name: 'Next moment' }).click();
+  await expect(page.getByLabel('Position 4 of 8')).toBeVisible();
+  await feedback.locator('summary').click();
+  await expect(feedback).toContainText('Before:');
+  await expect(feedback).toContainText('After:');
+  await assertAccessible(page);
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(size);
+    await page.getByRole('button', { name: 'Previous move', exact: true }).click();
+    await expect(page.getByLabel('Position 3 of 8')).toBeVisible();
+    await page.getByRole('button', { name: 'Next move', exact: true }).click();
+    await page.screenshot({
+      path: testInfo.outputPath(`move-understanding-${size.width}.png`),
+      fullPage: true,
+    });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
+    ).toBeLessThanOrEqual(1);
+  }
+});
