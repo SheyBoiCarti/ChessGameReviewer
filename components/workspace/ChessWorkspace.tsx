@@ -71,6 +71,12 @@ export function ChessWorkspace({
   const [navigation, setNavigation] = useState<GraphNavigationState | null>(null);
   const [moveOrdersOpen, setMoveOrdersOpen] = useState(false);
   const [resultFocusVersion, setResultFocusVersion] = useState(0);
+  const [variationOrigin, setVariationOrigin] = useState<{
+    gameId: string;
+    selectedPly: number;
+    fen: string;
+    mode: ReviewMode;
+  } | null>(null);
   const [variation, setVariation] = useState<AnalysisVariationState | null>(null);
   const [unobservedMove, setUnobservedMove] = useState<{
     move: AppliedBoardMove;
@@ -268,6 +274,31 @@ export function ChessWorkspace({
     controller.selectPly(ply);
   };
 
+  const rememberVariationOrigin = () => {
+    if (state.selection.gameId && displayedFen)
+      setVariationOrigin({
+        gameId: state.selection.gameId,
+        selectedPly: state.selection.ply,
+        fen: displayedFen,
+        mode: reviewMode,
+      });
+  };
+  const returnToGame = () => {
+    if (variationOrigin && variationOrigin.gameId === state.selection.gameId) {
+      controller.selectPly(variationOrigin.selectedPly);
+      setReviewMode(variationOrigin.mode);
+    }
+    setVariation(null);
+    setVariationOrigin(null);
+  };
+  const explorePv = (pvFen: string, uciMoves: readonly string[]) => {
+    const preview = createVariationFromUciSequence(state.selection.ply, pvFen, uciMoves);
+    if (!preview) return;
+    rememberVariationOrigin();
+    setVariation(preview);
+    setReviewMode('analysis');
+  };
+
   const handleBoardMove = (applied: AppliedBoardMove): boolean => {
     // Piece moves only allowed in analysis mode of analysis tab
     if (tab === 'analysis' && reviewMode === 'analysis') {
@@ -280,6 +311,7 @@ export function ChessWorkspace({
         if (displayedFen) {
           try {
             const newVar = startVariation(state.selection.ply, displayedFen, applied);
+            rememberVariationOrigin();
             setVariation(newVar);
             return true;
           } catch {
@@ -458,10 +490,15 @@ export function ChessWorkspace({
         {tab === 'analysis' && variation ? (
           <VariationSandboxBanner
             state={variation}
+            returnNotation={
+              variationOrigin?.selectedPly
+                ? `${Math.ceil(variationOrigin.selectedPly / 2)}${variationOrigin.selectedPly % 2 ? '.' : '…'} ${parsedGame?.plies[variationOrigin.selectedPly - 1]?.san ?? ''}`
+                : 'Starting position'
+            }
             onCursorChange={(cursor) =>
               setVariation((prev) => (prev ? moveVariationCursor(prev, cursor) : null))
             }
-            onClose={() => setVariation(null)}
+            onClose={returnToGame}
           />
         ) : null}
         {tab === 'opening' && unobservedMove ? (
@@ -750,6 +787,7 @@ export function ChessWorkspace({
               feedback={
                 tab === 'analysis' && reviewMode === 'review' && selectedRecord && parsedGame ? (
                   <ReviewFeedback
+                    onExplorePv={explorePv}
                     annotation={selectedAnnotation ?? null}
                     selectedPly={state.selection.ply}
                     startFen={fenByPly[state.selection.ply]}
@@ -990,7 +1028,7 @@ export function ChessWorkspace({
                           black: parsedGame.blackPlayer,
                         }}
                         isVariationActive={Boolean(variation)}
-                        onReturnToGame={() => setVariation(null)}
+                        onReturnToGame={returnToGame}
                         capability={state.analysis.capability}
                         status={state.analysis.status}
                         result={state.analysis.result}
@@ -1012,16 +1050,7 @@ export function ChessWorkspace({
                         onSelectPly={handlePlyChange}
                         selectedPly={state.selection.ply}
                         fenByPly={fenByPly}
-                        onExplorePv={(pvFen, uciMoves) => {
-                          const variationState = createVariationFromUciSequence(
-                            state.selection.ply,
-                            pvFen,
-                            uciMoves
-                          );
-                          if (variationState) {
-                            setVariation(variationState);
-                          }
-                        }}
+                        onExplorePv={explorePv}
                       />
                     ) : (
                       <div className="workspace-empty">

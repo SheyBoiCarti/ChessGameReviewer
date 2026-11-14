@@ -2,16 +2,19 @@
 
 import type React from 'react';
 
+import { moveNotation } from '@/features/stockfish-analysis/presentation';
 import type { AnalysisVariationState } from '@/features/board/variation';
 
 export interface VariationSandboxBannerProps {
   state: AnalysisVariationState;
+  returnNotation?: string | undefined;
   onCursorChange(cursor: number): void;
   onClose(): void;
 }
 
 export function VariationSandboxBanner({
   state,
+  returnNotation,
   onCursorChange,
   onClose,
 }: VariationSandboxBannerProps): React.JSX.Element {
@@ -24,14 +27,21 @@ export function VariationSandboxBanner({
       aria-label="Analysis variation sandbox"
     >
       <div className="variation-sandbox-banner__header">
-        <h4 className="variation-sandbox-banner__title">Exploration from ply {state.basePly}</h4>
+        <h4 className="variation-sandbox-banner__title">
+          Exploration from{' '}
+          {moveNotation(
+            Number(state.baseFen.split(' ')[5]) * 2 - (state.baseFen.split(' ')[1] === 'w' ? 1 : 0),
+            '',
+            state.baseFen.split(' ')[1] === 'w' ? 'white' : 'black'
+          )}
+        </h4>
         <button
           type="button"
           className="variation-sandbox-banner__close-button"
           onClick={onClose}
-          aria-label="Return to game (Return to main game)"
+          aria-label={`Return to game (Return to main game)${returnNotation ? ` · ${returnNotation}` : ''}`}
         >
-          Return to game
+          Return to game{returnNotation ? ` · ${returnNotation}` : ''}
         </button>
       </div>
       <div className="variation-sandbox-banner__body">

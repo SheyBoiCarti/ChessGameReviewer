@@ -15,6 +15,7 @@ export function PrincipalVariationList({
   return (
     <div className="pv-container">
       <h5>Principal variation</h5>
+      <p>Alternative to the selected move, from the position before it.</p>
       <p>{converted.moves.join(' ') || 'No principal variation was returned.'}</p>
       {converted.diagnostic ? <p role="status">{converted.diagnostic}</p> : null}
       {onExplorePv && annotation.before.pv.length > 0 ? (

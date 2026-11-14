@@ -264,6 +264,7 @@ export function AnalyzerWorkspace({
               hasAnnotations={hasResults}
               showingPrevious={showingPrevious}
               previousStrength={previousStrength}
+              onExplorePv={onExplorePv}
             />
           ) : null}
           <AnalysisMoveList
@@ -300,19 +301,7 @@ export function AnalyzerWorkspace({
         /* Analysis Mode Order */
         <>
           {isVariationActive ? (
-            <div className="variation-active-banner surface-panel">
-              <h4>Exploring a variation</h4>
-              {onReturnToGame ? (
-                <button
-                  type="button"
-                  className="button-secondary"
-                  onClick={onReturnToGame}
-                  aria-label="Return to game"
-                >
-                  Return to game
-                </button>
-              ) : null}
-            </div>
+            <p>Exploring a variation. Original game moves remain below.</p>
           ) : selectedPly === 0 ? (
             <div className="annotation-panel-empty" role="note">
               <p>Select a move to inspect its analysis.</p>

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { installEngineFixtures } from './helpers/engineFixtures';
 
 import { installWorkspaceFixtures, loadFixtureGames } from './helpers/workspaceFixtures';
 
@@ -125,4 +126,53 @@ test('keeps opening data usable when Stockfish is unavailable', async ({ page })
   });
   await page.getByRole('button', { name: 'Openings' }).click();
   await expect(page.getByRole('heading', { name: 'Openings', level: 3 })).toBeVisible();
+});
+
+test('explores alternatives and replies from Review and restores the selected original move', async ({
+  page,
+}) => {
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Next move', exact: true }).click();
+  const feedback = page.getByRole('region', { name: 'Selected move feedback' });
+  await feedback.locator('summary').click();
+  const board = page.getByRole('grid', { name: 'Chess board' });
+  const original = await board
+    .locator('[data-square] svg[aria-label]')
+    .evaluateAll((pieces) => pieces.map((piece) => piece.getAttribute('aria-label')));
+  await feedback.getByRole('button', { name: 'Explore alternative' }).click();
+  await expect(page.getByRole('tab', { name: 'Analysis', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
+  const banner = page.getByRole('complementary', { name: 'Analysis variation sandbox' });
+  await expect(banner.locator('[aria-current="step"]')).toHaveCount(1);
+  await expect(banner.getByRole('button', { name: 'Next variation move' })).toBeEnabled();
+  await banner.getByRole('button', { name: 'Next variation move' }).click();
+  await banner.getByRole('button', { name: /Return to game/ }).click();
+  await expect(page.getByLabel('Position 1 of 8')).toBeVisible();
+  expect(
+    await board
+      .locator('[data-square] svg[aria-label]')
+      .evaluateAll((pieces) => pieces.map((piece) => piece.getAttribute('aria-label')))
+  ).toEqual(original);
+  await expect(page.getByRole('tab', { name: 'Review', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
+  await feedback.locator('summary').click();
+  await feedback.getByRole('button', { name: 'Explore reply' }).click();
+  await banner.getByRole('button', { name: 'Start', exact: true }).click();
+  expect(
+    await board
+      .locator('[data-square] svg[aria-label]')
+      .evaluateAll((pieces) => pieces.map((piece) => piece.getAttribute('aria-label')))
+  ).toEqual(original);
+  await banner.getByRole('button', { name: /Return to game/ }).click();
+  await expect(page.getByLabel('Position 1 of 8')).toBeVisible();
 });

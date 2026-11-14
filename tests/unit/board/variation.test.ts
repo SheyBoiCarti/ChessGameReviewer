@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   appendVariationMove,
+  createVariationFromUciSequence,
   moveVariationCursor,
   startVariation,
   variationFen,
@@ -107,4 +108,28 @@ describe('analysis variation state machine', () => {
     expect(state.cursor).toBe(2);
     expect(variationFen(state)).toBe(fenAfterE5);
   });
+});
+
+it('previews the first legal PV move and truncates at illegal input', () => {
+  const fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  const v = createVariationFromUciSequence(14, fen, ['e2e4', 'e7e5', 'bad']);
+  expect(v!.cursor).toBe(1);
+  expect(v!.moves).toHaveLength(2);
+  expect(variationFen(v!)).toContain(' b ');
+  expect(variationFen(moveVariationCursor(v!, 2))).toContain(' w ');
+  expect(createVariationFromUciSequence(14, fen, ['e2e5'])).toBeNull();
+  expect(createVariationFromUciSequence(14, fen, ['e2e4extra'])).toBeNull();
+});
+
+it('starts 14…e4’s Bf5 alternative before e4 and a reply after e4', () => {
+  const before = '2b4k/8/8/4p3/8/8/8/K7 b - - 0 14';
+  const played = createVariationFromUciSequence(28, before, ['e5e4'])!;
+  const after = variationFen(played);
+  const alternative = createVariationFromUciSequence(28, before, ['c8f5', 'a1b1'])!;
+  expect(alternative.moves[0]!.san).toBe('Bf5');
+  expect(alternative.baseFen).toBe(before);
+  expect(createVariationFromUciSequence(28, after, ['c8f5'])).toBeNull();
+  const reply = createVariationFromUciSequence(28, after, ['a1b1'])!;
+  expect(reply.baseFen).toBe(after);
+  expect(reply.moves[0]!.san).toBe('Kb1');
 });

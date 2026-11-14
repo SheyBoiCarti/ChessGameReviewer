@@ -22,6 +22,7 @@ export interface ReviewFeedbackProps {
   hasAnnotations: boolean;
   showingPrevious?: boolean | undefined;
   previousStrength?: AnalysisStrength | null | undefined;
+  onExplorePv?: ((fen: string, moves: readonly string[]) => void) | undefined;
 }
 
 function convertUciToSan(fen: string | undefined, uci: string | undefined): string | null {
@@ -50,6 +51,7 @@ export function ReviewFeedback({
   hasAnnotations,
   showingPrevious = false,
   previousStrength,
+  onExplorePv,
 }: ReviewFeedbackProps) {
   const bestSan = useMemo(() => {
     if (!annotation?.before?.bestMove) return null;
@@ -99,6 +101,49 @@ export function ReviewFeedback({
           Best move: {bestSan ?? 'Best move unavailable'}
         </p>
 
+        {onExplorePv && startFen ? (
+          <div className="review-feedback__actions">
+            {bestSan ? (
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() =>
+                  onExplorePv(
+                    startFen,
+                    annotation.before.pv[0] === annotation.before.bestMove
+                      ? annotation.before.pv
+                      : [annotation.before.bestMove]
+                  )
+                }
+              >
+                Explore alternative
+              </button>
+            ) : null}
+            {(() => {
+              try {
+                const chess = new Chess(startFen);
+                const uci = annotation.uci;
+                chess.move({
+                  from: uci.slice(0, 2),
+                  to: uci.slice(2, 4),
+                  ...(uci[4] ? { promotion: uci[4] } : {}),
+                });
+                const afterFen = chess.fen();
+                return convertUciToSan(afterFen, annotation.after.pv[0]) ? (
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={() => onExplorePv(afterFen, annotation.after.pv)}
+                  >
+                    Explore reply
+                  </button>
+                ) : null;
+              } catch {
+                return null;
+              }
+            })()}
+          </div>
+        ) : null}
         {hasAnnotations ? (
           <div className="review-feedback__actions">
             <button
