@@ -216,6 +216,22 @@ describe('Bug fixes exploratory verification', () => {
     window.history.replaceState(null, '', '/');
   });
 
+  it('keeps the selected board mounted when Openings is entered before its graph is ready', async () => {
+    const user = userEvent.setup();
+    const services = makeMockServices();
+    vi.mocked(services.graph.build).mockImplementation(() => new Promise(() => {}));
+    render(<ChessWorkspace createServices={() => services} />);
+    await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
+    await user.click(screen.getByRole('button', { name: 'Find games' }));
+    await user.click(screen.getByRole('button', { name: /^Preview .*opponent/i }));
+    const board = screen.getByRole('grid', { name: 'Chess board' });
+    await user.click(screen.getByRole('button', { name: 'Openings' }));
+    expect(board.isConnected).toBe(true);
+    expect(screen.getByRole('grid', { name: 'Chess board' })).toBe(board);
+    await user.click(screen.getByRole('button', { name: 'Games' }));
+    expect(screen.getByRole('grid', { name: 'Chess board' })).toBe(board);
+  });
+
   it('keeps a card with no legal moves in preview instead of reviewing the previous game', async () => {
     const user = userEvent.setup();
     const emptyGame = {

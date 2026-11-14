@@ -790,13 +790,13 @@ export function ChessWorkspace({
   // Determine whether board should be rendered:
   // - Settings: no board
   // - Analysis without selected game: no board
-  // - Openings without graph: no board
+  // - Openings without a graph or selected game position: no board
   // - Games with no game selected (initial visit or loaded list without selection): no board
   const shouldRenderBoard =
     tab !== 'settings' &&
     tab !== 'insights' &&
     !(tab === 'analysis' && !selectedRecord) &&
-    !(tab === 'opening' && !graph) &&
+    !(tab === 'opening' && !displayedBoardFen) &&
     !(tab === 'games' && !selectedRecord);
 
   const viewTitle =
