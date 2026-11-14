@@ -23,6 +23,14 @@ interface SavedReview {
 }
 
 function validResult(value: GameAnalysisResult | null | undefined): value is GameAnalysisResult {
+  const validPosition = (position: GameAnalysisResult['annotations'][number]['before']) =>
+    !!position &&
+    !!position.score &&
+    (position.score.kind === 'cp' || position.score.kind === 'mate') &&
+    Number.isFinite(position.score.value) &&
+    Array.isArray(position.pv) &&
+    Array.isArray(position.candidates) &&
+    typeof position.bestMove === 'string';
   return (
     !!value &&
     ['complete', 'partial', 'cancelled', 'failed'].includes(value.status) &&
@@ -34,7 +42,24 @@ function validResult(value: GameAnalysisResult | null | undefined): value is Gam
     value.analyzedPlies === value.annotations.length &&
     Number.isInteger(value.totalPlies) &&
     value.totalPlies >= value.analyzedPlies &&
-    value.annotations.every((annotation) => Number.isInteger(annotation.ply) && annotation.ply > 0)
+    value.annotations.every(
+      (annotation, index) =>
+        !!annotation &&
+        Number.isInteger(annotation.ply) &&
+        annotation.ply > 0 &&
+        annotation.ply <= value.totalPlies &&
+        (index === 0 || annotation.ply > value.annotations[index - 1]!.ply) &&
+        typeof annotation.san === 'string' &&
+        typeof annotation.uci === 'string' &&
+        (annotation.mover === 'white' || annotation.mover === 'black') &&
+        validPosition(annotation.before) &&
+        validPosition(annotation.after) &&
+        !!annotation.accuracy &&
+        (annotation.accuracy.status === 'classified' ||
+          annotation.accuracy.status === 'indeterminate') &&
+        !!annotation.settings &&
+        !!annotation.settings.limit
+    )
   );
 }
 

@@ -8,6 +8,7 @@ import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGa
 import { closeDatabase, openDatabase } from '@/lib/db/openDatabase';
 import { clearAllData, deleteUserData } from '@/lib/db/deleteLocalData';
 import type { GameRecord } from '@/lib/db/schema';
+import { createLongGameAnalysisResult } from '../../fixtures/longAnalysisFixture';
 
 const game = { id: 'one', username: 'player', pgn: '1. e4 e5' } as GameRecord;
 const review: GameAnalysisResult = {
@@ -40,6 +41,29 @@ describe('saved game reviews', () => {
     await saveReview(db, game, 'quick', { ...review, status: 'complete' });
     await saveReview(db, game, 'quick', review);
     expect((await restoreSelected(db, game, 'quick'))?.status).toBe('complete');
+  });
+
+  it.each([null, { ply: 1 }])(
+    'ignores a saved review containing a malformed annotation',
+    async (annotation) => {
+      const corrupt = {
+        ...review,
+        annotations: [annotation],
+        analyzedPlies: 1,
+      } as unknown as GameAnalysisResult;
+      await saveReview(db, game, 'quick', corrupt);
+      await expect(restoreSelected(db, game, 'quick')).resolves.toBeNull();
+    }
+  );
+
+  it('rejects duplicate saved plies', async () => {
+    const result = createLongGameAnalysisResult(2);
+    const corrupt = {
+      ...result,
+      annotations: [result.annotations[0]!, result.annotations[0]!],
+    };
+    await saveReview(db, game, 'quick', corrupt);
+    await expect(restoreSelected(db, game, 'quick')).resolves.toBeNull();
   });
 
   it('does not let an invalidated writer overwrite a newer saved review', async () => {

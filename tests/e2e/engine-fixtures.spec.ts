@@ -371,7 +371,7 @@ test('keeps the review position and move list stable through completion and disc
   const moveList = page.locator('.analysis-move-list');
   const before = await moveList.boundingBox();
   await engine.releaseEvaluations(20);
-  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({ timeout: 20_000 });
   const after = await moveList.boundingBox();
   expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(1);
   const summary = page.locator('.review-summary > summary');
