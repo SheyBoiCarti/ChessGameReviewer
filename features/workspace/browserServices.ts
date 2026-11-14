@@ -4,6 +4,7 @@ import { IngestionManager } from '@/features/ingestion/ingestionService';
 import { PgnValidationWorkerClient } from '@/features/ingestion/pgnValidationWorkerClient';
 import type { IngestionDependencies } from '@/features/ingestion/types';
 import { GraphWorkerClient } from '@/features/opening-tree/graphWorkerClient';
+import { OpeningDataWorkerClient } from '@/features/opening-tree/openingDataWorkerClient';
 import type { WorkspaceServices } from './createWorkspaceController';
 import { analyzeGame } from '@/features/stockfish-analysis/analyzeGame';
 import { EngineService } from '@/features/stockfish-analysis/engineService';
@@ -74,18 +75,14 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
       throw error;
     }
   };
-  let pgnValidator: PgnValidationWorkerClient | null = null;
-  const getPgnValidator = () => {
-    if (!pgnValidator) {
-      pgnValidator = new PgnValidationWorkerClient(
-        () =>
-          new Worker(new URL('../../workers/analysis-data.worker.ts', import.meta.url), {
-            type: 'module',
-          })
-      );
-    }
-    return pgnValidator;
-  };
+  const sharedDataWorker = new OpeningDataWorkerClient(
+    () =>
+      new Worker(new URL('../../workers/analysis-data.worker.ts', import.meta.url), {
+        type: 'module',
+      })
+  );
+  const pgnValidator = new PgnValidationWorkerClient(sharedDataWorker);
+  const getPgnValidator = () => pgnValidator;
   const memoryEvaluations = createMemoryEvaluationRepository();
   const archives = new Map<string, Awaited<ReturnType<IngestionDependencies['readArchiveList']>>>();
   const months = new Map<
@@ -187,16 +184,10 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     cancel: ingestionManager.cancel.bind(ingestionManager),
     dispose: () => {
       ingestionManager.cancel();
-      pgnValidator?.dispose();
-      pgnValidator = null;
+      sharedDataWorker.dispose();
     },
   };
-  const graph = new GraphWorkerClient(
-    () =>
-      new Worker(new URL('../../workers/analysis-data.worker.ts', import.meta.url), {
-        type: 'module',
-      })
-  );
+  const graph = new GraphWorkerClient(sharedDataWorker);
   const engineMode = new URLSearchParams(window.location.search).get('engine');
   const engine =
     engineMode === 'unavailable'

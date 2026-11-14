@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildGraphWithinByteBudget, handleRequest } from '@/workers/analysis-data.worker';
+import { PROTOCOL_VERSION } from '@/workers/protocol';
 import type { NormalizedGameSummary } from '@/lib/api/contracts';
 import { parseGamePgn, type ParsedGame } from '@/lib/chess/pgnParser';
 import { OpeningGraphBuilder, canonicalGameOrder } from '@/lib/chess/graph/openingGraph';
@@ -241,7 +242,7 @@ describe('analysis data worker', () => {
     const responses: Array<Record<string, unknown>> = [];
     await handleRequest(
       {
-        protocolVersion: 2,
+        protocolVersion: PROTOCOL_VERSION,
         jobId: 'validate-pgns',
         type: 'VALIDATE_PGNS',
         games: [
@@ -269,7 +270,7 @@ describe('analysis data worker', () => {
     const responses: Array<Record<string, unknown>> = [];
     await handleRequest(
       {
-        protocolVersion: 2,
+        protocolVersion: PROTOCOL_VERSION,
         jobId: 'bounded-validation',
         type: 'VALIDATE_PGNS',
         games: Array.from({ length: 105 }, (_, index) =>
@@ -291,7 +292,7 @@ describe('analysis data worker', () => {
     const responses: Array<{ type: string }> = [];
     const validation = handleRequest(
       {
-        protocolVersion: 2,
+        protocolVersion: PROTOCOL_VERSION,
         jobId: 'cancel-validation',
         type: 'VALIDATE_PGNS',
         games: Array.from({ length: 100 }, (_, index) => game({ id: `validation-${index}` })),
@@ -300,7 +301,7 @@ describe('analysis data worker', () => {
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
     await handleRequest(
-      { protocolVersion: 2, jobId: 'cancel-validation', type: 'CANCEL_JOB' },
+      { protocolVersion: PROTOCOL_VERSION, jobId: 'cancel-validation', type: 'CANCEL_JOB' },
       () => undefined
     );
     await validation;
@@ -313,7 +314,7 @@ describe('analysis data worker', () => {
     const responses: Array<{ type: string; builtCount?: number }> = [];
     await handleRequest(
       {
-        protocolVersion: 2,
+        protocolVersion: PROTOCOL_VERSION,
         jobId: 'job',
         type: 'BUILD_GRAPH',
         games: [],
@@ -332,7 +333,7 @@ describe('analysis data worker', () => {
     const responses: Array<{ type: string }> = [];
     const build = handleRequest(
       {
-        protocolVersion: 2,
+        protocolVersion: PROTOCOL_VERSION,
         jobId: 'cancel-me',
         type: 'BUILD_GRAPH',
         games: Array.from({ length: 100 }, (_, index) => game({ id: `fixture-${index}` })),
@@ -343,7 +344,7 @@ describe('analysis data worker', () => {
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
     await handleRequest(
-      { protocolVersion: 2, jobId: 'cancel-me', type: 'CANCEL_JOB' },
+      { protocolVersion: PROTOCOL_VERSION, jobId: 'cancel-me', type: 'CANCEL_JOB' },
       () => undefined
     );
     await build;
@@ -355,12 +356,12 @@ describe('analysis data worker', () => {
   it('cancels a job that was cancelled before it starts', async () => {
     const responses: Array<{ type: string }> = [];
     await handleRequest(
-      { protocolVersion: 2, jobId: 'cancel-before-start', type: 'CANCEL_JOB' },
+      { protocolVersion: PROTOCOL_VERSION, jobId: 'cancel-before-start', type: 'CANCEL_JOB' },
       () => undefined
     );
     await handleRequest(
       {
-        protocolVersion: 2,
+        protocolVersion: PROTOCOL_VERSION,
         jobId: 'cancel-before-start',
         type: 'BUILD_GRAPH',
         games: [game()],
@@ -377,7 +378,7 @@ describe('analysis data worker', () => {
     const responses: Array<Record<string, unknown>> = [];
     await handleRequest(
       {
-        protocolVersion: 2,
+        protocolVersion: PROTOCOL_VERSION,
         jobId: 'invalid-horizon',
         type: 'BUILD_GRAPH',
         games: [game()],
@@ -388,7 +389,7 @@ describe('analysis data worker', () => {
     );
 
     expect(responses.at(-1)).toEqual({
-      protocolVersion: 2,
+      protocolVersion: PROTOCOL_VERSION,
       jobId: 'invalid-horizon',
       type: 'FAILED',
       code: 'GRAPH_BUILD_FAILED',
@@ -406,7 +407,7 @@ describe('analysis data worker', () => {
     try {
       await handleRequest(
         {
-          protocolVersion: 2,
+          protocolVersion: PROTOCOL_VERSION,
           jobId: 'throttle-progress',
           type: 'BUILD_GRAPH',
           games: Array.from({ length: 100 }, (_, index) => game({ id: `throttle-${index}` })),
@@ -445,7 +446,7 @@ describe('analysis data worker', () => {
     const responses: Array<Record<string, unknown>> = [];
     await handleRequest(
       {
-        protocolVersion: 2,
+        protocolVersion: PROTOCOL_VERSION,
         jobId: 'parse-in-worker',
         type: 'BUILD_GRAPH',
         games: [game({ id: 'bad-pgn', pgn: '1. e4 e5 2. NotAMove' }), game()],

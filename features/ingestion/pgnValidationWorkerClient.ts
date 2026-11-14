@@ -2,6 +2,7 @@ import type { NormalizedGameSummary } from '../../lib/api/contracts';
 import type { GameRecord } from '../../lib/db/schema';
 import { PROTOCOL_VERSION, type WorkerResponse } from '../../workers/protocol';
 import type { PgnValidationResult } from './types';
+import { OpeningDataWorkerClient } from '../opening-tree/openingDataWorkerClient';
 
 interface ActiveValidation {
   jobId: string;
@@ -15,11 +16,27 @@ export class PgnValidationWorkerClient {
   private worker: Worker | null = null;
   private active: ActiveValidation | null = null;
   private disposed = false;
+  private shared: OpeningDataWorkerClient | null = null;
+  private readonly workerFactory?: () => Worker;
 
-  constructor(private readonly workerFactory: () => Worker) {}
+  constructor(workerOrFactoryOrShared: Worker | (() => Worker) | OpeningDataWorkerClient) {
+    if (workerOrFactoryOrShared instanceof OpeningDataWorkerClient) {
+      this.shared = workerOrFactoryOrShared;
+    } else if (typeof workerOrFactoryOrShared === 'function') {
+      this.workerFactory = workerOrFactoryOrShared;
+    } else {
+      this.workerFactory = () => workerOrFactoryOrShared;
+      this.worker = workerOrFactoryOrShared;
+      workerOrFactoryOrShared.addEventListener('message', this.onMessage);
+      workerOrFactoryOrShared.addEventListener('error', this.onError);
+    }
+  }
 
   validate(games: readonly GameRecord[], signal: AbortSignal): Promise<PgnValidationResult> {
     if (this.disposed) return Promise.reject(new Error('PGN_VALIDATION_CLIENT_DISPOSED'));
+    if (this.shared) {
+      return this.shared.validate(games, signal);
+    }
     if (signal.aborted) return Promise.reject(abortError());
     this.cancel();
 
@@ -39,23 +56,29 @@ export class PgnValidationWorkerClient {
   }
 
   cancel(): void {
+    if (this.shared) {
+      this.shared.cancel();
+      return;
+    }
     if (this.active) this.cancelJob(this.active.jobId);
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.cancel();
-    this.retireWorker();
+    if (!this.shared) {
+      this.retireWorker();
+    }
     this.disposed = true;
   }
 
   private getWorker(): Worker {
-    if (!this.worker) {
+    if (!this.worker && this.workerFactory) {
       this.worker = this.workerFactory();
       this.worker.addEventListener('message', this.onMessage);
       this.worker.addEventListener('error', this.onError);
     }
-    return this.worker;
+    return this.worker!;
   }
 
   private cancelJob(jobId: string): void {

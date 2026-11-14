@@ -1,4 +1,5 @@
 import type { Diagnostic, GameQuery, UpstreamError } from '../../lib/api/contracts';
+import type { OpeningGameProjection } from '../../lib/chess/graph/types';
 import type { FetchOptions } from '../../lib/api/chesscomClient';
 import type { RawChesscomGame } from '../../lib/api/chesscomSchemas';
 import type { ArchiveListMeta } from '../../lib/db/repositories';
@@ -47,6 +48,7 @@ export interface IngestionResult {
 
 export interface PgnValidationResult {
   validGameIds: readonly string[];
+  projections?: readonly OpeningGameProjection[];
   diagnostics: readonly Diagnostic[];
   totalInvalid: number;
   diagnosticCodes: readonly string[];

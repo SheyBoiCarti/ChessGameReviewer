@@ -1,5 +1,46 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { GraphWorkerClient } from '@/features/opening-tree/graphWorkerClient';
+import { OpeningDataWorkerClient } from '@/features/opening-tree/openingDataWorkerClient';
+import { handleRequest } from '@/workers/analysis-data.worker';
+import { isWorkerRequest, PROTOCOL_VERSION } from '@/workers/protocol';
+import * as pgnParserModule from '@/lib/chess/pgnParser';
+import type { GameRecord } from '@/lib/db/schema';
+
+class DelegatingWorker extends EventTarget {
+  readonly messages: unknown[] = [];
+  terminated = false;
+  postMessage(data: unknown) {
+    this.messages.push(data);
+    if (isWorkerRequest(data)) {
+      void handleRequest(data, (response) => {
+        this.dispatchEvent(new MessageEvent('message', { data: response }));
+      });
+    }
+  }
+  terminate() {
+    this.terminated = true;
+  }
+}
+
+function makeGameRecord(overrides: Partial<GameRecord> = {}): GameRecord {
+  return {
+    id: 'game-1',
+    username: 'alice',
+    url: 'https://example.test/game-1',
+    userColor: 'white',
+    result: 'win',
+    endedAt: 1,
+    timeClass: 'blitz',
+    rated: true,
+    userRating: 1500,
+    opponentRating: 1400,
+    whitePlayer: { username: 'alice', rating: 1500 },
+    blackPlayer: { username: 'bob', rating: 1400 },
+    pgn: '1. e4 e5 1-0',
+    rules: 'chess',
+    ...overrides,
+  };
+}
 
 class FakeWorker extends EventTarget {
   readonly messages: unknown[] = [];
@@ -33,13 +74,13 @@ describe('GraphWorkerClient', () => {
     );
     const request = (worker as unknown as FakeWorker).messages[0] as { jobId: string };
     (worker as unknown as FakeWorker).emit({
-      protocolVersion: 2,
+      protocolVersion: PROTOCOL_VERSION,
       jobId: 'stale',
       type: 'COMPLETE',
       snapshot: {},
     });
     (worker as unknown as FakeWorker).emit({
-      protocolVersion: 2,
+      protocolVersion: PROTOCOL_VERSION,
       jobId: request.jobId,
       type: 'COMPLETE',
       snapshot: { formatVersion: 2 },
@@ -57,7 +98,7 @@ describe('GraphWorkerClient', () => {
     );
     const limitedRequest = (worker as unknown as FakeWorker).messages.at(-1) as { jobId: string };
     (worker as unknown as FakeWorker).emit({
-      protocolVersion: 2,
+      protocolVersion: PROTOCOL_VERSION,
       jobId: limitedRequest.jobId,
       type: 'LIMITED',
       snapshot: {},
@@ -102,7 +143,7 @@ describe('GraphWorkerClient', () => {
     );
     const request = (worker as unknown as FakeWorker).messages.at(-1) as { jobId: string };
     (worker as unknown as FakeWorker).emit({
-      protocolVersion: 2,
+      protocolVersion: PROTOCOL_VERSION,
       jobId: request.jobId,
       type: 'PARTIAL',
       snapshot: {},
@@ -115,5 +156,28 @@ describe('GraphWorkerClient', () => {
       excludedGameCount: 2,
       diagnosticCodes: ['MISSING_PGN', 'ILLEGAL_PGN'],
     });
+  });
+
+  it('shares parsed projections between validation and graph jobs (T46)', async () => {
+    const parseSpy = vi.spyOn(pgnParserModule, 'parseGamePgn');
+    const worker = new DelegatingWorker();
+    const shared = new OpeningDataWorkerClient(() => worker as unknown as Worker);
+    const games = [
+      makeGameRecord({ id: 'game-1', pgn: '1. e4 e5 1-0' }),
+      makeGameRecord({ id: 'game-2', pgn: '1. d4 d5 1-0' }),
+    ];
+    const firstSignal = new AbortController().signal;
+    const options = { maxOpeningPlies: 30, includeRepeatedPositions: true };
+    const fingerprint = 'shared-query';
+
+    try {
+      await shared.validate(games, firstSignal);
+      await shared.build(games, options, fingerprint);
+      expect(parseSpy).toHaveBeenCalledTimes(games.length);
+      shared.dispose();
+      expect(worker.terminated).toBe(true);
+    } finally {
+      parseSpy.mockRestore();
+    }
   });
 });

@@ -4,7 +4,12 @@ import { normalizePositionKey } from '../fen';
 import type { ParsedGame } from '../pgnParser';
 import { addVisit, emptyOutcome } from './outcomes';
 import { PathStore } from './pathStore';
-import type { GraphBuildOptions, GraphStructuralLimits, PositionNode } from './types';
+import type {
+  GraphBuildOptions,
+  GraphStructuralLimits,
+  OpeningGameProjection,
+  PositionNode,
+} from './types';
 
 const DEFAULT_LIMITS: GraphStructuralLimits = {
   maxPositions: 150_000,
@@ -67,7 +72,7 @@ export class OpeningGraphBuilder {
     this.limits = { ...DEFAULT_LIMITS, ...limits };
   }
 
-  build(games: readonly ParsedGame[]): OpeningGraphSnapshot {
+  build(games: readonly (ParsedGame | OpeningGameProjection)[]): OpeningGraphSnapshot {
     const state = createBuildState();
     const orderedGames = canonicalGameOrder(games);
 
@@ -87,7 +92,7 @@ export class OpeningGraphBuilder {
   }
 
   async buildAsync(
-    games: readonly ParsedGame[],
+    games: readonly (ParsedGame | OpeningGameProjection)[],
     runtime: AsyncGraphBuildOptions = {}
   ): Promise<OpeningGraphSnapshot | undefined> {
     const state = createBuildState();
@@ -125,7 +130,7 @@ export class OpeningGraphBuilder {
 
   private addGame(
     state: BuildState,
-    game: ParsedGame | undefined
+    game: ParsedGame | OpeningGameProjection | undefined
   ): keyof GraphStructuralLimits | undefined {
     const skip = () => {
       state.excludedGameCount += 1;
@@ -295,7 +300,7 @@ function createAndStore(positions: Map<string, PositionNode>, key: string): Posi
   return node;
 }
 
-function isContinuous(game: ParsedGame): boolean {
+function isContinuous(game: ParsedGame | OpeningGameProjection): boolean {
   return game.plies.every(
     (ply, index) =>
       index === 0 ||
@@ -305,7 +310,7 @@ function isContinuous(game: ParsedGame): boolean {
 }
 
 function hasConsistentExistingEdges(
-  game: ParsedGame,
+  game: ParsedGame | OpeningGameProjection,
   positions: ReadonlyMap<string, PositionNode>
 ): boolean {
   return game.plies.every((ply) => {

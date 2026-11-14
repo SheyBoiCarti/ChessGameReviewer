@@ -8,17 +8,80 @@ import {
   serializedGraphFits,
   type SerializedOpeningGraph,
 } from '../lib/chess/graph/serialization';
-import type { GraphBuildOptions, GraphStructuralLimits } from '../lib/chess/graph/types';
+import {
+  OPENING_PROJECTION_VERSION,
+  PGN_PARSER_VERSION,
+  POSITION_KEY_VERSION,
+  type GraphBuildOptions,
+  type GraphStructuralLimits,
+  type OpeningGameProjection,
+} from '../lib/chess/graph/types';
 import { parseGamePgn, type ParsedGame } from '../lib/chess/pgnParser';
-import type { Diagnostic } from '../lib/api/contracts';
+import type { Diagnostic, NormalizedGameSummary } from '../lib/api/contracts';
+import { computePgnDigest } from '../features/stockfish-analysis/reviewIdentity';
 import type { WorkerRequest, WorkerResponse } from './protocol';
-import { isWorkerRequest, PROTOCOL_VERSION } from './protocol';
+import { isOpeningGameProjection, isWorkerRequest, PROTOCOL_VERSION } from './protocol';
 
 const cancelledJobs = new Set<string>();
 const PROGRESS_INTERVAL_MS = 50;
 const PARSE_YIELD_EVERY_GAMES = 25;
 const MAX_DIAGNOSTICS = 100;
 const MAX_DIAGNOSTIC_CODES = 20;
+
+const MAX_PARSED_CACHE_ENTRIES = 1000;
+const MAX_PARSED_CACHE_BYTES = 64 * 1024 * 1024;
+interface CachedParsedEntry {
+  parsed: ParsedGame;
+  projection: OpeningGameProjection;
+  byteSize: number;
+}
+const parsedCache = new Map<string, CachedParsedEntry>();
+let totalCachedBytes = 0;
+
+export function clearParsedCache(): void {
+  parsedCache.clear();
+  totalCachedBytes = 0;
+}
+
+function parsedGameCacheKey(game: NormalizedGameSummary, pgnDigest: string): string {
+  return JSON.stringify([
+    game.id,
+    pgnDigest,
+    PGN_PARSER_VERSION,
+    POSITION_KEY_VERSION,
+    game.usernameKey,
+    game.userColor,
+    game.result,
+    game.endedAt,
+    game.timeClass,
+    game.rated,
+    game.userRating,
+    game.opponentRating,
+  ]);
+}
+
+function storeInParsedCache(
+  key: string,
+  parsed: ParsedGame,
+  projection: OpeningGameProjection
+): void {
+  const byteSize = (JSON.stringify(projection).length + JSON.stringify(parsed).length) * 2;
+  if (parsedCache.has(key)) {
+    totalCachedBytes -= parsedCache.get(key)!.byteSize;
+    parsedCache.delete(key);
+  }
+  while (
+    (parsedCache.size >= MAX_PARSED_CACHE_ENTRIES ||
+      totalCachedBytes + byteSize > MAX_PARSED_CACHE_BYTES) &&
+    parsedCache.size > 0
+  ) {
+    const oldestKey = parsedCache.keys().next().value!;
+    totalCachedBytes -= parsedCache.get(oldestKey)!.byteSize;
+    parsedCache.delete(oldestKey);
+  }
+  parsedCache.set(key, { parsed, projection, byteSize });
+  totalCachedBytes += byteSize;
+}
 
 if (typeof self !== 'undefined') {
   self.addEventListener('message', (event: MessageEvent<unknown>) => {
@@ -194,7 +257,7 @@ export interface GraphBudgetResult {
 }
 
 export async function buildGraphWithinByteBudget(
-  games: readonly ParsedGame[],
+  games: readonly (ParsedGame | OpeningGameProjection)[],
   options: GraphBuildOptions,
   metadata: GraphBudgetMetadata,
   runtime: GraphBudgetRuntime = {}
@@ -269,6 +332,7 @@ async function validatePgnsInWorker(
 ): Promise<
   | {
       validGameIds: readonly string[];
+      projections: readonly OpeningGameProjection[];
       diagnostics: readonly Diagnostic[];
       totalInvalid: number;
       diagnosticCodes: readonly string[];
@@ -276,23 +340,48 @@ async function validatePgnsInWorker(
   | undefined
 > {
   const validGameIds: string[] = [];
+  const projections: OpeningGameProjection[] = [];
   const diagnostics: Diagnostic[] = [];
   const diagnosticCodes: string[] = [];
   let totalInvalid = 0;
 
   for (let index = 0; index < games.length; index += 1) {
     if (cancelledJobs.has(jobId)) return undefined;
-    const result = parseGamePgn({ game: games[index]! });
-    if (result.ok) validGameIds.push(games[index]!.id);
-    else {
-      totalInvalid += 1;
-      for (const diagnostic of result.errors) {
-        if (diagnostics.length < MAX_DIAGNOSTICS) diagnostics.push(diagnostic);
-        if (
-          diagnosticCodes.length < MAX_DIAGNOSTIC_CODES &&
-          !diagnosticCodes.includes(diagnostic.code)
-        ) {
-          diagnosticCodes.push(diagnostic.code);
+    const game = games[index]!;
+    const pgn = game.pgn?.trim() ?? '';
+    const pgnDigest = pgn ? await computePgnDigest(game.pgn!) : '';
+    const cacheKey = pgnDigest ? parsedGameCacheKey(game, pgnDigest) : null;
+    const cached = cacheKey ? parsedCache.get(cacheKey) : undefined;
+
+    if (cached) {
+      parsedCache.delete(cacheKey!);
+      parsedCache.set(cacheKey!, cached);
+      validGameIds.push(game.id);
+      projections.push(cached.projection);
+    } else {
+      const result = parseGamePgn({ game });
+      if (result.ok) {
+        validGameIds.push(game.id);
+        const projection: OpeningGameProjection = {
+          ...result.game,
+          plies: result.game.plies.slice(0, 40),
+          projectionVersion: OPENING_PROJECTION_VERSION,
+          pgnDigest,
+        };
+        projections.push(projection);
+        if (cacheKey) {
+          storeInParsedCache(cacheKey, result.game, projection);
+        }
+      } else {
+        totalInvalid += 1;
+        for (const diagnostic of result.errors) {
+          if (diagnostics.length < MAX_DIAGNOSTICS) diagnostics.push(diagnostic);
+          if (
+            diagnosticCodes.length < MAX_DIAGNOSTIC_CODES &&
+            !diagnosticCodes.includes(diagnostic.code)
+          ) {
+            diagnosticCodes.push(diagnostic.code);
+          }
         }
       }
     }
@@ -301,7 +390,7 @@ async function validatePgnsInWorker(
     }
   }
 
-  return { validGameIds, diagnostics, totalInvalid, diagnosticCodes };
+  return { validGameIds, projections, diagnostics, totalInvalid, diagnosticCodes };
 }
 
 async function parseGamesInWorker(
@@ -312,22 +401,54 @@ async function parseGamesInWorker(
     diagnosticsCount: number,
     diagnosticCodes: readonly string[]
   ) => void
-): Promise<ParsedGame[] | undefined> {
-  const parsedGames: ParsedGame[] = [];
+): Promise<(ParsedGame | OpeningGameProjection)[] | undefined> {
+  const parsedGames: (ParsedGame | OpeningGameProjection)[] = [];
   let diagnosticsCount = 0;
   const diagnosticCodes: string[] = [];
+
   for (let index = 0; index < games.length; index += 1) {
     if (cancelledJobs.has(jobId)) return undefined;
-    const result = parseGamePgn({ game: games[index]! });
-    if (result.ok) parsedGames.push(result.game);
-    else {
-      diagnosticsCount = Math.min(MAX_DIAGNOSTICS, diagnosticsCount + result.errors.length);
-      for (const diagnostic of result.errors) {
-        if (
-          diagnosticCodes.length < MAX_DIAGNOSTIC_CODES &&
-          !diagnosticCodes.includes(diagnostic.code)
-        ) {
-          diagnosticCodes.push(diagnostic.code);
+    const game = games[index]!;
+    if (isOpeningGameProjection(game)) {
+      parsedGames.push(game);
+      onProgress(parsedGames.length, diagnosticsCount, diagnosticCodes);
+      if ((index + 1) % PARSE_YIELD_EVERY_GAMES === 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+      continue;
+    }
+
+    const pgn = game.pgn?.trim() ?? '';
+    const pgnDigest = pgn ? await computePgnDigest(game.pgn!) : '';
+    const cacheKey = pgnDigest ? parsedGameCacheKey(game, pgnDigest) : null;
+    const cached = cacheKey ? parsedCache.get(cacheKey) : undefined;
+
+    if (cached) {
+      parsedCache.delete(cacheKey!);
+      parsedCache.set(cacheKey!, cached);
+      parsedGames.push(cached.projection);
+    } else {
+      const result = parseGamePgn({ game });
+      if (result.ok) {
+        const projection: OpeningGameProjection = {
+          ...result.game,
+          plies: result.game.plies.slice(0, 40),
+          projectionVersion: OPENING_PROJECTION_VERSION,
+          pgnDigest,
+        };
+        parsedGames.push(projection);
+        if (cacheKey) {
+          storeInParsedCache(cacheKey, result.game, projection);
+        }
+      } else {
+        diagnosticsCount = Math.min(MAX_DIAGNOSTICS, diagnosticsCount + result.errors.length);
+        for (const diagnostic of result.errors) {
+          if (
+            diagnosticCodes.length < MAX_DIAGNOSTIC_CODES &&
+            !diagnosticCodes.includes(diagnostic.code)
+          ) {
+            diagnosticCodes.push(diagnostic.code);
+          }
         }
       }
     }
@@ -336,5 +457,6 @@ async function parseGamesInWorker(
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
   }
+
   return parsedGames;
 }

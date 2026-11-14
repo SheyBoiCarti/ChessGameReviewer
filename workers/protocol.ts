@@ -1,8 +1,9 @@
 import type { Diagnostic, NormalizedGameSummary } from '../lib/api/contracts';
-import type { GraphBuildOptions } from '../lib/chess/graph/types';
+import type { GraphBuildOptions, OpeningGameProjection } from '../lib/chess/graph/types';
+import { OPENING_PROJECTION_VERSION } from '../lib/chess/graph/types';
 import type { SerializedOpeningGraph } from '../lib/chess/graph/serialization';
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export type WorkerRequest =
   | {
@@ -15,7 +16,7 @@ export type WorkerRequest =
       protocolVersion: typeof PROTOCOL_VERSION;
       jobId: string;
       type: 'BUILD_GRAPH';
-      games: readonly NormalizedGameSummary[];
+      games: readonly (NormalizedGameSummary | OpeningGameProjection)[];
       options: GraphBuildOptions;
       queryFingerprint: string;
     }
@@ -29,6 +30,7 @@ export type WorkerResponse =
       jobId: string;
       type: 'PGN_VALIDATION_COMPLETE';
       validGameIds: readonly string[];
+      projections: readonly OpeningGameProjection[];
       diagnostics: readonly Diagnostic[];
       totalInvalid: number;
       diagnosticCodes: readonly string[];
@@ -91,10 +93,20 @@ export function isWorkerRequest(value: unknown): value is WorkerRequest {
   return (
     value.type === 'BUILD_GRAPH' &&
     Array.isArray(value.games) &&
-    value.games.every(isNormalizedGameSummary) &&
+    value.games.every((g) => isNormalizedGameSummary(g) || isOpeningGameProjection(g)) &&
     typeof value.queryFingerprint === 'string' &&
     value.queryFingerprint.length > 0 &&
     isGraphBuildOptions(value.options)
+  );
+}
+
+export function isOpeningGameProjection(value: unknown): value is OpeningGameProjection {
+  if (!isRecord(value)) return false;
+  return (
+    value.projectionVersion === OPENING_PROJECTION_VERSION &&
+    typeof value.pgnDigest === 'string' &&
+    typeof value.id === 'string' &&
+    Array.isArray(value.plies)
   );
 }
 
