@@ -423,6 +423,8 @@ export function ChessWorkspace({
     const previous = previousIngestionStatus.current;
     previousIngestionStatus.current = state.ingestion.status;
     if (previous === 'loading' && state.ingestion.status !== 'loading') {
+      // Recovery is a one-time form intent; later saved searches own their dates.
+      if (queryRecovery) setQueryRecovery(null);
       const hasGames = (state.ingestion.result?.games.length ?? 0) > 0;
       if (startupComplete && ['complete', 'partial'].includes(state.ingestion.status) && hasGames) {
         setImportOpen(false);

@@ -394,6 +394,7 @@ test('clears local filters and recovers a failed replacement with the requested 
 });
 
 test('widens an empty date search only after a recovery action (T31)', async ({ page }) => {
+  test.setTimeout(60_000);
   await page.goto('/?engine=unavailable');
   await page.getByLabel('Username', { exact: true }).fill('fixture-user');
   await page.getByRole('button', { name: 'Find games', exact: true }).click();
@@ -404,6 +405,19 @@ test('widens an empty date search only after a recovery action (T31)', async ({ 
   await expect(dialog.getByRole('radio', { name: 'All available', exact: true })).toBeChecked();
   await dialog.getByRole('button', { name: 'Find games', exact: true }).click();
   await expect(page.getByRole('list', { name: 'Games' })).toBeVisible();
+  // A handled recovery must not reset a later saved custom search on reopening.
+  await page.getByRole('button', { name: 'Import games', exact: true }).click();
+  await page.getByRole('button', { name: 'Game filters', exact: true }).click();
+  await page.getByRole('radio', { name: 'Custom', exact: true }).click();
+  await page.getByLabel('From date').fill('2024-01-15');
+  await page.getByLabel('To date').fill('2024-01-16');
+  await page.getByRole('button', { name: 'Find games', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await page.getByRole('button', { name: 'Import games', exact: true }).click();
+  await page.getByRole('button', { name: 'Game filters', exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'Custom', exact: true })).toBeChecked();
+  await expect(page.getByLabel('From date')).toHaveValue('2024-01-15');
+  await expect(page.getByLabel('To date')).toHaveValue('2024-01-16');
 });
 
 test('reopens each game at its own position and starts over explicitly (T27)', async ({ page }) => {

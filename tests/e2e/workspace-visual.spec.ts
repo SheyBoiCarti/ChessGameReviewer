@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { installWorkspaceFixtures, loadFixtureGames } from './helpers/workspaceFixtures';
+import { installEngineFixtures } from './helpers/engineFixtures';
 
 test.describe('workspace visual regression', () => {
   test.beforeEach(async ({ page }) => {
@@ -39,11 +40,25 @@ test.describe('workspace visual regression', () => {
   });
 
   test('analyzer unavailable', async ({ page }) => {
-    await page.goto('/?engine=unavailable');
+    const engine = await installEngineFixtures(page, { manualReady: true });
+    await page.goto('/?engine=single');
     await loadFixtureGames(page);
     await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
     await page.getByRole('button', { name: 'Review', exact: true }).click();
     await page.getByRole('tab', { name: 'Analysis' }).click();
+    await expect(page.getByText('Checking analysis engine…', { exact: true })).toBeVisible();
+    await waitForStableLayout(page);
+    const initialization = (await engine.requests())
+      .filter((request) => request.type === 'INITIALIZE')
+      .at(-1);
+    expect(initialization).toBeDefined();
+    await engine.deliver({
+      protocolVersion: 1,
+      jobId: initialization!.jobId,
+      type: 'FAILED',
+      code: 'FIXTURE_INITIALIZATION_FAILED',
+      message: 'Controlled initialization failure',
+    });
     await expect(page.getByText(/Analysis is unavailable on this device/i)).toBeVisible();
     await waitForStableLayout(page);
 
@@ -75,7 +90,19 @@ function dynamicDateCells(page: Page): Locator[] {
 }
 
 async function waitForStableLayout(page: Page) {
-  await page.waitForFunction(() => document.documentElement.dataset.theme !== undefined);
+  await page.waitForFunction(() => {
+    if (document.documentElement.dataset.theme === undefined) return false;
+    const params = new URL(location.href).searchParams;
+    const gameId = params.get('game');
+    if (!gameId) return true;
+    const saved = JSON.parse(localStorage.getItem('chess-game-reviewer:session') ?? 'null');
+    return (
+      saved?.gameId === gameId &&
+      /^[a-f0-9]{64}$/.test(saved?.pgnDigest ?? '') &&
+      saved.tab === params.get('view') &&
+      saved.reviewMode === params.get('mode')
+    );
+  });
   await page.locator('html').evaluate((root) => root.setAttribute('data-theme', 'dark'));
   await page.evaluate(async () => {
     window.scrollTo(0, 0);
