@@ -129,14 +129,15 @@ async function installRoutes(page: Page, fixtureGames: readonly RawChesscomGame[
 
 export async function loadFixtureGames(page: Page, maximumGames = 2) {
   await page.getByLabel('Username').fill('fixture-user');
+  await page.getByRole('button', { name: 'Game filters' }).click();
   await page.getByRole('radio', { name: 'Custom' }).click();
   await page.getByLabel('From date').fill('2024-01-01');
   await page.getByLabel('To date').fill('2024-01-31');
-  await page.getByRole('button', { name: 'Game filters' }).click();
   await page.getByLabel('Maximum games').fill(String(maximumGames));
+  await page.getByText('Advanced opening settings', { exact: true }).click();
   await page.getByLabel('Opening horizon (plies)').fill('8');
   await page.getByLabel('Rated status').selectOption('rated');
-  await page.getByRole('button', { name: 'Load games' }).click();
+  await page.getByRole('button', { name: 'Find games' }).click();
 }
 
 function game(input: {

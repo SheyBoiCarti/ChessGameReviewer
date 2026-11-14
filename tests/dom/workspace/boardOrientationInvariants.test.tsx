@@ -104,7 +104,7 @@ describe('Board orientation and player metadata invariants', () => {
       const services = makeMockServices([sampleGame, otherGame]);
       render(<ChessWorkspace createServices={() => services} />);
       await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
-      await user.click(screen.getByRole('button', { name: /load games/i }));
+      await user.click(screen.getByRole('button', { name: /find games/i }));
       await user.click(screen.getByRole('button', { name: /cmzulu/i }));
       await user.click(screen.getByRole('button', { name: /^review$/i }));
       expect(spy.mock.calls.some(([record]) => record?.id === 'other-game')).toBe(false);
@@ -123,7 +123,7 @@ describe('Board orientation and player metadata invariants', () => {
     // Load games via query
     const usernameInput = screen.getByLabelText(/^username$/i);
     await user.type(usernameInput, 'iamSheyBoiCarti');
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
 
     // Select the game
     await user.click(screen.getByRole('button', { name: /cmzulu/i }));
@@ -172,7 +172,7 @@ describe('Board orientation and player metadata invariants', () => {
     // Load and select game
     const usernameInput = screen.getByLabelText(/^username$/i);
     await user.type(usernameInput, 'iamSheyBoiCarti');
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
     await user.click(screen.getByRole('button', { name: /cmzulu/i }));
 
     // Navigate history to ply 2 (1...e5)

@@ -1168,6 +1168,13 @@ export function ChessWorkspace({
                           <OpeningPositionAnalysis fen={displayedBoardFen} />
                         ) : null}
                         <OpeningView
+                          openingHorizon={state.preferences.openingHorizon}
+                          onOpeningHorizonChange={(openingHorizon) =>
+                            controller.dispatch({
+                              type: 'preferences/changed',
+                              preferences: { openingHorizon },
+                            })
+                          }
                           games={state.ingestion.result?.games ?? []}
                           sequence={graph.paths.sequence(navigation.pathId)}
                           onSelectGame={(id) => {

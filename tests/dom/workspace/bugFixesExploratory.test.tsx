@@ -224,7 +224,7 @@ describe('Bug fixes exploratory verification', () => {
 
     // Initial successful load
     await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
 
     // Verify game is loaded in the list
     expect(screen.getByRole('button', { name: /^Preview .*opponent/i })).toBeInTheDocument();
@@ -237,7 +237,7 @@ describe('Bug fixes exploratory verification', () => {
     const drawerUsernameInput = screen.getByLabelText(/^username$/i);
     await user.clear(drawerUsernameInput);
     await user.type(drawerUsernameInput, 'nonexistent_user_404');
-    const drawerSubmit = screen.getByRole('button', { name: /load games/i });
+    const drawerSubmit = screen.getByRole('button', { name: /find games/i });
     await user.click(drawerSubmit);
 
     // Close the drawer using its close button
@@ -267,7 +267,7 @@ describe('Bug fixes exploratory verification', () => {
 
     // Load games
     await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
 
     // Switch to Analysis tab directly and start review
     const reviewBtn = screen.getByRole('button', { name: /review game/i });
@@ -297,7 +297,7 @@ describe('Bug fixes exploratory verification', () => {
 
     // Load games
     await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
 
     // Focus on an element outside the chessboard (e.g. Games nav item)
     const gamesNav = screen.getByRole('button', { name: /^games$/i });

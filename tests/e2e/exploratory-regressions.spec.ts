@@ -45,6 +45,7 @@ test('B2/B7: cancel retains games with neutral feedback; an empty import clears 
   await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await page.getByRole('button', { name: 'Import games', exact: true }).click();
   await page.getByLabel('Username').fill('fixture-slow');
+  await page.getByRole('button', { name: 'Game filters' }).click();
   await page.getByLabel('From date').fill('2024-02-01');
   await page.getByLabel('To date').fill('2024-02-29');
   await page.route('**/fixture-slow/games/archives', async (route) => {
@@ -53,7 +54,7 @@ test('B2/B7: cancel retains games with neutral feedback; an empty import clears 
       json: { archives: ['https://api.chess.com/pub/player/fixture-user/games/2024/02'] },
     });
   });
-  await page.getByRole('button', { name: 'Load games', exact: true }).click();
+  await page.getByRole('button', { name: 'Find games', exact: true }).click();
   await page.getByRole('button', { name: 'Cancel loading' }).click();
   await expect(page.getByText('Import cancelled.', { exact: false })).toBeVisible();
   await expect(page.getByText('Games could not be loaded', { exact: true })).toHaveCount(0);
@@ -61,12 +62,12 @@ test('B2/B7: cancel retains games with neutral feedback; an empty import clears 
   await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await page.getByRole('button', { name: 'Import games', exact: true }).click();
   await page.getByLabel('Username').fill('fixture-user');
+  await page.getByRole('button', { name: 'Game filters' }).click();
   await page.getByLabel('From date').fill('2024-01-01');
   await page.getByLabel('To date').fill('2024-01-31');
-  await page.getByRole('button', { name: 'Game filters' }).click();
   for (const speed of ['Bullet', 'Blitz', 'Rapid'])
     await page.getByRole('checkbox', { name: speed, exact: true }).uncheck();
-  await page.getByRole('button', { name: 'Load games', exact: true }).click();
+  await page.getByRole('button', { name: 'Find games', exact: true }).click();
   await expect(
     page
       .getByRole('dialog', { name: 'Import games' })

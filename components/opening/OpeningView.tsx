@@ -1,5 +1,6 @@
 'use client';
 
+import { OpeningSettings } from './OpeningSettings';
 import { useMemo } from 'react';
 import { parseSelectedGame } from '@/features/workspace/parseSelectedGame';
 import type { GameRecord } from '@/lib/db/schema';
@@ -8,10 +9,14 @@ export function OpeningView({
   games,
   sequence,
   onSelectGame,
+  openingHorizon = 30,
+  onOpeningHorizonChange,
 }: {
   games: readonly GameRecord[];
   sequence: readonly { uci: string }[];
   onSelectGame(id: string): void;
+  openingHorizon?: number;
+  onOpeningHorizonChange?: ((value: number) => void) | undefined;
 }) {
   const openingGames = useMemo(
     () =>
@@ -25,6 +30,7 @@ export function OpeningView({
   );
   return (
     <section className="surface-panel" aria-label="Games in this opening">
+      <OpeningSettings value={openingHorizon} onChange={onOpeningHorizonChange} />
       <h3>Your games in this line</h3>
       <p>
         {matching.filter(({ record }) => record.userColor === 'white').length} as White ·{' '}

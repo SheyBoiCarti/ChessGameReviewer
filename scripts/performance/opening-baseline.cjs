@@ -163,17 +163,17 @@ async function painted(page) {
           if (!serverBuildId.includes(buildId))
             throw new Error('Server build ID differs from .next/BUILD_ID');
           await page.getByLabel('Username', { exact: true }).fill('audit-player');
+          await page.getByRole('button', { name: 'Game filters', exact: true }).click();
           await page.getByRole('radio', { name: 'Custom', exact: true }).click();
           await page.getByLabel('From date').fill('2024-01-01');
           await page.getByLabel('To date').fill('2024-01-31');
-          await page.getByRole('button', { name: 'Game filters', exact: true }).click();
           await page.getByLabel('Maximum games').fill(String(count));
           await page.getByLabel('Black games', { exact: true }).uncheck();
           for (const cacheState of ['cold', 'warm']) {
             if (cacheState === 'warm')
               await page.getByRole('button', { name: 'Import games', exact: true }).click();
             const start = await now(page);
-            await page.getByRole('button', { name: 'Load games', exact: true }).click();
+            await page.getByRole('button', { name: 'Find games', exact: true }).click();
             await page.getByText(`${count * 0.6} games loaded`, { exact: true }).waitFor();
             const imported = await now(page);
             // Graph construction starts after saved-review reads in the current controller.

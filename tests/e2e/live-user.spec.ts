@@ -25,7 +25,7 @@ test('loads live games for user iamsheyboicarti and checks graph build', async (
   await maxGamesInput.fill('5');
 
   // Submit query
-  const loadButton = page.getByRole('button', { name: 'Load games' });
+  const loadButton = page.getByRole('button', { name: 'Find games' });
   await loadButton.click();
 
   // Wait for games to load

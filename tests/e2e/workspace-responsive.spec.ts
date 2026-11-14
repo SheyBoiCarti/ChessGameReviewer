@@ -238,7 +238,7 @@ test('contains games and opening candidates in fixed-height scroll viewports', a
   await loadFixtureGames(page, 20);
 
   const gameResults = page.getByRole('region', { name: 'Game results' });
-  await expect(gameResults.getByRole('button')).toHaveCount(20);
+  await expect(gameResults.getByRole('button', {name: /^Preview/})).toHaveCount(20);
   const gameMetrics = await scrollMetrics(gameResults);
   expect(gameMetrics.clientHeight).toBeGreaterThanOrEqual(16 * 16 - 1);
   expect(gameMetrics.clientHeight).toBeLessThanOrEqual(28 * 16 + 1);
@@ -573,4 +573,12 @@ test('expanded review feedback remains usable and keeps its toggle focused', asy
   await page.setViewportSize({ width: 320, height: 740 });
   await expect(page.getByRole('grid', { name: 'Chess board' })).toBeVisible();
   expect(await overflow(page)).toBeLessThanOrEqual(1);
+});
+
+test('keeps the first import focused on username and Find games (T30)', async ({ page }) => {
+  await page.goto('/?engine=unavailable');
+  await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Find games', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Maximum games')).not.toBeVisible();
+  await expect(page.getByLabel('Opening horizon (plies)')).not.toBeVisible();
 });
