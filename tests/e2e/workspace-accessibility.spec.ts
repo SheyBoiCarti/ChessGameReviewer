@@ -138,7 +138,12 @@ async function assertAccessible(page: import('@playwright/test').Page) {
       document
         .getAnimations()
         .filter((animation) => animation instanceof CSSTransition)
-        .map((animation) => animation.finished.catch(() => undefined))
+        .map((animation) =>
+          Promise.race([
+            animation.finished.catch(() => undefined),
+            new Promise<void>((resolve) => setTimeout(resolve, 250)),
+          ])
+        )
     );
   });
   const results = await new AxeBuilder({ page })
@@ -384,4 +389,24 @@ test('rapid keyboard input ends on correct synchronized board, list, and graph p
 
   await page.keyboard.press('Home');
   await expect(page.getByLabel('Position 0 of 8')).toBeVisible();
+});
+
+test('core review milestone completed state satisfies accessibility standards (T35)', async ({
+  page,
+}) => {
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({ timeout: 30_000 });
+
+  // Verify completed review state has no serious or critical axe violations
+  const findings = await new AxeBuilder({ page }).analyze();
+  expect(
+    findings.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  ).toEqual([]);
 });

@@ -468,3 +468,61 @@ test('keeps independent list state for each import query (T26/T27)', async ({ pa
   await expect(page.getByText('Page 2 of 13')).toBeVisible();
   await expect.poll(() => viewport.evaluate((el) => el.scrollTop)).toBe(160);
 });
+
+test('completes the core review milestone journey and preserves list filters (T35)', async ({
+  page,
+}) => {
+  const engine = await installEngineFixtures(page, {
+    manualReady: false,
+    manualEvaluations: true,
+  });
+  await installWorkspaceFixtures(page);
+  await page.goto('/?engine=single');
+
+  // 1. Import
+  await loadFixtureGames(page);
+
+  // 2. Choose with active filter
+  const filter = page.getByLabel('Filter games');
+  await filter.fill('opponent-two');
+  await expect(page.getByRole('heading', { level: 3, name: /games \(1 of 2\)/i })).toBeVisible();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+
+  // 3. Single review start
+  await page.getByRole('button', { name: 'Review game', exact: true }).click();
+  await expect(page.getByRole('progressbar', { name: 'Review progress' })).toBeVisible();
+
+  // 4. Use partial result
+  // Adjacent annotations share their boundary position: 2 evaluations complete ply 1.
+  await engine.releaseEvaluations(2);
+  await expect(page.getByRole('progressbar', { name: 'Review progress' })).toHaveAttribute(
+    'aria-valuenow',
+    '1'
+  );
+  await page.getByRole('button', { name: 'Next move', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Selected move feedback' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Selected move feedback' })).toContainText('d4');
+
+  // 5. Complete review
+  await engine.releaseEvaluations(100);
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({ timeout: 30_000 });
+
+  // 6. Key moment navigation
+  const feedback = page.getByRole('region', { name: 'Selected move feedback' });
+  await feedback.locator('summary').click();
+  await expect(feedback.getByText(/Best move:/)).toBeVisible();
+
+  // 7. Alternative exploration in variation sandbox
+  await feedback.getByRole('button', { name: 'Explore alternative' }).click();
+  const banner = page.getByRole('complementary', { name: 'Analysis variation sandbox' });
+  await expect(banner).toBeVisible();
+  await banner.getByRole('button', { name: /Return to game/ }).click();
+
+  // 8. Return to games
+  await expect(page.getByRole('region', { name: 'Selected move feedback' })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to games', exact: true }).click();
+
+  // 9. Original filtered list passes
+  await expect(page.getByLabel('Filter games')).toHaveValue('opponent-two');
+  await expect(page.getByRole('heading', { level: 3, name: /games \(1 of 2\)/i })).toBeVisible();
+});

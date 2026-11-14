@@ -450,7 +450,16 @@ async function waitForColorTransitions(locator: import('@playwright/test').Locat
   await locator.evaluate(async (element) => {
     // Flush style changes so theme and hover transitions have been created.
     window.getComputedStyle(element).color;
-    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+    await Promise.all(
+      element
+        .getAnimations()
+        .map((animation) =>
+          Promise.race([
+            animation.finished.catch(() => undefined),
+            new Promise<void>((resolve) => setTimeout(resolve, 250)),
+          ])
+        )
+    );
   });
 }
 
@@ -600,6 +609,10 @@ test('review interaction controls maintain 44px mobile touch targets and no over
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
   await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  const menuButton = page.getByRole('button', { name: /open menu/i });
+  if (await menuButton.isVisible()) {
+    await menuButton.click();
+  }
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('button', { name: /Run review/ }).click();
   await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
@@ -648,4 +661,32 @@ test('review interaction controls maintain 44px mobile touch targets and no over
     expect(btnBox).not.toBeNull();
     expect(btnBox!.height).toBeGreaterThanOrEqual(43.9);
   }
+});
+
+test('core review milestone layout remains responsive across desktop and mobile viewports (T35)', async ({
+  page,
+}) => {
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  const menuButton = page.getByRole('button', { name: /open menu/i });
+  if (await menuButton.isVisible()) {
+    await menuButton.click();
+  }
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({ timeout: 30_000 });
+
+  // Desktop viewport check (1440x900)
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByRole('group', { name: 'Evaluation graph' })).toBeVisible();
+  await expect(page.locator('.review-summary')).toBeVisible();
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+
+  // Mobile viewport check (390x844)
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('grid', { name: 'Chess board' })).toBeVisible();
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
 });

@@ -62,7 +62,7 @@ test.describe('workspace visual regression', () => {
     await expect(page.getByText(/Analysis is unavailable on this device/i)).toBeVisible();
     await waitForStableLayout(page);
 
-    await expect(page).toHaveScreenshot('analyzer-unavailable.png', screenshotOptions());
+    await expect(page).toHaveScreenshot('analyzer-unavailable.png', screenshotOptions(page));
   });
 
   test('mobile workspace', async ({ page }) => {
