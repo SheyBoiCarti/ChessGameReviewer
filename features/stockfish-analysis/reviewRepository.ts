@@ -3,6 +3,7 @@ import { getMeta } from '@/lib/db/repositories';
 import type { AnalysisStrength } from '@/features/workspace/types';
 import type { GameAnalysisResult } from './analyzeGame';
 import { computePgnDigest } from './reviewIdentity';
+import { REVIEW_MOVE_QUALITIES } from '@/lib/engine/accuracy';
 
 // Change this when the engine, accuracy heuristic or review format changes.
 const LEGACY_VERSION = 'stockfish18-9067e33176e-accuracy-v3-review-v1';
@@ -23,21 +24,80 @@ interface SavedReview {
 }
 
 function validResult(value: GameAnalysisResult | null | undefined): value is GameAnalysisResult {
+  const count = (number: number) => Number.isInteger(number) && number >= 0;
+  const positive = (number: number) => Number.isFinite(number) && number > 0;
+  const percent = (number: number) => Number.isFinite(number) && number >= 0 && number <= 100;
+  const strings = (items: readonly string[]) =>
+    Array.isArray(items) && items.every((item) => typeof item === 'string');
+  const validScore = (score: GameAnalysisResult['annotations'][number]['before']['score']) =>
+    !!score &&
+    (score.kind === 'cp' || score.kind === 'mate') &&
+    Number.isFinite(score.value) &&
+    (score.bound === undefined || score.bound === 'lower' || score.bound === 'upper');
   const validPosition = (position: GameAnalysisResult['annotations'][number]['before']) =>
     !!position &&
-    !!position.score &&
-    (position.score.kind === 'cp' || position.score.kind === 'mate') &&
-    Number.isFinite(position.score.value) &&
-    Array.isArray(position.pv) &&
+    validScore(position.score) &&
+    count(position.depth) &&
+    strings(position.pv) &&
     Array.isArray(position.candidates) &&
+    position.candidates.every(
+      (candidate) =>
+        !!candidate &&
+        positive(candidate.multiPv) &&
+        count(candidate.depth) &&
+        validScore(candidate.score) &&
+        strings(candidate.pv)
+    ) &&
     typeof position.bestMove === 'string';
+  const validSummary = (summary: GameAnalysisResult['summary']['white']) =>
+    !!summary &&
+    (summary.accuracyEstimate === null || percent(summary.accuracyEstimate)) &&
+    count(summary.eligibleMoves) &&
+    count(summary.excludedMoves) &&
+    (summary.repertoireMoves === undefined || count(summary.repertoireMoves)) &&
+    !!summary.breakdown &&
+    REVIEW_MOVE_QUALITIES.every((quality) => count(summary.breakdown[quality]));
+  const validSettings = (settings: GameAnalysisResult['annotations'][number]['settings']) =>
+    !!settings &&
+    ['engineBuild', 'networkHash', 'analysisVersion', 'normalizationVersion'].every(
+      (key) => typeof settings[key as keyof typeof settings] === 'string'
+    ) &&
+    positive(settings.multiPv) &&
+    positive(settings.threads) &&
+    positive(settings.hashMb) &&
+    !!settings.limit &&
+    [settings.limit.depth, settings.limit.movetimeMs, settings.limit.nodes].some(
+      (limit) => limit !== undefined && positive(limit)
+    ) &&
+    [settings.limit.depth, settings.limit.movetimeMs, settings.limit.nodes].every(
+      (limit) => limit === undefined || positive(limit)
+    );
+  const validAccuracy = (accuracy: GameAnalysisResult['annotations'][number]['accuracy']) =>
+    !!accuracy &&
+    (accuracy.status === 'indeterminate'
+      ? ['bound-score', 'non-finite-score', 'non-finite-probability'].includes(accuracy.reason)
+      : accuracy.status === 'classified' &&
+        REVIEW_MOVE_QUALITIES.includes(accuracy.quality) &&
+        percent(accuracy.accuracyEstimate) &&
+        Number.isFinite(accuracy.probabilityLoss) &&
+        accuracy.probabilityLoss >= 0 &&
+        accuracy.probabilityLoss <= 1 &&
+        accuracy.heuristicVersion === 'analyzer-accuracy-v3' &&
+        (accuracy.tags === undefined ||
+          (Array.isArray(accuracy.tags) && accuracy.tags.every((tag) => tag === 'repertoire'))));
   return (
     !!value &&
     ['complete', 'partial', 'cancelled', 'failed'].includes(value.status) &&
     Array.isArray(value.annotations) &&
     !!value.summary &&
-    !!value.summary.white &&
-    !!value.summary.black &&
+    validSummary(value.summary.white) &&
+    validSummary(value.summary.black) &&
+    Array.isArray(value.warnings) &&
+    value.warnings.every(
+      (warning) =>
+        !!warning && typeof warning.code === 'string' && typeof warning.message === 'string'
+    ) &&
+    (value.error === undefined || typeof value.error === 'string') &&
     Number.isInteger(value.analyzedPlies) &&
     value.analyzedPlies === value.annotations.length &&
     Number.isInteger(value.totalPlies) &&
@@ -54,11 +114,8 @@ function validResult(value: GameAnalysisResult | null | undefined): value is Gam
         (annotation.mover === 'white' || annotation.mover === 'black') &&
         validPosition(annotation.before) &&
         validPosition(annotation.after) &&
-        !!annotation.accuracy &&
-        (annotation.accuracy.status === 'classified' ||
-          annotation.accuracy.status === 'indeterminate') &&
-        !!annotation.settings &&
-        !!annotation.settings.limit
+        validAccuracy(annotation.accuracy) &&
+        validSettings(annotation.settings)
     )
   );
 }

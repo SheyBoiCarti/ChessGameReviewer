@@ -4,7 +4,10 @@ import {
   restoreSelected,
   saveReview,
 } from '@/features/stockfish-analysis/reviewRepository';
-import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGame';
+import {
+  summarizeAnnotations,
+  type GameAnalysisResult,
+} from '@/features/stockfish-analysis/analyzeGame';
 import { closeDatabase, openDatabase } from '@/lib/db/openDatabase';
 import { clearAllData, deleteUserData } from '@/lib/db/deleteLocalData';
 import type { GameRecord } from '@/lib/db/schema';
@@ -17,7 +20,7 @@ const review: GameAnalysisResult = {
   analyzedPlies: 0,
   totalPlies: 2,
   warnings: [],
-  summary: { white: {}, black: {} } as GameAnalysisResult['summary'],
+  summary: summarizeAnnotations([]),
 };
 
 describe('saved game reviews', () => {
@@ -43,6 +46,15 @@ describe('saved game reviews', () => {
     expect((await restoreSelected(db, game, 'quick'))?.status).toBe('complete');
   });
 
+  it.each(['lower', 'upper'] as const)('restores valid %s-bound scores', async (bound) => {
+    const value = createLongGameAnalysisResult(1);
+    const annotation = value.annotations[0]!;
+    annotation.before.score = { kind: 'cp', value: 35, bound };
+    annotation.accuracy = { status: 'indeterminate', reason: 'bound-score' };
+    await saveReview(db, game, 'quick', value);
+    expect(await restoreSelected(db, game, 'quick')).toEqual(value);
+  });
+
   it.each([null, { ply: 1 }])(
     'ignores a saved review containing a malformed annotation',
     async (annotation) => {
@@ -55,6 +67,62 @@ describe('saved game reviews', () => {
       await expect(restoreSelected(db, game, 'quick')).resolves.toBeNull();
     }
   );
+
+  it.each([
+    [
+      'summary',
+      (value: GameAnalysisResult) => {
+        value.summary.white.accuracyEstimate = NaN;
+      },
+    ],
+    [
+      'breakdown',
+      (value: GameAnalysisResult) => {
+        value.summary.white.breakdown = {} as never;
+      },
+    ],
+    [
+      'quality',
+      (value: GameAnalysisResult) => {
+        value.annotations[0]!.accuracy = { status: 'classified' } as never;
+      },
+    ],
+    [
+      'settings',
+      (value: GameAnalysisResult) => {
+        value.annotations[0]!.settings.limit = {};
+      },
+    ],
+    [
+      'score',
+      (value: GameAnalysisResult) => {
+        value.annotations[0]!.before.score.value = Infinity;
+      },
+    ],
+    [
+      'PV',
+      (value: GameAnalysisResult) => {
+        value.annotations[0]!.after.pv = [null] as never;
+      },
+    ],
+    [
+      'candidate',
+      (value: GameAnalysisResult) => {
+        value.annotations[0]!.before.candidates = [null] as never;
+      },
+    ],
+    [
+      'warnings',
+      (value: GameAnalysisResult) => {
+        value.warnings = [null] as never;
+      },
+    ],
+  ])('treats a malformed %s as a cache miss', async (_name, corrupt) => {
+    const value = createLongGameAnalysisResult(2);
+    corrupt(value);
+    await saveReview(db, game, 'quick', value);
+    await expect(restoreSelected(db, game, 'quick')).resolves.toBeNull();
+  });
 
   it('rejects duplicate saved plies', async () => {
     const result = createLongGameAnalysisResult(2);
