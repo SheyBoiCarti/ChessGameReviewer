@@ -319,6 +319,7 @@ export function ChessboardView({
               data-orientation={orientation}
               tabIndex={0}
               onKeyDown={handleKeyDown}
+              aria-activedescendant={focusedSquare ? `square-${focusedSquare}` : undefined}
               aria-describedby={
                 isInteractive
                   ? 'board-keyboard-interactive-help'
@@ -339,6 +340,7 @@ export function ChessboardView({
 
                     return (
                       <div
+                        id={`square-${square.name}`}
                         className={`board-square ${square.isLight ? 'square-light' : 'square-dark'}${isHighlighted ? ' square-highlighted' : ''}${isSelected ? ' square-selected' : ''}${isFocused ? ' square-focused' : ''}`}
                         role="gridcell"
                         aria-label={square.name}
@@ -390,11 +392,9 @@ export function ChessboardView({
           onSelect={handlePromotionSelect}
           onCancel={handlePromotionCancel}
         />
-        {announcement ? (
-          <span className="sr-only" role="status" aria-live="polite">
-            {announcement}
-          </span>
-        ) : null}
+        <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {announcement}
+        </div>
         <p id="board-keyboard-interactive-help" className="sr-only">
           Use Arrow keys to navigate squares across files and ranks. Press Enter or Space to select
           a piece and choose a legal destination. Press Escape to clear selection. Press Alt+Arrow

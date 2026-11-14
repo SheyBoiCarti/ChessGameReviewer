@@ -47,6 +47,7 @@ export function MoveHistoryControls({
       <span
         className="move-history-controls__ply tabular-nums"
         aria-live="polite"
+        aria-atomic="true"
         aria-label={`Position ${currentPly} of ${totalPlies}`}
       >
         {visibleLabel}

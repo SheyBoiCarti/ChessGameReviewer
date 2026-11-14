@@ -265,3 +265,123 @@ test('synchronizes graph keyboard selection, count filters and original board', 
     ).toBeLessThanOrEqual(1);
   }
 });
+
+test('has no serious or critical axe findings across lifecycle, variation, disclosure and reduced-motion states (T34)', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await waitForWorkspaceReady(page);
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+
+  // 1. Initial review lifecycle state under reduced motion
+  const initialFindings = await new AxeBuilder({ page }).analyze();
+  expect(
+    initialFindings.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  ).toEqual([]);
+
+  // 2. Completed review lifecycle state
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  const completedFindings = await new AxeBuilder({ page }).analyze();
+  expect(
+    completedFindings.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  ).toEqual([]);
+
+  // 3. Disclosure states: Move breakdown summary & Feedback details
+  await page.locator('.review-summary > summary').click();
+  await expect(page.getByText('Move breakdown', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Next move', exact: true }).click();
+  const feedback = page.getByRole('region', { name: 'Selected move feedback' });
+  await feedback.locator('summary').click();
+  await expect(feedback.getByText(/Best move:/)).toBeVisible();
+
+  const disclosureFindings = await new AxeBuilder({ page }).analyze();
+  expect(
+    disclosureFindings.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  ).toEqual([]);
+
+  // Verify reduced motion: transitions are disabled on feedback and evaluation-bar
+  const feedbackTransition = await feedback.evaluate((el) => getComputedStyle(el).transition);
+  const evalBarTransition = await page
+    .locator('.evaluation-bar')
+    .evaluate((el) => getComputedStyle(el).transition);
+  expect(
+    feedbackTransition === 'none' ||
+      feedbackTransition.includes('0s') ||
+      feedbackTransition.includes('0.01ms')
+  ).toBe(true);
+  expect(
+    evalBarTransition === 'none' ||
+      evalBarTransition.includes('0s') ||
+      evalBarTransition.includes('0.01ms')
+  ).toBe(true);
+
+  // 4. Variation sandbox state
+  await feedback.getByRole('button', { name: 'Explore alternative' }).click();
+  const banner = page.getByRole('complementary', { name: 'Analysis variation sandbox' });
+  await expect(banner).toBeVisible();
+
+  const variationFindings = await new AxeBuilder({ page }).analyze();
+  expect(
+    variationFindings.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  ).toEqual([]);
+
+  // Return from variation to review
+  await banner.getByRole('button', { name: /Return to game/ }).click();
+  await expect(page.getByRole('tab', { name: 'Review', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
+
+  const finalFindings = await new AxeBuilder({ page }).analyze();
+  expect(
+    finalFindings.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  ).toEqual([]);
+});
+
+test('rapid keyboard input ends on correct synchronized board, list, and graph position (T34)', async ({
+  page,
+}) => {
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+
+  const board = page.getByRole('grid', { name: 'Chess board' });
+  board.focus();
+
+  // Rapidly press ArrowRight 5 times to advance 5 plies
+  for (let i = 0; i < 5; i++) {
+    await page.keyboard.press('ArrowRight');
+  }
+
+  // Synchronized across board, list, and graph
+  await expect(page.getByLabel('Position 5 of 8')).toBeVisible();
+  const moveCell = page.getByRole('button', { name: /select ply 5\b/i });
+  await expect(moveCell).toHaveAttribute('aria-current', 'true');
+  const graph = page.getByRole('group', { name: 'Evaluation graph' });
+  await expect(graph.getByRole('button').nth(4)).toHaveAttribute('aria-current', 'step');
+
+  // Rapidly move to end and start
+  await page.keyboard.press('End');
+  await expect(page.getByLabel('Position 8 of 8')).toBeVisible();
+  await expect(page.getByRole('button', { name: /select ply 8\b/i })).toHaveAttribute(
+    'aria-current',
+    'true'
+  );
+
+  await page.keyboard.press('Home');
+  await expect(page.getByLabel('Position 0 of 8')).toBeVisible();
+});

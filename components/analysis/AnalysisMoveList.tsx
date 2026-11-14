@@ -162,12 +162,35 @@ export function AnalysisMoveList({
 
     const titleText = annotation ? `${evalLabel} (${qualityText})` : 'Not analysed';
 
+    const handleCellKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      const totalMoves = effectiveMoves.length;
+      let nextPly: number | null = null;
+      if (event.key === 'ArrowRight') {
+        nextPly = Math.min(totalMoves, move.ply + 1);
+      } else if (event.key === 'ArrowLeft') {
+        nextPly = Math.max(0, move.ply - 1);
+      } else if (event.key === 'ArrowDown') {
+        nextPly = Math.min(totalMoves, move.ply + 2);
+      } else if (event.key === 'ArrowUp') {
+        nextPly = Math.max(1, move.ply - 2);
+      } else if (event.key === 'Home') {
+        nextPly = 1;
+      } else if (event.key === 'End') {
+        nextPly = totalMoves;
+      }
+      if (nextPly !== null) {
+        event.preventDefault();
+        onSelectPly(nextPly);
+      }
+    };
+
     return (
       <button
         ref={isSelected ? selectedRef : null}
         type="button"
         className={`analysis-move-cell${isSelected ? ' analysis-move-cell--selected' : ''}`}
         onClick={() => onSelectPly(move.ply)}
+        onKeyDown={handleCellKeyDown}
         aria-current={isSelected ? 'true' : undefined}
         data-selected={isSelected ? 'true' : undefined}
         aria-label={accessibleLabel}

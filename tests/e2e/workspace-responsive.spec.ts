@@ -591,3 +591,61 @@ test('keeps the first import focused on username and Find games (T30)', async ({
   await expect(page.getByLabel('Maximum games')).not.toBeVisible();
   await expect(page.getByLabel('Opening horizon (plies)')).not.toBeVisible();
 });
+
+test('review interaction controls maintain 44px mobile touch targets and no overflow at 200% zoom (T34)', async ({
+  page,
+}) => {
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+
+  // Test at 200% zoom (viewport width halved from configured desktop)
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+  await page.setViewportSize({
+    width: Math.max(320, Math.floor(viewport!.width / 2)),
+    height: viewport!.height,
+  });
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+
+  // Test at standard narrow mobile viewport (320x740)
+  await page.setViewportSize({ width: 320, height: 740 });
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+
+  // Return to 390px mobile viewport to check touch targets
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  // Move history controls buttons
+  const prevBtn = page.getByRole('button', { name: 'Previous move', exact: true });
+  const nextBtn = page.getByRole('button', { name: 'Next move', exact: true });
+  const flipBtn = page.getByRole('button', { name: 'Flip board', exact: true });
+  const firstBtn = page.getByRole('button', { name: 'First position', exact: true });
+  const lastBtn = page.getByRole('button', { name: 'Last position', exact: true });
+
+  for (const btn of [prevBtn, nextBtn, flipBtn, firstBtn, lastBtn]) {
+    const box = await btn.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(43.9);
+    expect(box!.height).toBeGreaterThanOrEqual(43.9);
+  }
+
+  // Advance to ply 1 to reveal feedback navigation buttons and move cell
+  await nextBtn.click();
+  const moveCell = page.getByRole('button', { name: /select ply 1\b/i });
+  const cellBox = await moveCell.boundingBox();
+  expect(cellBox).not.toBeNull();
+  expect(cellBox!.height).toBeGreaterThanOrEqual(43.9);
+
+  const feedbackNav = page.locator('.review-feedback nav.review-feedback__actions button');
+  const navCount = await feedbackNav.count();
+  for (let i = 0; i < navCount; i++) {
+    const btnBox = await feedbackNav.nth(i).boundingBox();
+    expect(btnBox).not.toBeNull();
+    expect(btnBox!.height).toBeGreaterThanOrEqual(43.9);
+  }
+});

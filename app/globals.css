@@ -1937,6 +1937,9 @@ li[data-selected='true'] {
   box-shadow: 0 7px 18px rgb(2 8 23 / 20%);
   font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out;
 }
 
 .evaluation-bar__text {
@@ -2028,6 +2031,12 @@ li[data-selected='true'] {
     inset 0 0 0 0.38rem #315f72;
 }
 
+.square-focused {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  z-index: 4;
+}
+
 .chess-piece {
   z-index: 1;
   display: block;
@@ -2102,6 +2111,13 @@ li[data-selected='true'] {
 .move-history-controls button:hover:not(:disabled) {
   background: var(--surface-hover);
   border-color: var(--border-strong);
+}
+
+.move-history-controls__btn:focus-visible,
+.move-history-controls button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+  z-index: 1;
 }
 
 .move-history-controls__btn:disabled,
@@ -2421,6 +2437,7 @@ li[data-selected='true'] {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
   background: var(--surface-raised);
@@ -2497,6 +2514,15 @@ li[data-selected='true'] {
   background: var(--surface-raised);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out,
+    opacity 120ms ease-out;
+}
+
+.review-feedback summary:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .review-feedback__header {
@@ -2525,7 +2551,7 @@ li[data-selected='true'] {
 }
 
 .review-feedback__next-btn {
-  min-height: 36px;
+  min-height: 44px;
   font-size: 0.875rem;
 }
 
@@ -2639,8 +2665,9 @@ li[data-selected='true'] {
 }
 
 .analysis-move-cell:focus-visible {
-  outline: 2px solid var(--accent-gold);
-  outline-offset: 1px;
+  outline: 3px solid var(--focus-ring);
+  outline-offset: -1px;
+  z-index: 2;
 }
 
 .analysis-move-cell--empty {
@@ -3244,6 +3271,12 @@ li[data-selected='true'] {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  .review-feedback,
+  .evaluation-bar,
+  .evaluation-bar__white {
+    transition: none !important;
   }
 }
 
@@ -4190,6 +4223,22 @@ li[data-selected='true'] {
   .workspace-layout--review .workspace-layout__context summary {
     min-height: 44px;
   }
+}
+
+@media (max-width: 59.9375rem), (pointer: coarse) {
+  .analysis-move-table__row {
+    min-height: 44px;
+  }
+  .analysis-move-cell {
+    min-height: 44px;
+  }
+  .analyzer-lifecycle-action button {
+    min-height: 44px;
+  }
+}
+
+.review-filters select {
+  max-width: 100%;
 }
 
 /* Keep completed feedback in the same two control rows as pending feedback. */

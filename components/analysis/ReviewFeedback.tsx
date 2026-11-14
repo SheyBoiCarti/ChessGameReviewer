@@ -101,7 +101,12 @@ export function ReviewFeedback({
             Next
           </button>
           {nextMistake === null ? (
-            <span className="review-feedback__no-mistakes visually-hidden">
+            <span
+              className="review-feedback__no-mistakes visually-hidden"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
               No later {navigationKind === 'mistake' ? 'mistakes' : 'moments'} in the analysed
               moves.
             </span>
