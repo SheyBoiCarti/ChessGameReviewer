@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   EvaluationCache,
+  createMemoryEvaluationRepository,
   serializeEvaluationKey,
   type EvaluationCacheRepository,
   type EvaluationKey,
@@ -60,6 +61,26 @@ class MemoryRepository implements EvaluationCacheRepository {
 
   async recoverQuota() {}
 }
+
+describe('session evaluation repository', () => {
+  it('evicts the least recently used entry at its retention limit', async () => {
+    const repository = createMemoryEvaluationRepository();
+    const record = (key: string) => ({
+      key,
+      positionHash: key,
+      engineBuild: 'engine',
+      lastUsedAt: 1,
+      evaluation: result,
+    });
+    await repository.putWithRetention(record('a'), 2);
+    await repository.putWithRetention(record('b'), 2);
+    await repository.touch('a', 2);
+    await repository.putWithRetention(record('c'), 2);
+    expect(await repository.get('a')).not.toBeNull();
+    expect(await repository.get('b')).toBeNull();
+    expect(await repository.get('c')).not.toBeNull();
+  });
+});
 
 describe('EvaluationCache', () => {
   it('serializes an exact complete-FEN key in a deterministic field order', () => {

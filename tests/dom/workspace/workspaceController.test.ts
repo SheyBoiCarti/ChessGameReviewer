@@ -76,6 +76,41 @@ describe('workspace controller', () => {
     controller.dispose();
   });
 
+  it('restores the selected review before reading remaining reviews and without waiting for the graph', async () => {
+    const other = { ...game, id: 'other', endedAt: game.endedAt - 1 };
+    const services = createServices(async () => result(secondQuery, [game, other]));
+    const saved = createLongGameAnalysisResult(1);
+    const selected = deferred<typeof saved | null>();
+    const graph = deferred<Awaited<ReturnType<WorkspaceServices['graph']['build']>>>();
+    services.analysis.restoreSelected = vi.fn(() => selected.promise);
+    services.analysis.restore = vi.fn(async () => ({}));
+    services.graph.build = vi.fn(() => graph.promise);
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    await vi.waitFor(() =>
+      expect(services.analysis.restoreSelected).toHaveBeenCalledWith(game, 'balanced')
+    );
+    expect(services.analysis.restore).not.toHaveBeenCalled();
+    expect(controller.getState().graph.status).toBe('building');
+    selected.resolve(saved);
+    await vi.waitFor(() => expect(controller.getState().analysis.result).toEqual(saved));
+    await vi.waitFor(() =>
+      expect(services.analysis.restore).toHaveBeenCalledWith([other], 'balanced')
+    );
+    controller.dispose();
+  });
+
+  it('makes imported games available while graph construction is pending', async () => {
+    const services = createServices(async () => result(secondQuery, [game]));
+    const graph = deferred<Awaited<ReturnType<WorkspaceServices['graph']['build']>>>();
+    services.graph.build = vi.fn(() => graph.promise);
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    expect(controller.getState().ingestion.result?.games[0]?.id).toBe(game.id);
+    expect(controller.getState().graph.status).toBe('building');
+    controller.dispose();
+  });
+
   it('opens a review once on double activation and preserves the same game ply', async () => {
     const services = createServices(async () => result(secondQuery, [game]));
     services.analysis.analyze = vi.fn(services.analysis.analyze);
@@ -224,6 +259,69 @@ describe('workspace controller', () => {
     controller.dispose();
   });
 
+  it('keeps a delayed selected restore from replacing a newly started review', async () => {
+    const services = createServices(async () => result(secondQuery, [game]));
+    const saved = {
+      ...(await services.analysis.analyze(
+        game,
+        'balanced',
+        {} as never,
+        { bookMoveKeys: [] },
+        new AbortController().signal,
+        vi.fn()
+      )),
+      status: 'partial' as const,
+    };
+    const restore = deferred<typeof saved | null>();
+    services.analysis.restoreSelected = vi
+      .fn()
+      .mockImplementationOnce(() => restore.promise)
+      .mockResolvedValue(null);
+    const controller = createWorkspaceController(services);
+    const importing = controller.submitQuery(secondQuery);
+    await vi.waitFor(() => expect(services.analysis.restoreSelected).toHaveBeenCalled());
+    await controller.openReview(game.id);
+    restore.resolve(saved);
+    await importing;
+    expect(controller.getState().analysis.status).toBe('complete');
+    controller.dispose();
+  });
+
+  it('does not let bulk restore claim a game already owned by a run at ingestion delivery', async () => {
+    const services = createServices(async () => result(secondQuery, [game]));
+    const saved = await services.analysis.analyze(
+      game,
+      'balanced',
+      {} as never,
+      { bookMoveKeys: [] },
+      new AbortController().signal,
+      vi.fn()
+    );
+    const pending = deferred<typeof saved>();
+    services.analysis.analyze = vi.fn(() => pending.promise);
+    services.analysis.restore = vi.fn(async () => ({
+      [game.id]: { ...saved, status: 'partial' as const },
+    }));
+    const controller = createWorkspaceController(services);
+    const capability = await services.engine.initialize();
+    let started: Promise<void> | undefined;
+    const unsubscribe = controller.subscribe(() => {
+      if (!started && controller.getState().ingestion.result) {
+        // Mark ownership before the nested started event reaches this subscriber.
+        started = Promise.resolve();
+        controller.dispatch({ type: 'analysis/capability', capability });
+        started = controller.startAnalysis();
+      }
+    });
+    await controller.submitQuery(secondQuery);
+    await vi.waitFor(() => expect(controller.getState().analysis.status).toBe('running'));
+    pending.resolve(saved);
+    await started;
+    expect(controller.getState().analysis.status).toBe('complete');
+    unsubscribe();
+    controller.dispose();
+  });
+
   it('shares a delayed selected restore with direct start and ignores it after a view change', async () => {
     const services = createServices(async () => result(secondQuery, [game]));
     const saved = await services.analysis.analyze(
@@ -268,6 +366,25 @@ describe('workspace controller', () => {
     delayed.resolve(ready);
     await opening;
     expect(services.analysis.analyze).not.toHaveBeenCalled();
+    controller.dispose();
+  });
+
+  it('does not restore or build a graph for a superseded ingestion result', async () => {
+    const stale = deferred<IngestionResult>();
+    const services = createServices((query) =>
+      query.username === firstQuery.username
+        ? stale.promise
+        : Promise.resolve(result(secondQuery, [game]))
+    );
+    services.analysis.restore = vi.fn(async () => ({}));
+    services.graph.build = vi.fn(services.graph.build);
+    const controller = createWorkspaceController(services);
+    const first = controller.submitQuery(firstQuery);
+    await controller.submitQuery(secondQuery);
+    stale.resolve(result(firstQuery, [{ ...game, username: firstQuery.username }]));
+    await first;
+    await vi.waitFor(() => expect(services.analysis.restore).toHaveBeenCalledTimes(1));
+    expect(services.graph.build).toHaveBeenCalledTimes(1);
     controller.dispose();
   });
 

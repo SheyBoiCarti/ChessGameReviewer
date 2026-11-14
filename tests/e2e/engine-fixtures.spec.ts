@@ -385,3 +385,24 @@ test('keeps the review position and move list stable through completion and disc
   const afterSettings = await moveList.boundingBox();
   expect(Math.abs(afterSettings!.y - beforeSettings!.y)).toBeLessThanOrEqual(1);
 });
+
+test('imports and analyses in memory when IndexedDB cannot open', async ({ page }) => {
+  const engine = await installEngineFixtures(page, { manualReady: false });
+  await installWorkspaceFixtures(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'indexedDB', {
+      configurable: true,
+      get() {
+        throw new Error('Storage unavailable');
+      },
+    });
+  });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review game', exact: true }).click();
+  await expect(page.getByRole('progressbar', { name: 'Review progress' })).toBeVisible();
+  await engine.releaseEvaluations(100);
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  await expect(page.getByText(/could not be saved locally/i)).toBeVisible();
+});

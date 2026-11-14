@@ -427,47 +427,96 @@ export function createWorkspaceController(
           });
           if (disposed || token !== state.query.token) return;
           dispatch({ type: 'ingestion/terminal', token, result });
-          if (services.analysis.restore && result.games.length > 0) {
-            try {
-              const strength = state.preferences.analysisStrength;
-              const generations = new Map(
-                result.games.map((game) => [game.id, restoreGenerations.get(game.id) ?? 0])
-              );
-              const restored = await services.analysis.restore(result.games, strength);
-              if (disposed || token !== state.query.token) return;
-              for (const [gameId, saved] of Object.entries(restored)) {
-                if (
-                  generations.get(gameId) !== 0 ||
-                  (restoreGenerations.get(gameId) ?? 0) !== generations.get(gameId) ||
-                  strength !== state.preferences.analysisStrength
-                )
-                  continue;
-                const game = result.games.find((game) => game.id === gameId);
-                if (!game) continue;
-                rememberReview(game, strength, saved);
-                dispatch({ type: 'analysis/terminal', token, gameId, result: saved });
-              }
-            } catch {
-              /* Saved reviews are optional when storage is unavailable. */
-            }
-          }
-          if (disposed || token !== state.query.token || result.games.length === 0) return;
-          dispatch({ type: 'graph/started', token });
-          const graph = await services.graph.build(
-            result.games.map(toNormalizedSummary),
-            {
-              maxOpeningPlies: state.preferences.openingHorizon,
-              includeRepeatedPositions: false,
-            },
-            result.fingerprint
+          if (result.games.length === 0) return;
+          const strength = state.preferences.analysisStrength;
+          const generations = new Map(
+            result.games.map((game) => [game.id, restoreGenerations.get(game.id) ?? 0])
           );
-          dispatch({
-            type: 'graph/terminal',
-            token,
-            status: graph.status,
-            snapshot: graph.snapshot,
-            diagnosticCodes: graph.status === 'complete' ? [] : graph.diagnosticCodes,
-          });
+          // Let startup selection claim its selected read before background reads begin.
+          setTimeout(() => {
+            if (disposed || token !== state.query.token) return;
+            const restore = services.analysis.restore;
+            const selected = result.games.find((game) => game.id === state.selection.gameId);
+            const install = async (game: GameRecord, saved: GameAnalysisResult) => {
+              const digest = await computePgnDigest(game.pgn);
+              if (
+                disposed ||
+                token !== state.query.token ||
+                generations.get(game.id) !== 0 ||
+                (restoreGenerations.get(game.id) ?? 0) !== generations.get(game.id) ||
+                strength !== state.preferences.analysisStrength
+              )
+                return;
+              rememberReview(game, strength, saved);
+              dispatch({
+                type: 'analysis/terminal',
+                token,
+                gameId: game.id,
+                result: saved,
+                strength,
+                reviewKey: reviewResultKey(game.username, game.id, digest, strength),
+              });
+            };
+            void (async () => {
+              const selectedRead = services.analysis.restoreSelected;
+              if (
+                selected &&
+                selectedRead &&
+                generations.get(selected.id) === 0 &&
+                (restoreGenerations.get(selected.id) ?? 0) === 0
+              ) {
+                try {
+                  const saved = await selectedRead(selected, strength);
+                  if (saved) await install(selected, saved);
+                } catch {
+                  /* Optional selected review. */
+                }
+              }
+              if (!restore || disposed || token !== state.query.token) return;
+              const remaining =
+                selectedRead && selected
+                  ? result.games.filter((game) => game.id !== selected.id)
+                  : result.games;
+              if (remaining.length === 0) return;
+              try {
+                const restored = await restore(remaining, strength);
+                await Promise.all(
+                  Object.entries(restored).map(async ([id, saved]) => {
+                    const game = remaining.find((candidate) => candidate.id === id);
+                    if (game) await install(game, saved);
+                  })
+                );
+              } catch {
+                /* Optional saved reviews. */
+              }
+            })();
+          }, 0);
+          dispatch({ type: 'graph/started', token });
+          void services.graph
+            .build(
+              result.games.map(toNormalizedSummary),
+              {
+                maxOpeningPlies: state.preferences.openingHorizon,
+                includeRepeatedPositions: false,
+              },
+              result.fingerprint
+            )
+            .then((graph) => {
+              if (disposed || token !== state.query.token) return;
+              dispatch({
+                type: 'graph/terminal',
+                token,
+                status: graph.status,
+                snapshot: graph.snapshot,
+                diagnosticCodes: graph.status === 'complete' ? [] : graph.diagnosticCodes,
+              });
+            })
+            .catch((error: unknown) => {
+              if (disposed || token !== state.query.token) return;
+              const message = error instanceof Error ? error.message : 'Graph build failed.';
+              if (message !== 'GRAPH_BUILD_CANCELLED')
+                dispatch({ type: 'graph/failed', token, error: message });
+            });
         } catch (error) {
           console.error('[workspace operation failed]', error);
           if (disposed || token !== state.query.token) return;

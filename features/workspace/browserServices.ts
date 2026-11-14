@@ -9,6 +9,7 @@ import { analyzeGame } from '@/features/stockfish-analysis/analyzeGame';
 import { EngineService } from '@/features/stockfish-analysis/engineService';
 import {
   createIndexedDbEvaluationRepository,
+  createMemoryEvaluationRepository,
   EvaluationCache,
 } from '@/features/stockfish-analysis/evaluationCache';
 import {
@@ -65,7 +66,12 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
         throw error;
       }
     });
-    return databasePromise;
+    try {
+      return await databasePromise;
+    } catch (error) {
+      databasePromise = null;
+      throw error;
+    }
   };
   let pgnValidator: PgnValidationWorkerClient | null = null;
   const getPgnValidator = () => {
@@ -79,19 +85,96 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     }
     return pgnValidator;
   };
+  const memoryEvaluations = createMemoryEvaluationRepository();
+  const archives = new Map<string, Awaited<ReturnType<IngestionDependencies['readArchiveList']>>>();
+  const months = new Map<
+    string,
+    {
+      games: Awaited<ReturnType<IngestionDependencies['readMonthGames']>>;
+      marker: Awaited<ReturnType<IngestionDependencies['readArchiveSyncs']>>[number];
+    }
+  >();
+  let storageMisses = 0;
   const dependencies: IngestionDependencies = {
     fetchArchives: fetchPlayerArchives,
     fetchMonthlyGames,
-    readArchiveList: async (username) => getArchiveListMeta(await db(), username),
-    writeArchiveList: async (record) => putArchiveListMeta(await db(), record),
-    readArchiveSyncs: async (username) => getArchiveSyncsForUser(await db(), username),
-    readMonthGames: async (username, month) => getGamesForMonth(await db(), username, month),
+    readArchiveList: async (username) => {
+      try {
+        return await getArchiveListMeta(await db(), username);
+      } catch {
+        storageMisses++;
+        return archives.get(username) ?? null;
+      }
+    },
+    writeArchiveList: async (record) => {
+      try {
+        await putArchiveListMeta(await db(), record);
+      } catch {
+        storageMisses++;
+        archives.delete(record.username);
+        if (JSON.stringify(record).length * 2 <= 1024 * 1024) archives.set(record.username, record);
+        if (archives.size > 120) archives.delete(archives.keys().next().value!);
+      }
+    },
+    readArchiveSyncs: async (username) => {
+      try {
+        return await getArchiveSyncsForUser(await db(), username);
+      } catch {
+        storageMisses++;
+        return [...months.values()]
+          .map(({ marker }) => marker)
+          .filter((marker) => marker.username === username);
+      }
+    },
+    readMonthGames: async (username, month) => {
+      try {
+        return await getGamesForMonth(await db(), username, month);
+      } catch {
+        storageMisses++;
+        return months.get(JSON.stringify([username, month]))?.games ?? [];
+      }
+    },
     validatePgns: (games, options) => getPgnValidator().validate(games, options.signal),
-    persistMonth: async (games, marker, signal) => saveSyncBatch(await db(), games, marker, signal),
+    persistMonth: async (games, marker, signal) => {
+      try {
+        await saveSyncBatch(await db(), games, marker, signal);
+      } catch {
+        storageMisses++;
+        if (signal?.aborted) return;
+        const key = JSON.stringify([marker.username, marker.month]);
+        months.delete(key);
+        const bytes = JSON.stringify({ games, marker }).length * 2;
+        if (bytes <= 16 * 1024 * 1024) months.set(key, { games, marker });
+        while (
+          months.size > 120 ||
+          [...months.values()].reduce((sum, item) => sum + JSON.stringify(item).length * 2, 0) >
+            16 * 1024 * 1024
+        ) {
+          months.delete(months.keys().next().value!);
+        }
+      }
+    },
   };
   const ingestionManager = new IngestionManager(dependencies);
   const ingestion = {
-    start: ingestionManager.start.bind(ingestionManager),
+    start: async (...args: Parameters<WorkspaceServices['ingestion']['start']>) => {
+      const before = storageMisses;
+      const result = await ingestionManager.start(...args);
+      return storageMisses === before
+        ? result
+        : {
+            ...result,
+            diagnostics: [
+              ...result.diagnostics,
+              {
+                code: 'LOCAL_STORAGE_UNAVAILABLE',
+                severity: 'warning' as const,
+                message:
+                  'Some games could not be saved locally and are available only in this session.',
+              },
+            ],
+          };
+    },
     cancel: ingestionManager.cancel.bind(ingestionManager),
     dispose: () => {
       ingestionManager.cancel();
@@ -124,8 +207,18 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     graph,
     engine,
     data: {
-      deleteUsername: async (username) => deleteUserData(await db(), username),
-      clearAll: async () => clearAllData(await db()),
+      deleteUsername: async (username) => {
+        archives.delete(username.toLowerCase());
+        for (const [key, value] of months)
+          if (value.marker.username === username.toLowerCase()) months.delete(key);
+        return deleteUserData(await db(), username);
+      },
+      clearAll: async () => {
+        archives.clear();
+        months.clear();
+        await memoryEvaluations.recoverQuota();
+        return clearAllData(await db());
+      },
       listUsernames: async () => getDistinctUsernames(await db()),
       dispose: () => {
         disposed = true;
@@ -161,7 +254,13 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
         if (!parsed.ok)
           throw new Error(parsed.errors[0]?.message ?? 'The selected PGN is invalid.');
         const preset = analysisPreset(strength);
-        const cache = new EvaluationCache(createIndexedDbEvaluationRepository(await db()));
+        let repository = memoryEvaluations;
+        try {
+          repository = createIndexedDbEvaluationRepository(await db());
+        } catch {
+          /* Session cache remains usable. */
+        }
+        const cache = new EvaluationCache(repository);
         const result = await analyzeGame({
           game: parsed.game,
           settings: {
@@ -195,8 +294,9 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
           ...(onUpdate ? { onUpdate } : {}),
         });
         try {
+          const database = await db();
           if (context.isCurrent?.() !== false)
-            await saveReview(await db(), game, strength, result, context.isCurrent);
+            await saveReview(database, game, strength, result, context.isCurrent);
         } catch {
           return {
             ...result,

@@ -66,11 +66,12 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
             return;
           const submission = controller.submitQuery(startupQuery);
           const navigationVersion = controller.getNavigationVersion();
+          const requestToken = controller.getState().query.token;
           await submission;
           const loaded = controller.getState();
           if (
             !active ||
-            loaded.query.token !== 1 ||
+            loaded.query.token !== requestToken ||
             controller.getNavigationVersion() !== navigationVersion ||
             !startupSession ||
             startupSession.username !== startupQuery.username
@@ -83,6 +84,7 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
           controller.selectGame(game.id);
           controller.selectPly(startupSession.ply);
           setRecoveredSession(startupSession);
+          if (startupSession.tab === 'analysis') void controller.openReview(game.id);
         })
         .catch(() => {
           /* Manual import remains available if local recovery fails. */

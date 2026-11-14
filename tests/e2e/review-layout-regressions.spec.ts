@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { installEngineFixtures } from './helpers/engineFixtures';
 import { installWorkspaceFixtures, loadFixtureGames } from './helpers/workspaceFixtures';
 
 test('selecting a game does not force the board into view', async ({ page }) => {
@@ -22,6 +23,7 @@ test('selecting a game does not force the board into view', async ({ page }) => 
 
 test('desktop completed feedback remains visible with the board', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
   await installWorkspaceFixtures(page);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);

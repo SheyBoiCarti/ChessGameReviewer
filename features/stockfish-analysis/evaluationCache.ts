@@ -47,6 +47,31 @@ export function createIndexedDbEvaluationRepository(db: IDBDatabase): Evaluation
   };
 }
 
+/** Session-only bounded LRU when persistent storage is unavailable. */
+export function createMemoryEvaluationRepository(): EvaluationCacheRepository {
+  const records = new Map<string, EvaluationRecord>();
+  return {
+    async get(key) {
+      return records.get(key) ?? null;
+    },
+    async touch(key, lastUsedAt) {
+      const record = records.get(key);
+      if (!record) return false;
+      records.delete(key);
+      records.set(key, { ...record, lastUsedAt });
+      return true;
+    },
+    async putWithRetention(record, maxCount) {
+      records.delete(record.key);
+      records.set(record.key, record);
+      while (records.size > maxCount) records.delete(records.keys().next().value!);
+    },
+    async recoverQuota() {
+      records.clear();
+    },
+  };
+}
+
 /** Stable JSON serialization keeps cache entries portable across sessions. */
 export function serializeEvaluationKey(key: EvaluationKey): string {
   assertEvaluationKey(key);
