@@ -21,6 +21,14 @@ export interface RetryProgress {
   delayMs: number;
 }
 
+export interface IngestionBatch {
+  jobId: string;
+  fingerprint: string;
+  sequence: number;
+  datasetRevision: string;
+  games: readonly GameRecord[];
+}
+
 export interface IngestionProgress {
   jobId: string;
   phase: IngestionPhase;
@@ -90,6 +98,7 @@ export interface RunIngestionOptions {
   random?: () => number;
   wait?: (delayMs: number, signal: AbortSignal) => Promise<void>;
   onProgress?: (progress: IngestionProgress) => void;
+  onBatch?: (batch: IngestionBatch) => void;
 }
 
 export type StartOptions = Omit<RunIngestionOptions, 'deps' | 'jobId' | 'signal'>;

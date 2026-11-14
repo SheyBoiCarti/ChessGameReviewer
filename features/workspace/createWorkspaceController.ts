@@ -10,7 +10,7 @@ import { computePgnDigest, reviewResultKey } from '../stockfish-analysis/reviewI
 import type { AnalysisStrength, GameReviewCursor } from './types';
 import { clearWorkspaceSession } from './session';
 import type { GraphBuildWorkerResult } from '../opening-tree/graphWorkerClient';
-import type { IngestionProgress, IngestionResult } from '../ingestion/types';
+import type { IngestionBatch, IngestionProgress, IngestionResult } from '../ingestion/types';
 import { initialWorkspaceState, reduceWorkspace } from './reducer';
 import type { OpeningScope, WorkspaceAction, WorkspacePreferences, WorkspaceState } from './types';
 import {
@@ -27,6 +27,7 @@ interface IngestionStartOptions {
   manualRefresh?: boolean;
   cacheOnly?: boolean;
   onProgress?: (progress: IngestionProgress) => void;
+  onBatch?: (batch: IngestionBatch) => void;
 }
 
 export interface WorkspaceServices {
@@ -667,6 +668,7 @@ export function createWorkspaceController(
               : {}),
             ...(options.cacheOnly !== undefined ? { cacheOnly: options.cacheOnly } : {}),
             onProgress: (progress) => dispatch({ type: 'ingestion/progress', token, progress }),
+            onBatch: (batch) => dispatch({ type: 'ingestion/batch', token, batch }),
           });
           if (disposed || token !== state.query.token) return;
           const newest = result.games.reduce<GameRecord | null>(

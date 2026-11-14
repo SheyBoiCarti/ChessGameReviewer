@@ -1,4 +1,5 @@
 import { computePgnDigest } from '../stockfish-analysis/reviewIdentity';
+import { computeDatasetRevision } from '../opening-tree/graphIdentity';
 import { PGN_PARSER_VERSION, POSITION_KEY_VERSION } from '../../lib/chess/graph/types';
 import {
   isValidValidationEnvelope,
@@ -28,6 +29,7 @@ import { fingerprintQuery, parseArchiveMonth, planArchiveMonths } from './archiv
 import { executeWithRetry, type RetryOptions } from './retryPolicy';
 import type {
   FailedMonth,
+  IngestionBatch,
   IngestionDependencies,
   IngestionProgress,
   IngestionResult,
@@ -49,6 +51,7 @@ interface RequiredRuntimeOptions {
   now: () => number;
   retry: RetryOptions;
   onProgress?: (progress: IngestionProgress) => void;
+  onBatch?: (batch: IngestionBatch) => void;
 }
 
 type NormalizationResult =
@@ -400,6 +403,20 @@ async function executeIngestion(
       diagnostics: diagnostics.map((diagnostic) => ({ ...diagnostic })),
     });
   };
+  let batchSequence = 0;
+  const emitBatch = async (): Promise<void> => {
+    if (games.length === 0 || !runtime.onBatch || runtime.signal.aborted) return;
+    batchSequence += 1;
+    const datasetRevision = await computeDatasetRevision(games);
+    if (runtime.signal.aborted) return;
+    runtime.onBatch({
+      jobId: runtime.jobId,
+      fingerprint,
+      sequence: batchSequence,
+      datasetRevision,
+      games: Object.freeze([...games]),
+    });
+  };
   const isEligibleForReplay = (game: GameRecord): boolean => {
     const from = query.dateFrom ? Date.parse(`${query.dateFrom}T00:00:00.000Z`) / 1000 : -Infinity;
     const to = query.dateTo ? Date.parse(`${query.dateTo}T23:59:59.999Z`) / 1000 : Infinity;
@@ -595,6 +612,7 @@ async function executeIngestion(
         }
         monthsCompleted += 1;
         emit('filtering', { currentMonth: month, source: 'indexeddb' });
+        await emitBatch();
         if (games.length === query.maxGames) break;
         continue;
       }
@@ -613,6 +631,7 @@ async function executeIngestion(
         }
         monthsCompleted += 1;
         emit('filtering', { currentMonth: month, source: 'indexeddb' });
+        await emitBatch();
         if (games.length === query.maxGames) break;
         continue;
       }
@@ -699,6 +718,7 @@ async function executeIngestion(
         }
         monthsCompleted += 1;
         emit('filtering', { currentMonth: month, source: 'browser-fetch' });
+        await emitBatch();
       } catch (error) {
         if (isPubApiError(error, 'ABORTED') || runtime.signal.aborted) throw error;
         const upstreamError = toUpstreamError(error);
@@ -760,6 +780,7 @@ export async function runIngestion(
       wait: options.wait ?? defaultWait,
     },
     ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+    ...(options.onBatch ? { onBatch: options.onBatch } : {}),
   };
   const validation = validateGameQuery(input);
   if (!validation.success) {
@@ -811,6 +832,9 @@ export class IngestionManager {
         signal: controller.signal,
         onProgress: (progress) => {
           if (this.active?.token === token) options.onProgress?.(progress);
+        },
+        onBatch: (batch) => {
+          if (this.active?.token === token) options.onBatch?.(batch);
         },
       });
     } finally {

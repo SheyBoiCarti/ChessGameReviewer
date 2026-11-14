@@ -4,7 +4,7 @@ import { createLongGameAnalysisResult } from '../../fixtures/longAnalysisFixture
 import type { AnalysisUpdate } from '@/features/stockfish-analysis/analyzeGame';
 import type { GameQuery } from '@/lib/api/contracts';
 import type { GameRecord } from '@/lib/db/schema';
-import type { IngestionResult } from '@/features/ingestion/types';
+import type { IngestionBatch, IngestionResult } from '@/features/ingestion/types';
 import {
   createWorkspaceController,
   type WorkspaceServices,
@@ -225,6 +225,69 @@ describe('workspace controller', () => {
 
     await controller.requestOpeningGraph('white');
     expect(workerBuildSpy).toHaveBeenCalledTimes(3);
+
+    controller.dispose();
+  });
+
+  it('T51: publishes validated batches without resetting active selection or review', async () => {
+    let reportBatch!: (batch: IngestionBatch) => void;
+    let finishIngestion!: (res: IngestionResult) => void;
+    const selectedGame: GameRecord = { ...game, id: 'selected-1', pgn: '1. e4 e5 1-0' };
+    const olderGame: GameRecord = {
+      ...game,
+      id: 'older-2',
+      pgn: '1. d4 d5 1-0',
+      endedAt: game.endedAt - 1000,
+    };
+
+    const services = createServices(async (_query, options) => {
+      reportBatch = options.onBatch!;
+      return new Promise<IngestionResult>((resolve) => {
+        finishIngestion = resolve;
+      });
+    });
+
+    const controller = createWorkspaceController(services);
+    const queryPromise = controller.submitQuery(secondQuery);
+
+    // Initial batch arrival
+    reportBatch({
+      jobId: 'job-1',
+      fingerprint: 'fp-1',
+      sequence: 1,
+      datasetRevision: 'one',
+      games: [selectedGame],
+    });
+
+    // User opens review on the batch game
+    await controller.openReview(selectedGame.id);
+    controller.selectPly(2);
+    const before = controller.getState();
+    expect(before.selection.gameId).toBe(selectedGame.id);
+    expect(before.selection.ply).toBe(2);
+
+    // Second batch arrival with additional older game
+    reportBatch({
+      jobId: 'job-1',
+      fingerprint: 'fp-1',
+      sequence: 2,
+      datasetRevision: 'two',
+      games: [selectedGame, olderGame],
+    });
+
+    // Verification: selection, analysis, and loading status preserved
+    expect(controller.getState().selection).toEqual(before.selection);
+    expect(controller.getState().analysis).toEqual(before.analysis);
+    expect(controller.getState().ingestion.status).toBe('loading');
+
+    // Terminal result arrives
+    finishIngestion(result(secondQuery, [selectedGame, olderGame]));
+    await queryPromise;
+
+    // Review remains stable after terminal result
+    expect(controller.getState().selection.gameId).toBe(selectedGame.id);
+    expect(controller.getState().selection.ply).toBe(2);
+    expect(controller.getState().ingestion.status).toBe('complete');
 
     controller.dispose();
   });

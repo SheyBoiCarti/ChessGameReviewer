@@ -1,6 +1,8 @@
 import { reviewResultKey } from '../stockfish-analysis/reviewIdentity';
 import { summarizeAnnotations } from '../stockfish-analysis/analyzeGame';
 import type { GameQuery } from '@/lib/api/contracts';
+import type { GameRecord } from '@/lib/db/schema';
+import type { IngestionResult } from '../ingestion/types';
 
 import type { WorkspaceAction, WorkspaceState } from './types';
 
@@ -92,6 +94,57 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
     }
     case 'ingestion/progress':
       return { ...state, ingestion: { ...state.ingestion, progress: action.progress } };
+    case 'ingestion/batch': {
+      if (action.token !== state.query.token) return state;
+      const currentSequence = state.ingestion.batchSequence ?? 0;
+      if (action.batch.sequence <= currentSequence) return state;
+
+      const previousResult = state.ingestion.result;
+      const updatedResult: IngestionResult = {
+        jobId: action.batch.jobId,
+        fingerprint: action.batch.fingerprint,
+        status: 'partial',
+        games: [...action.batch.games],
+        failedMonths: previousResult?.failedMonths ?? [],
+        diagnostics: previousResult?.diagnostics ?? [],
+        offlineCacheOnly: previousResult?.offlineCacheOnly ?? false,
+      };
+
+      let selection = state.selection;
+      const selectedGameId = selection.gameId;
+
+      if (!selectedGameId && updatedResult.games.length > 0) {
+        const newest = updatedResult.games.reduce<GameRecord | null>(
+          (current: GameRecord | null, game: GameRecord) =>
+            !current || game.endedAt > current.endedAt ? game : current,
+          null
+        );
+        if (newest) {
+          selection = {
+            ...selection,
+            gameId: newest.id,
+            ply: 0,
+          };
+        }
+      } else if (selectedGameId) {
+        const stillPresent = updatedResult.games.find((g: GameRecord) => g.id === selectedGameId);
+        if (!stillPresent) {
+          selection = { ...selection, gameId: null, ply: 0 };
+        }
+      }
+
+      return {
+        ...state,
+        ingestion: {
+          ...state.ingestion,
+          status: 'loading',
+          result: updatedResult,
+          batchSequence: action.batch.sequence,
+          datasetRevision: action.batch.datasetRevision,
+        },
+        selection,
+      };
+    }
     case 'ingestion/terminal': {
       const hasExistingGames = (state.ingestion.result?.games.length ?? 0) > 0;
       const isFailed =
@@ -119,15 +172,29 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         action.result.status === 'complete' && action.result.games.length === 0
           ? 'empty'
           : action.result.status;
-      const gameId =
-        action.result.games.length > 0
-          ? action.result.games.reduce((newest, game) =>
-              game.endedAt > newest.endedAt ? game : newest
-            ).id
-          : null;
+      const selectedGameId = state.selection.gameId;
       const previousGames = new Map(
         state.ingestion.result?.games.map((game) => [game.id, game]) ?? []
       );
+      const selectedGame = selectedGameId
+        ? action.result.games.find(
+            (game) =>
+              game.id === selectedGameId &&
+              (!previousGames.has(selectedGameId) ||
+                previousGames.get(selectedGameId)?.pgn === game.pgn)
+          )
+        : null;
+
+      const newestGame =
+        action.result.games.length > 0
+          ? action.result.games.reduce((newest, game) =>
+              game.endedAt > newest.endedAt ? game : newest
+            )
+          : null;
+
+      const gameId = selectedGame ? selectedGame.id : (newestGame?.id ?? null);
+      const ply = selectedGame ? state.selection.ply : Math.max(0, action.ply ?? 0);
+
       const resultsByGameId = Object.fromEntries(
         Object.entries(state.analysis.resultsByGameId).filter(([id]) => {
           const oldGame = previousGames.get(id);
@@ -141,40 +208,70 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         })
       );
       const cached = gameId ? (resultsByGameId[gameId] ?? null) : null;
+
+      const preserveAnalysis =
+        selectedGame &&
+        (state.analysis.status === 'running' ||
+          state.analysis.status === 'stopping' ||
+          (state.analysis.identity !== null &&
+            state.analysis.identity !== undefined &&
+            state.analysis.identity.gameId === selectedGame.id) ||
+          state.analysis.result !== null);
+
+      const analysis: WorkspaceState['analysis'] = preserveAnalysis
+        ? {
+            ...state.analysis,
+            resultsByGameId,
+          }
+        : {
+            ...state.analysis,
+            resultsByGameId,
+            resultStrength:
+              cached && gameId ? (state.analysis.resultStrengthsByGameId?.[gameId] ?? null) : null,
+            identity: null,
+            previousResult: null,
+            previousStrength: null,
+            showingPrevious: false,
+            status: (cached?.status ??
+              (state.analysis.capability?.mode === 'unavailable'
+                ? 'unavailable'
+                : 'idle')) as WorkspaceState['analysis']['status'],
+            result: cached,
+            progress: cached
+              ? { analyzedPlies: cached.analyzedPlies, totalPlies: cached.totalPlies }
+              : null,
+            error: null,
+          };
+
       return {
         ...state,
         query: {
           ...state.query,
           active: isFailed ? state.query.active : (state.query.requested ?? state.query.active),
         },
-        analysis: {
-          ...state.analysis,
-          resultsByGameId,
-          resultStrength:
-            cached && gameId ? (state.analysis.resultStrengthsByGameId?.[gameId] ?? null) : null,
-          identity: null,
-          previousResult: null,
-          previousStrength: null,
-          showingPrevious: false,
-          status:
-            cached?.status ??
-            (state.analysis.capability?.mode === 'unavailable' ? 'unavailable' : 'idle'),
-          result: cached,
-          progress: cached
-            ? { analyzedPlies: cached.analyzedPlies, totalPlies: cached.totalPlies }
-            : null,
-          error: null,
-        },
+        analysis,
         ingestion: {
           status,
           progress: state.ingestion.progress,
           result: action.result,
           lastAttempt: action.result,
           error: null,
+          batchSequence: state.ingestion.batchSequence,
+          datasetRevision: state.ingestion.datasetRevision,
         },
         graph: idleGraph,
         repertoire: null,
-        selection: { ...emptySelection, gameId, ply: Math.max(0, action.ply ?? 0) },
+        selection: selectedGame
+          ? {
+              ...state.selection,
+              gameId,
+              ply,
+            }
+          : {
+              ...emptySelection,
+              gameId,
+              ply,
+            },
       };
     }
     case 'ingestion/failed':

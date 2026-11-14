@@ -349,6 +349,12 @@ export function ChessWorkspace({
   const menuDialogRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const previousIngestionStatus = useRef(state.ingestion.status);
+  const queryIntentVersion = useRef(controller.getNavigationVersion());
+  const lastQueryToken = useRef(state.query.token);
+  if (lastQueryToken.current !== state.query.token) {
+    lastQueryToken.current = state.query.token;
+    queryIntentVersion.current = controller.getNavigationVersion();
+  }
 
   const graph = useMemo(() => {
     if (!state.graph.snapshot) return null;
@@ -558,12 +564,16 @@ export function ChessWorkspace({
       // Recovery is a one-time form intent; later saved searches own their dates.
       if (queryRecovery) setQueryRecovery(null);
       const hasGames = (state.ingestion.result?.games.length ?? 0) > 0;
+      const userNavigated =
+        controller.getNavigationVersion() !== queryIntentVersion.current || tab !== 'games';
       if (startupComplete && ['complete', 'partial'].includes(state.ingestion.status) && hasGames) {
         setImportOpen(false);
         setOpeningImportQuery(null);
-        selectTab('games');
+        if (!userNavigated) {
+          selectTab('games');
+          requestAnimationFrame(() => titleHeadingRef.current?.focus());
+        }
         setLoadedAnnouncement(`${state.ingestion.result?.games.length} games loaded`);
-        requestAnimationFrame(() => titleHeadingRef.current?.focus());
       } else {
         if (state.ingestion.status === 'empty') setLoadedAnnouncement(null);
         setResultFocusVersion((v) => v + 1);

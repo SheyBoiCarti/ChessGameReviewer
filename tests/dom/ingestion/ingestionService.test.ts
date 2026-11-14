@@ -1166,3 +1166,39 @@ it('T47: filters metadata before expensive cold replay and retains unselected ca
   expect(strictReplayIds).toHaveLength(8);
   expect(deps.fetchMonthlyGames).not.toHaveBeenCalled();
 });
+
+it('T51: emits completed-month batches with monotonic sequence and cumulative accepted games', async () => {
+  const august = Date.UTC(2026, 7, 1) / 1000;
+  const july = Date.UTC(2026, 6, 1) / 1000;
+  const rawByMonth: Record<string, RawChesscomGame[]> = {
+    '2026-08': [makeRawGame({ uuid: 'g8-1', end_time: august + 20 })],
+    '2026-07': [makeRawGame({ uuid: 'g7-1', end_time: july + 20 })],
+  };
+  const deps = fakeDependencies({
+    fetchArchives: vi.fn(async () => [
+      'https://api.chess.com/pub/player/janedoe/games/2026/07',
+      'https://api.chess.com/pub/player/janedoe/games/2026/08',
+    ]),
+    fetchMonthlyGames: vi.fn(async (_user, year, month) => rawByMonth[`${year}-${month}`]!),
+  });
+
+  const batches: import('@/features/ingestion/types').IngestionBatch[] = [];
+  const result = await runIngestion(makeQuery({ maxGames: 10 }), {
+    deps,
+    now: () => NOW,
+    onBatch: (b) => batches.push(b),
+  });
+
+  expect(result.status).toBe('complete');
+  expect(batches.length).toBeGreaterThanOrEqual(2);
+  const firstBatch = batches[0]!;
+  const secondBatch = batches[1]!;
+  expect(firstBatch.sequence).toBe(1);
+  expect(secondBatch.sequence).toBe(2);
+  expect(firstBatch.games.length).toBeLessThan(secondBatch.games.length);
+  expect(secondBatch.games.map((g) => g.id)).toContain('g8-1');
+  expect(secondBatch.games.map((g) => g.id)).toContain('g7-1');
+  expect(firstBatch.datasetRevision).toBeTruthy();
+  expect(secondBatch.datasetRevision).toBeTruthy();
+  expect(firstBatch.datasetRevision).not.toBe(secondBatch.datasetRevision);
+});

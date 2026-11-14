@@ -5,7 +5,7 @@ import type { EngineCapability } from '@/lib/engine/capabilities';
 import type { OpeningScope } from '../opening-tree/graphIdentity';
 
 import type { AnalysisUpdate, GameAnalysisResult } from '../stockfish-analysis/analyzeGame';
-import type { IngestionProgress, IngestionResult } from '../ingestion/types';
+import type { IngestionBatch, IngestionProgress, IngestionResult } from '../ingestion/types';
 
 export type ResultPerspective = 'user' | 'board';
 export type BoardOrientation = 'white' | 'black';
@@ -63,8 +63,10 @@ export interface WorkspaceState {
     status: 'idle' | 'loading' | 'partial' | 'cancelled' | 'empty' | 'failed' | 'complete';
     progress: IngestionProgress | null;
     result: IngestionResult | null;
-    lastAttempt?: IngestionResult | null;
+    lastAttempt?: IngestionResult | null | undefined;
     error: string | null;
+    batchSequence?: number | undefined;
+    datasetRevision?: string | undefined;
   };
   graph: {
     status: 'idle' | 'building' | 'partial' | 'limited' | 'failed' | 'complete';
@@ -118,6 +120,7 @@ export type WorkspaceAction =
   | { type: 'query/draftChanged'; query: GameQuery }
   | { type: 'query/started'; query: GameQuery; token: number }
   | { type: 'ingestion/progress'; token: number; progress: IngestionProgress }
+  | { type: 'ingestion/batch'; token: number; batch: IngestionBatch }
   | { type: 'ingestion/terminal'; token: number; result: IngestionResult; ply?: number }
   | { type: 'ingestion/failed'; token: number; error: string }
   | { type: 'ingestion/errorDismissed' }
