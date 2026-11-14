@@ -353,7 +353,7 @@ test('desktop analyzer layout stays bounded within usable viewport height for lo
 
   await page.getByRole('button', { name: /select ply 5\b/i }).click();
   await expect(page.locator('.annotation-panel')).toHaveCount(1);
-  await expect(page.locator('.annotation-panel h4')).toHaveText(/ply 5/i);
+  await expect(page.locator('.annotation-panel h4')).toHaveText(/3\. d4/);
 });
 
 test('mobile analyzer layout uses natural document flow with bounded move list', async ({

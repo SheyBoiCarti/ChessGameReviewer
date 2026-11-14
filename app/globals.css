@@ -2466,7 +2466,7 @@ li[data-selected='true'] {
 }
 
 .review-feedback {
-  min-height: calc(44px + 2 * var(--space-3) + 2px);
+  min-height: calc(88px + var(--space-2) + 2 * var(--space-3) + 2px);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -2511,7 +2511,11 @@ li[data-selected='true'] {
   color: var(--text-muted);
 }
 
-.review-feedback__empty {
+.review-feedback__empty,
+.review-feedback__navigation-empty {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
   margin: 0;
   color: var(--text-muted);
   font-size: 0.875rem;
@@ -4076,4 +4080,23 @@ li[data-selected='true'] {
   .workspace-layout--review .workspace-layout__context summary {
     min-height: 44px;
   }
+}
+
+/* Keep completed feedback in the same two control rows as pending feedback. */
+.review-feedback > nav.review-feedback__actions {
+  flex-wrap: nowrap;
+  gap: var(--space-2);
+  min-height: 44px;
+}
+
+.review-feedback > nav.review-feedback__actions button {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.review-feedback > nav.review-feedback__actions p {
+  margin: 0;
 }

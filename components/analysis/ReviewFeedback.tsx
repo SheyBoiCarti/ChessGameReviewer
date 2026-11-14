@@ -85,21 +85,23 @@ export function ReviewFeedback({
           <button
             type="button"
             className="button-secondary"
+            aria-label="Previous moment"
             disabled={previousMoment === null}
             onClick={() => previousMoment !== null && onSelectPly(previousMoment)}
           >
-            Previous moment
+            Previous
           </button>
           <button
             type="button"
             className="button-secondary review-feedback__next-btn"
+            aria-label={`Next ${navigationKind}`}
             disabled={nextMistake === null}
             onClick={() => nextMistake !== null && onSelectPly(nextMistake)}
           >
-            Next {navigationKind}
+            Next
           </button>
           {nextMistake === null ? (
-            <span className="review-feedback__no-mistakes">
+            <span className="review-feedback__no-mistakes visually-hidden">
               No later {navigationKind === 'mistake' ? 'mistakes' : 'moments'} in the analysed
               moves.
             </span>
@@ -109,15 +111,16 @@ export function ReviewFeedback({
               type="button"
               className="button-secondary"
               onClick={() => onSelectPly(firstMoment)}
+              aria-label="Restart key moments"
             >
-              Restart key moments
+              Restart
             </button>
           ) : null}
         </>
       )}
     </nav>
   ) : (
-    <p>No analysed moments yet.</p>
+    <p className="review-feedback__navigation-empty">No analysed moments yet.</p>
   );
 
   if (selectedPly === 0) {
