@@ -5,6 +5,7 @@ import type {
   SideAccuracy,
   PlayerMetadata,
 } from '../api/contracts';
+import type { OpeningGameProjection } from '../chess/graph/types';
 
 export const DB_NAME = 'ChessGameAnalyzerDB';
 export const SCHEMA_VERSION = 4;
@@ -178,6 +179,7 @@ export interface ValidationEnvelope {
   positionVersion: string;
   normalizerVersion: number;
   diagnosticCodes: string[];
+  projection?: OpeningGameProjection;
 }
 export interface NormalizedMonthCandidate {
   game: GameRecord;
@@ -204,7 +206,8 @@ export function isValidValidationEnvelope(data: unknown): data is ValidationEnve
     Number.isInteger(data.normalizerVersion) &&
     Array.isArray(data.diagnosticCodes) &&
     data.diagnosticCodes.length <= 20 &&
-    data.diagnosticCodes.every((code) => typeof code === 'string' && code.length <= 100)
+    data.diagnosticCodes.every((code) => typeof code === 'string' && code.length <= 100) &&
+    (data.projection === undefined || isObject(data.projection))
   );
 }
 export function isValidNormalizedMonthRecord(data: unknown): data is NormalizedMonthRecord {

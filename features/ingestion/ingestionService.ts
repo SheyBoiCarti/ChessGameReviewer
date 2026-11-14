@@ -400,6 +400,18 @@ async function executeIngestion(
       diagnostics: diagnostics.map((diagnostic) => ({ ...diagnostic })),
     });
   };
+  const isEligibleForReplay = (game: GameRecord): boolean => {
+    const from = query.dateFrom ? Date.parse(`${query.dateFrom}T00:00:00.000Z`) / 1000 : -Infinity;
+    const to = query.dateTo ? Date.parse(`${query.dateTo}T23:59:59.999Z`) / 1000 : Infinity;
+    return (
+      game.rules === 'chess' &&
+      game.endedAt >= from &&
+      game.endedAt <= to &&
+      query.timeClasses.includes(game.timeClass) &&
+      query.colors.includes(game.userColor)
+    );
+  };
+
   const validateGames = async (
     monthGames: readonly GameRecord[],
     month: string,
@@ -442,20 +454,24 @@ async function executeIngestion(
       })
     );
     throwIfAborted(runtime.signal);
-    const unknown = candidates.filter((candidate) => candidate.validation.state === 'unknown');
-    if (unknown.length > 0) {
+    const unknownEligible = candidates.filter(
+      (candidate) => candidate.validation.state === 'unknown' && isEligibleForReplay(candidate.game)
+    );
+    if (unknownEligible.length > 0) {
       const result = await runtime.deps.validatePgns(
-        unknown.map((candidate) => candidate.game),
+        unknownEligible.map((candidate) => candidate.game),
         { signal: runtime.signal }
       );
       throwIfAborted(runtime.signal);
       const validIds = new Set(result.validGameIds);
       for (const diagnostic of result.diagnostics) appendDiagnostic(diagnostics, diagnostic);
-      for (const candidate of unknown) {
+      for (const candidate of unknownEligible) {
         const valid = validIds.has(candidate.game.id);
+        const projection = result.projections?.find((p) => p.id === candidate.game.id);
         candidate.validation = {
           ...candidate.validation,
           state: valid ? 'valid' : 'invalid',
+          ...(projection ? { projection } : {}),
           diagnosticCodes: valid
             ? []
             : [
@@ -502,16 +518,14 @@ async function executeIngestion(
     sync: ArchiveSyncRecord | undefined
   ) => {
     const coverage = await runtime.deps.readNormalizedMonth(query.username, month);
-    const acceptedIds = new Set(monthGames.map((game) => game.id));
-    const knownInvalid =
+    const existingIds = new Set(monthGames.map((g) => g.id));
+    const extraCoverageGames =
       coverage?.candidates
-        .filter(
-          (candidate) =>
-            candidate.validation.state === 'invalid' && !acceptedIds.has(candidate.game.id)
-        )
+        .filter((candidate) => !existingIds.has(candidate.game.id))
         .map((candidate) => candidate.game) ?? [];
+    const candidateGames = [...monthGames, ...extraCoverageGames];
     const { validGames, normalized } = await validateGames(
-      [...monthGames, ...knownInvalid],
+      candidateGames,
       month,
       coverage?.fetchedAt ?? sync?.lastSuccessfulFetchAt ?? 0,
       coverage?.completeFetch ?? false,

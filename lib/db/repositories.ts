@@ -242,7 +242,7 @@ export async function saveSyncBatch(
     if (normalized) {
       tx.objectStore(STORES.NORMALIZED_MONTHS).put(normalized);
       for (const candidate of normalized.candidates) {
-        if (candidate.validation.state === 'invalid') gamesStore.delete(candidate.game.id);
+        if (candidate.validation.state !== 'valid') gamesStore.delete(candidate.game.id);
       }
     }
 

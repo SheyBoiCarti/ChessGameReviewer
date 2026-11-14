@@ -1082,3 +1082,87 @@ it('T45: excludes compatible invalid candidates without replay, retains diagnost
   await runIngestion(makeQuery(), { deps, now: () => NOW });
   expect(deps.fetchMonthlyGames).toHaveBeenCalledTimes(1);
 });
+
+it('T47: filters metadata before expensive cold replay and retains unselected candidates in normalized coverage', async () => {
+  const scopeGames = (await import('../../fixtures/openingScopeGames.json')).default;
+  const rawGames = scopeGames as unknown as RawChesscomGame[];
+  const strictReplayIds: string[] = [];
+  let persistedCoverage: import('@/lib/db/schema').NormalizedMonthRecord | null = null;
+  const deps = fakeDependencies({
+    fetchArchives: vi
+      .fn()
+      .mockResolvedValue(['https://api.chess.com/pub/player/audit-player/games/2024/01']),
+    fetchMonthlyGames: vi.fn().mockResolvedValue(rawGames),
+    validatePgns: vi.fn<IngestionDependencies['validatePgns']>(async (games) => {
+      strictReplayIds.push(...games.map((g) => g.id));
+      return {
+        validGameIds: games.map((g) => g.id),
+        diagnostics: [],
+        totalInvalid: 0,
+        diagnosticCodes: [],
+      };
+    }),
+    persistMonth: vi.fn(async (_games, _sync, _signal, coverage) => {
+      persistedCoverage = coverage ?? null;
+    }),
+  });
+
+  const loaded = await runIngestion(
+    makeQuery({
+      username: 'audit-player',
+      colors: ['white'],
+      dateFrom: '2024-01-01',
+      dateTo: '2024-01-31',
+    }),
+    { deps, now: () => NOW }
+  );
+
+  expect(loaded.games.every((g) => g.userColor === 'white')).toBe(true);
+  expect(strictReplayIds).toHaveLength(12);
+  expect(new Set(strictReplayIds).size).toBe(12);
+  expect(persistedCoverage).not.toBeNull();
+  expect(persistedCoverage!.candidates).toHaveLength(20);
+
+  // Black's eight remain available without a new fresh-month fetch and validate when selected.
+  vi.mocked(deps.fetchMonthlyGames).mockClear();
+  strictReplayIds.length = 0;
+  let savedGames: import('@/lib/db/schema').GameRecord[] = loaded.games;
+  let savedSync: import('@/lib/db/schema').ArchiveSyncRecord = {
+    key: 'audit-player:2024-01',
+    username: 'audit-player',
+    month: '2024-01',
+    lastSuccessfulFetchAt: NOW,
+    status: 'success',
+    observedGameIds: loaded.games.map((g) => g.id),
+    observedGameCount: loaded.games.length,
+    normalizerVersion: NORMALIZER_VERSION,
+  };
+  deps.readArchiveSyncs = vi.fn(async () => [savedSync]);
+  deps.readArchiveList = vi.fn(async () => ({
+    username: 'audit-player',
+    months: ['2024-01'],
+    fetchedAt: NOW,
+  }));
+  deps.readMonthGames = vi.fn(async () => savedGames);
+  deps.readNormalizedMonth = vi.fn(async () => persistedCoverage);
+  deps.persistMonth = vi.fn(async (games, sync, _signal, coverage) => {
+    savedGames = [...games];
+    savedSync = sync;
+    persistedCoverage = coverage ?? null;
+  });
+
+  const loadedBlack = await runIngestion(
+    makeQuery({
+      username: 'audit-player',
+      colors: ['black'],
+      dateFrom: '2024-01-01',
+      dateTo: '2024-01-31',
+    }),
+    { deps, now: () => NOW }
+  );
+
+  expect(loadedBlack.games.every((g) => g.userColor === 'black')).toBe(true);
+  expect(loadedBlack.games).toHaveLength(8);
+  expect(strictReplayIds).toHaveLength(8);
+  expect(deps.fetchMonthlyGames).not.toHaveBeenCalled();
+});
