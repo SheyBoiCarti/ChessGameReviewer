@@ -125,13 +125,8 @@ export function createWorkspaceController(
   // T40: opening graph requests carry their own sequence, independent of query tokens.
   let graphSequence = 0;
   const datasetRevisions = new WeakMap<IngestionResult, string>();
-  const revisionFor = (dataset: IngestionResult) => {
-    let revision = datasetRevisions.get(dataset);
-    if (!revision) {
-      revision = computeDatasetRevision(dataset.games);
-      datasetRevisions.set(dataset, revision);
-    }
-    return revision;
+  const revisionFor = (dataset: IngestionResult): string => {
+    return datasetRevisions.get(dataset) ?? '';
   };
   // Local run generation guards progress; per-game generations guard terminal projections.
   // Restore generations below protect reads; saved envelope ownership is extended in T18.
@@ -726,7 +721,8 @@ export function createWorkspaceController(
             })();
           }, 0);
           const graphRequestId = ++graphSequence;
-          const datasetRevision = revisionFor(result);
+          const datasetRevision = await computeDatasetRevision(result.games);
+          datasetRevisions.set(result, datasetRevision);
           dispatch({ type: 'graph/started', token, requestId: graphRequestId });
           void buildOpeningGraph(
             result.games,

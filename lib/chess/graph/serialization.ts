@@ -30,6 +30,7 @@ export interface SerializedOpeningGraph {
     arrivalsByPath: Array<[number, OutcomeAggregate]>;
   }>;
   paths: PathNode[];
+  datasetRevision?: string;
 }
 
 export function serializedGraphByteSize(snapshot: SerializedOpeningGraph): number {
@@ -49,7 +50,7 @@ export function serializeOpeningGraph(
     SerializedOpeningGraph,
     'queryFingerprint' | 'sourceGameCount' | 'buildTimestamp'
   > &
-    Partial<Pick<SerializedOpeningGraph, 'excludedGameCount'>>
+    Partial<Pick<SerializedOpeningGraph, 'excludedGameCount' | 'datasetRevision'>>
 ): SerializedOpeningGraph {
   return {
     formatVersion: GRAPH_FORMAT_VERSION,
