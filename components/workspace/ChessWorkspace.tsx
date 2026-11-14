@@ -2,10 +2,22 @@
 
 import { selectMovePresentation } from '@/features/stockfish-analysis/presentation';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, type JSX } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  type JSX,
+} from 'react';
 import type { Square } from 'chess.js';
 
-import { GameSelector, defaultGameListState, type GameListState } from '@/components/analysis/GameSelector';
+import {
+  GameSelector,
+  defaultGameListState,
+  type GameListState,
+} from '@/components/analysis/GameSelector';
 import { VariationSandboxBanner } from '@/components/analysis/VariationSandboxBanner';
 import { ChessboardView, type MoveHistoryModel } from '@/components/board/ChessboardView';
 import { GameQueryForm } from '@/components/controls/GameQueryForm';
@@ -38,6 +50,12 @@ import { createBrowserWorkspaceServices } from '@/features/workspace/browserServ
 import type { WorkspaceServices } from '@/features/workspace/createWorkspaceController';
 import { useWorkspace } from '@/features/workspace/useWorkspace';
 import { saveWorkspaceSession } from '@/features/workspace/session';
+import {
+  readWorkspaceUrl,
+  sameWorkspaceUrlIntent,
+  writeWorkspaceUrl,
+  type WorkspaceUrlIntent,
+} from '@/features/workspace/urlState';
 import type { PlayerMetadata } from '@/lib/api/contracts';
 import type { ParsedGame } from '@/lib/chess/pgnParser';
 import { parseSelectedGame } from '@/features/workspace/parseSelectedGame';
@@ -65,10 +83,27 @@ export function ChessWorkspace({
 }: {
   createServices?: (() => WorkspaceServices) | undefined;
 } = {}): JSX.Element {
-  const { controller, state, recentQuery, recoveredSession } = useWorkspace(createServices);
-  const [tab, setTab] = useState<WorkspaceTab>('games');
+  const {
+    controller,
+    state,
+    recentQuery,
+    recoveredSession,
+    initialUrlIntent: urlIntentAtMount,
+    startupComplete,
+  } = useWorkspace(createServices);
+  // T28: a valid URL intent wins over stored defaults, so view and mode are
+  // initialized from the address bar before session recovery can apply.
+  const [tab, setTab] = useState<WorkspaceTab>(() => urlIntentAtMount?.tab ?? 'games');
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>({});
-  const [reviewMode, setReviewMode] = useState<ReviewMode>('review');
+  const [reviewMode, setReviewMode] = useState<ReviewMode>(
+    () => urlIntentAtMount?.reviewMode ?? 'review'
+  );
+  const [urlRecovery, setUrlRecovery] = useState<string | null>(() => {
+    const url = new URL(window.location.href);
+    return url.searchParams.has('view') && !urlIntentAtMount
+      ? 'This workspace link is invalid. Choose a view or find games to continue.'
+      : null;
+  });
   const [menuOpen, setMenuOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -90,9 +125,7 @@ export function ChessWorkspace({
   // T26: list presentation state is owned above GameSelector's mount lifetime, keyed by
   // the canonical import query, so Review returns retain filter/sort/page/scroll.
   const listStateStoreRef = useRef(new Map<string, GameListState>());
-  const listStateKey = canonicalQueryKey(
-    state.query.active ?? recentQuery ?? state.query.draft
-  );
+  const listStateKey = canonicalQueryKey(state.query.active ?? recentQuery ?? state.query.draft);
   const [listState, setListState] = useState<GameListState>(
     () => listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState }
   );
@@ -107,11 +140,13 @@ export function ChessWorkspace({
     [listStateKey]
   );
   useEffect(() => {
-    if (recoveredSession) {
+    // T28: a valid URL intent already governs view and mode; stored session
+    // defaults only apply when the URL did not describe a workspace state.
+    if (recoveredSession && !urlIntentAtMount) {
       setTab(recoveredSession.tab);
       setReviewMode(recoveredSession.reviewMode);
     }
-  }, [recoveredSession]);
+  }, [recoveredSession, urlIntentAtMount]);
 
   useEffect(() => {
     if (
@@ -135,6 +170,125 @@ export function ChessWorkspace({
     tab,
     reviewMode,
   ]);
+
+  // T28: keep the address bar synchronized with view/game/mode/ply without a
+  // state-sync loop. The mount run only records state (the URL already
+  // describes it); an already-current URL — e.g. one just applied from
+  // popstate — is left untouched; view/game/mode changes push a history entry
+  // while position-only changes replace it, so thirty ply advances do not
+  // create thirty Back steps.
+  const urlSyncRef = useRef<{
+    tab: WorkspaceTab;
+    reviewMode: ReviewMode;
+    gameId: string | null;
+    ply: number;
+  } | null>(null);
+  const suppressUrlSyncRef = useRef(false);
+  useEffect(() => {
+    if (!startupComplete) return;
+    const suppressed = suppressUrlSyncRef.current;
+    suppressUrlSyncRef.current = false;
+    const gameId = state.selection.gameId;
+    const previous = urlSyncRef.current;
+    urlSyncRef.current = { tab, reviewMode, gameId, ply: state.selection.ply };
+    if (!previous) {
+      if (urlIntentAtMount?.gameId && !gameId) {
+        setUrlRecovery(
+          'This game is not available locally. Import its games or choose a game from Games.'
+        );
+        return;
+      }
+      const initial = writeWorkspaceUrl(new URL(window.location.href), {
+        tab,
+        reviewMode,
+        ...(gameId ? { gameId, ply: state.selection.ply } : {}),
+      });
+      window.history.replaceState(null, '', `${initial.pathname}${initial.search}${initial.hash}`);
+      return;
+    }
+    if (
+      previous.tab === tab &&
+      previous.reviewMode === reviewMode &&
+      previous.gameId === gameId &&
+      previous.ply === state.selection.ply
+    )
+      return;
+    if (suppressed) return;
+    setUrlRecovery(null);
+    const intent: WorkspaceUrlIntent = {
+      tab,
+      reviewMode,
+      ...(gameId ? { gameId } : {}),
+      ...(gameId ? { ply: state.selection.ply } : {}),
+    };
+    const url = new URL(window.location.href);
+    if (sameWorkspaceUrlIntent(readWorkspaceUrl(url), intent)) return;
+    const next = writeWorkspaceUrl(url, intent);
+    const target = `${next.pathname}${next.search}${next.hash}`;
+    const positionOnly =
+      previous.tab === tab && previous.reviewMode === reviewMode && previous.gameId === gameId;
+    if (positionOnly) window.history.replaceState(null, '', target);
+    else window.history.pushState(null, '', target);
+  }, [
+    tab,
+    reviewMode,
+    state.selection.gameId,
+    state.selection.ply,
+    startupComplete,
+    urlIntentAtMount,
+  ]);
+
+  // T28: one popstate owner applies Back/Forward URL intents; applying a URL
+  // never writes another history entry.
+  const popStateRef = useRef({
+    tab,
+    reviewMode,
+    selectionGameId: state.selection.gameId,
+    selectionPly: state.selection.ply,
+    games: state.ingestion.result?.games ?? [],
+  });
+  popStateRef.current = {
+    tab,
+    reviewMode,
+    selectionGameId: state.selection.gameId,
+    selectionPly: state.selection.ply,
+    games: state.ingestion.result?.games ?? [],
+  };
+  useEffect(() => {
+    const applyPopState = () => {
+      const intent = readWorkspaceUrl(new URL(window.location.href));
+      const snapshot = popStateRef.current;
+      controller.invalidateReviewIntent();
+      setVariation(null);
+      setVariationOrigin(null);
+      if (!intent) {
+        setUrlRecovery('This workspace link is invalid. Choose a view or find games to continue.');
+        return;
+      }
+      setTab(intent.tab);
+      setReviewMode(intent.reviewMode);
+      const game = snapshot.games.find(({ id }) => id === intent.gameId);
+      setUrlRecovery(
+        intent.gameId && !game
+          ? 'This game is not available locally. Import its games or choose a game from Games.'
+          : null
+      );
+      controller.selectGame(game?.id ?? null);
+      if (game && intent.ply !== undefined) {
+        controller.selectPly(Math.min(intent.ply, parseSelectedGame(game)?.plies.length ?? 0));
+      }
+      const changed =
+        intent.tab !== snapshot.tab ||
+        intent.reviewMode !== snapshot.reviewMode ||
+        (game?.id ?? null) !== snapshot.selectionGameId ||
+        controller.getState().selection.ply !== snapshot.selectionPly;
+      // The applied state must not write the URL back; the sync effect skips
+      // the render this produces.
+      if (changed) suppressUrlSyncRef.current = true;
+    };
+    window.addEventListener('popstate', applyPopState);
+    return () => window.removeEventListener('popstate', applyPopState);
+  }, [controller]);
 
   const [loadedAnnouncement, setLoadedAnnouncement] = useState<string | null>(null);
 
@@ -165,6 +319,13 @@ export function ChessWorkspace({
     [parsedGame]
   );
   const displayedFen = boardFen(tab, graph, navigation, parsedGame, state.selection.ply);
+
+  // T28: a URL or stored ply is clamped once the selected game is known.
+  useEffect(() => {
+    if (parsedGame && state.selection.ply > parsedGame.plies.length) {
+      controller.selectPly(parsedGame.plies.length);
+    }
+  }, [controller, parsedGame, state.selection.ply]);
 
   const analysisStatusMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -231,7 +392,7 @@ export function ChessWorkspace({
     previousIngestionStatus.current = state.ingestion.status;
     if (previous === 'loading' && state.ingestion.status !== 'loading') {
       const hasGames = (state.ingestion.result?.games.length ?? 0) > 0;
-      if (['complete', 'partial'].includes(state.ingestion.status) && hasGames) {
+      if (startupComplete && ['complete', 'partial'].includes(state.ingestion.status) && hasGames) {
         setImportOpen(false);
         selectTab('games');
         setLoadedAnnouncement(`${state.ingestion.result?.games.length} games loaded`);
@@ -650,6 +811,23 @@ export function ChessWorkspace({
 
   return (
     <div className="workspace-shell" data-modal-root>
+      {urlRecovery ? (
+        <div className="status-card" role="status">
+          <p>{urlRecovery}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setUrlRecovery(null);
+              selectTab('games');
+            }}
+          >
+            Choose a game
+          </button>
+          <button type="button" onClick={() => setImportOpen(true)}>
+            Import linked games
+          </button>
+        </div>
+      ) : null}
       {/* Desktop Left Rail Navigation (hidden < 960px via CSS) */}
       <aside className="workspace-rail">
         <WorkspaceNavigation
@@ -1281,15 +1459,17 @@ function uciArrow(uci: string | undefined): { from: Square; to: Square } | undef
 }
 
 /** Stable list-state owner key per canonical import query (T26). */
-function canonicalQueryKey(query: {
-  username: string;
-  dateFrom?: string | undefined;
-  dateTo?: string | undefined;
-  maxGames?: number | undefined;
-  timeClasses?: readonly string[] | undefined;
-  colors?: readonly string[] | undefined;
-  rated?: boolean | undefined;
-} | null): string {
+function canonicalQueryKey(
+  query: {
+    username: string;
+    dateFrom?: string | undefined;
+    dateTo?: string | undefined;
+    maxGames?: number | undefined;
+    timeClasses?: readonly string[] | undefined;
+    colors?: readonly string[] | undefined;
+    rated?: boolean | undefined;
+  } | null
+): string {
   if (!query) return 'no-query';
   return JSON.stringify([
     query.username.toLowerCase(),

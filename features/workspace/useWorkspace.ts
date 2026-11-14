@@ -11,6 +11,8 @@ import {
 } from './createWorkspaceController';
 import type { WorkspacePreferences } from './types';
 import { readWorkspaceSession, type SavedWorkspaceSession } from './session';
+import { readCurrentWorkspaceUrlIntent, type WorkspaceUrlIntent } from './urlState';
+import { parseSelectedGame } from './parseSelectedGame';
 
 const preferencesStorageKey = 'chess-game-reviewer:preferences';
 const recentQueryStorageKey = 'chess-game-reviewer:recent-query';
@@ -20,6 +22,8 @@ export interface UseWorkspaceResult {
   state: ReturnType<WorkspaceController['getState']>;
   recentQuery: GameQuery | null;
   recoveredSession: SavedWorkspaceSession | null;
+  initialUrlIntent: WorkspaceUrlIntent | null;
+  startupComplete: boolean;
 }
 
 export function useWorkspace(createServices: () => WorkspaceServices): UseWorkspaceResult {
@@ -30,6 +34,9 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
   const [startupQuery] = useState(() => readStoredQuery());
   const [startupSession] = useState(() => readWorkspaceSession());
   const [recoveredSession, setRecoveredSession] = useState<SavedWorkspaceSession | null>(null);
+  // T28: a valid URL intent wins over stored defaults; it is read once at mount.
+  const [urlIntent] = useState<WorkspaceUrlIntent | null>(() => readCurrentWorkspaceUrlIntent());
+  const [startupComplete, setStartupComplete] = useState(false);
   const state = useSyncExternalStore(
     controller.subscribe,
     controller.getState,
@@ -72,14 +79,28 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
           if (
             !active ||
             loaded.query.token !== requestToken ||
-            controller.getNavigationVersion() !== navigationVersion ||
-            !startupSession ||
-            startupSession.username !== startupQuery.username
+            controller.getNavigationVersion() !== navigationVersion
           )
             return;
-          const game = loaded.ingestion.result?.games.find(
-            ({ id }) => id === startupSession.gameId
-          );
+          const games = loaded.ingestion.result?.games ?? [];
+          // T28: a URL game the local dataset can supply wins over stored defaults;
+          // an absent record leaves manual import/selection available instead.
+          if (urlIntent) {
+            const urlGame = games.find(({ id }) => id === urlIntent.gameId);
+            if (!urlGame) {
+              controller.selectGame(null);
+              return;
+            }
+            controller.selectGame(urlGame.id);
+            if (urlIntent.ply !== undefined)
+              controller.selectPly(
+                Math.min(urlIntent.ply, parseSelectedGame(urlGame)?.plies.length ?? 0)
+              );
+            if (urlIntent.tab === 'analysis') void controller.openReview(urlGame.id);
+            return;
+          }
+          if (!startupSession || startupSession.username !== startupQuery.username) return;
+          const game = games.find(({ id }) => id === startupSession.gameId);
           if (!game) return;
           controller.selectGame(game.id);
           controller.selectPly(startupSession.ply);
@@ -88,14 +109,26 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
         })
         .catch(() => {
           /* Manual import remains available if local recovery fails. */
+        })
+        .finally(() => {
+          if (active) setStartupComplete(true);
         });
+    } else {
+      setStartupComplete(true);
     }
     return () => {
       active = false;
     };
-  }, [controller, startupQuery, startupSession]);
+  }, [controller, startupQuery, startupSession, urlIntent]);
 
-  return { controller, state, recentQuery, recoveredSession };
+  return {
+    controller,
+    state,
+    recentQuery,
+    recoveredSession,
+    initialUrlIntent: urlIntent,
+    startupComplete,
+  };
 }
 
 function readStoredPreferences(): Partial<WorkspacePreferences> {

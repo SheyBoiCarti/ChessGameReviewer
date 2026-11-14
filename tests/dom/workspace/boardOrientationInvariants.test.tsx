@@ -87,6 +87,9 @@ function makeMockServices(games: GameRecord[] = [sampleGame]): WorkspaceServices
 describe('Board orientation and player metadata invariants', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    // T28 URL sync persists view params in this shared jsdom window; reset so
+    // each test mounts from a clean address bar.
+    window.history.replaceState(null, '', '/');
   });
 
   it('does not parse other games for opening membership in Games or Review', async () => {

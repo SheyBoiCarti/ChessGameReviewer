@@ -211,6 +211,9 @@ function makeMockServices(games: GameRecord[] = [sampleGame]): WorkspaceServices
 describe('Bug fixes exploratory verification', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    // T28 URL sync persists view params in this shared jsdom window; reset so
+    // each test mounts from a clean address bar.
+    window.history.replaceState(null, '', '/');
   });
 
   it('Bug 3: retains existing active games when a re-import query fails and provides recovery', async () => {

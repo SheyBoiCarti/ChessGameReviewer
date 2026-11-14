@@ -240,3 +240,93 @@ test('updates factual capture explanations with the selected original board', as
   await expect(feedback).not.toContainText('This move captures');
   await expect(page.getByLabel('black knight on f6', { exact: true })).toBeVisible();
 });
+
+test('retains views and the selected game across Back and Forward (T28)', async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /opponent-one/i }).click();
+  // Selecting a game encodes view/mode/game/ply and preserves engine test params.
+  await expect(page).toHaveURL(
+    /engine=unavailable&view=games&mode=review&game=fixture-game-1&ply=0/
+  );
+  await page.getByRole('button', { name: 'Review game' }).click();
+  await expect(page).toHaveURL(/view=analysis&mode=review&game=fixture-game-1&ply=0/);
+  await page.getByRole('button', { name: 'Openings' }).click();
+  await expect(page).toHaveURL(/view=opening&mode=review&game=fixture-game-1&ply=0/);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/view=analysis&mode=review&game=fixture-game-1/);
+  await expect(page.getByRole('button', { name: 'Back to games' })).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(/view=games&mode=review&game=fixture-game-1/);
+  await expect(page.getByRole('button', { name: 'Review game' })).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(/view=analysis&mode=review&game=fixture-game-1/);
+});
+
+test('restores locally available content from a direct URL (T28)', async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page);
+  await expect(page.getByRole('button', { name: /opponent-one/i })).toBeVisible();
+  await page.goto('/?engine=unavailable&view=analysis&mode=review&game=fixture-game-1&ply=2');
+  const board = page.getByRole('grid', { name: 'Chess board' });
+  await expect(board).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByLabel('Position 2 of 8')).toBeVisible();
+  // The restored state stays encoded in the address bar.
+  await expect(page).toHaveURL(/view=analysis&mode=review&game=fixture-game-1&ply=2/);
+});
+
+test('does not create a Back step per position advance (T28)', async ({ page }) => {
+  test.setTimeout(60_000);
+  await installLongGameWorkspaceFixtures(page);
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page, 1);
+  await page.getByRole('button', { name: /opponent-long/i }).click();
+  const board = page.getByRole('grid', { name: 'Chess board' });
+  await expect(board).toBeVisible();
+  const before = await page.evaluate(() => window.history.length);
+  for (let index = 0; index < 30; index += 1) {
+    await board.press('ArrowRight');
+  }
+  await expect(page.getByLabel('Position 30 of 41')).toBeVisible();
+  const after = await page.evaluate(() => window.history.length);
+  expect(after).toBe(before);
+});
+
+test('recovers from invalid urls and absent games without external fetches (T28)', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.goto('/?engine=unavailable&view=nope&ply=abc');
+  // An invalid URL intent falls back to the default workspace without crashing.
+  await expect(page.getByLabel('Username')).toBeVisible();
+
+  // An absent game id cannot select a record the dataset does not have; the
+  // workspace prompts for import/selection instead.
+  await page.goto('/?engine=unavailable&view=analysis&game=absent-game&ply=3');
+  await expect(page.getByText(/This game is not available locally/)).toBeVisible();
+  await expect(page.getByRole('grid', { name: 'Chess board' })).toHaveCount(0);
+  // Manual import and selection still work from the recovery state.
+  await page.getByRole('button', { name: 'Games', exact: true }).click();
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /opponent-one/i }).click();
+  await expect(page).toHaveURL(/game=fixture-game-1&ply=0/);
+});
+
+test('keeps missing URL games separate from an existing selected game (T28)', async ({ page }) => {
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page);
+  await expect(page.getByRole('button', { name: /opponent-one/i })).toBeVisible();
+  let archiveRequests = 0;
+  page.on('request', (request) => {
+    if (request.url().includes('api.chess.com')) archiveRequests++;
+  });
+  await page.goto('/?engine=unavailable&view=analysis&game=missing&ply=99');
+  await expect(page.getByText(/This game is not available locally/)).toBeVisible();
+  await expect(page.getByRole('grid', { name: 'Chess board' })).toHaveCount(0);
+  expect(archiveRequests).toBe(0);
+  await page.getByRole('button', { name: 'Choose a game', exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Games', exact: true })).toBeVisible();
+});
