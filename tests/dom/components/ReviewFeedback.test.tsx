@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import { EngineAnnotationPanel } from '@/components/analysis/EngineAnnotationPanel';
 import { ReviewFeedback } from '@/components/analysis/ReviewFeedback';
 import type { GameAnnotation } from '@/features/stockfish-analysis/analyzeGame';
 
@@ -288,4 +289,19 @@ it('offers an explicit restart after the last moment, including a pending select
   expect(select).toHaveBeenLastCalledWith(10);
   await userEvent.click(screen.getByRole('button', { name: 'Restart key moments' }));
   expect(select).toHaveBeenLastCalledWith(5);
+});
+
+it('keeps an illegal alternative neutral and hides raw UCI in advanced details', () => {
+  const annotation = createMockAnnotation(1, 'e4', 'indeterminate', 'e2e5');
+  render(
+    <EngineAnnotationPanel
+      annotation={annotation}
+      startFen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+      onSelectPly={vi.fn()}
+      onExplorePv={vi.fn()}
+    />
+  );
+  expect(screen.getByText('Best move unavailable')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Explore line on board' })).toBeDisabled();
+  expect(screen.getByText('UCI: e2e5')).not.toBeVisible();
 });

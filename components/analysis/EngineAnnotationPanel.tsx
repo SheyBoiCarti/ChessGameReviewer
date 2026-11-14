@@ -20,10 +20,8 @@ export function EngineAnnotationPanel({
   onSelectPly(ply: number): void;
   onExplorePv?: ((startFen: string, uciMoves: readonly string[]) => void) | undefined;
 }) {
-  const bestMoveSan = startFen
-    ? (convertPvToSan(startFen, [annotation.before.bestMove]).moves[0] ??
-      annotation.before.bestMove)
-    : annotation.before.bestMove;
+  const best = startFen ? convertPvToSan(startFen, [annotation.before.bestMove]) : null;
+  const bestMoveSan = best && !best.diagnostic ? best.moves[0] : 'Best move unavailable';
 
   return (
     <article className="annotation-panel">
