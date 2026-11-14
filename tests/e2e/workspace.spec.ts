@@ -579,3 +579,27 @@ test('completes the core review milestone journey and preserves list filters (T3
   await expect(page.getByLabel('Filter games')).toHaveValue('opponent-two');
   await expect(page.getByRole('heading', { level: 3, name: /games \(1 of 2\)/i })).toBeVisible();
 });
+
+test('T43: mounts 50 indexed source games per page and preserves the chosen game in Review', async ({
+  page,
+}) => {
+  await installPaginatedWorkspaceFixtures(page);
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page, 500);
+  await expect(page.getByRole('heading', { name: 'Games (500)', exact: true })).toBeVisible({
+    timeout: 30000,
+  });
+  await page.getByRole('button', { name: 'Openings', exact: true }).click();
+  await page.getByRole('radio', { name: /^Both/ }).click();
+  await page.getByText('Matching games (500)', { exact: true }).click();
+  const list = page.getByRole('list', { name: 'Matching source games' });
+  await expect(list.getByRole('listitem')).toHaveCount(50);
+  await page.getByRole('button', { name: 'Next matching games' }).click();
+  await expect(list.getByRole('listitem')).toHaveCount(50);
+  await expect(page.getByText('Page 2 of 10', { exact: true })).toBeVisible();
+  await list.getByRole('button').first().click();
+  await expect(page).toHaveURL(/view=analysis.*game=/);
+  await expect(page.getByRole('button', { name: 'Back to games', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Openings', exact: true }).click();
+  await expect(page.getByText('Matching games (500)', { exact: true })).toBeVisible();
+});

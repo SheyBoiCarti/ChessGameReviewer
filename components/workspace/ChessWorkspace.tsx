@@ -73,6 +73,7 @@ import {
 import type { PlayerMetadata } from '@/lib/api/contracts';
 import type { ParsedGame } from '@/lib/chess/pgnParser';
 import { parseSelectedGame } from '@/features/workspace/parseSelectedGame';
+import { selectPrefixGameIds, selectPositionGameIds } from '@/features/opening-tree/selectors';
 import { OpeningView } from '@/components/opening/OpeningView';
 import { ReviewView } from '@/components/analysis/ReviewView';
 import { ReviewFeedback } from '@/components/analysis/ReviewFeedback';
@@ -367,15 +368,6 @@ export function ChessWorkspace({
   ].join('\u0000');
   const datasetKeyRef = useRef(openingDatasetKey);
 
-  // T40: visited exact-line membership uses the actual sequence of played moves.
-  const visitedSequence = useMemo(() => {
-    if (!navigation) return [];
-    return navigation.history
-      .slice(0, navigation.cursor + 1)
-      .map((entry) => entry.uci)
-      .filter((uci): uci is string => uci !== null);
-  }, [navigation]);
-
   const openingColorCounts = useMemo(() => {
     const games = state.ingestion.result?.games ?? [];
     return {
@@ -384,24 +376,17 @@ export function ChessWorkspace({
     };
   }, [state.ingestion.result]);
 
-  const openingGames = useMemo(() => {
-    const games = state.ingestion.result?.games ?? [];
-    return state.graph.scope === 'both'
-      ? games
-      : games.filter((game) => game.userColor === state.graph.scope);
-  }, [state.ingestion.result, state.graph.scope]);
+  const openingGamesById = useMemo(
+    () => new Map((state.ingestion.result?.games ?? []).map((game) => [game.id, game])),
+    [state.ingestion.result]
+  );
   const openingNode = navigation?.observed
     ? graph?.positions.get(navigation.positionKey)
     : undefined;
-  // Arrival evidence is only looked up for the actual prefix. Synthesized
-  // transposition routes have zero exact-line games even with shared candidates.
-  const openingExactMatchCount = !navigation?.observed
-    ? 0
-    : navigation.cursor === 0
-      ? (openingNode?.aggregate.games ?? 0)
-      : navigation.pathId === null
-        ? 0
-        : (openingNode?.arrivalsByPath.get(navigation.pathId)?.games ?? 0);
+  const openingExactMatchCount =
+    state.graph.snapshot && navigation?.observed
+      ? selectPrefixGameIds(state.graph.snapshot, navigation.pathId).length
+      : 0;
 
   // Initialize once per committed import. Horizon changes made outside Openings
   // are applied on entry, independently of the import query and Review selection.
@@ -1351,8 +1336,12 @@ export function ChessWorkspace({
                               : state.graph.scope === 'black'
                                 ? 'Black'
                                 : 'White'}{' '}
-                            · Position: {openingNode?.aggregate.games ?? 0} games · Exact line:{' '}
-                            {openingExactMatchCount} games
+                            · Position:{' '}
+                            {state.graph.snapshot
+                              ? selectPositionGameIds(state.graph.snapshot, navigation.positionKey)
+                                  .length
+                              : 0}{' '}
+                            games · Exact line: {openingExactMatchCount} games
                           </p>
                         ) : null}
                         {/* T41: notation/navigation and candidates next. */}
@@ -1401,10 +1390,12 @@ export function ChessWorkspace({
                           className="opening-disclosure opening-matching-disclosure"
                         >
                           <OpeningView
-                            games={navigation.observed ? openingGames : []}
-                            sequence={visitedSequence}
+                            gamesById={openingGamesById}
+                            snapshot={state.graph.snapshot!}
+                            positionKey={navigation.positionKey}
+                            pathId={navigation.observed ? navigation.pathId : null}
                             onSelectGame={(id) => {
-                              controller.selectGame(id);
+                              void controller.openReview(id);
                               selectTab('analysis');
                             }}
                           />

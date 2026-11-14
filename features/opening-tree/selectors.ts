@@ -130,3 +130,40 @@ export function selectArrivalOrders(
           .localeCompare(right.moves.map((move) => move.uci).join(' '))
     );
 }
+
+// Weak identity cache: one index build per serialized revision, without retaining old graphs.
+const membershipIndexes = new WeakMap<
+  import('../../lib/chess/graph/serialization').SerializedOpeningGraph,
+  {
+    positions: Map<string, string[]>;
+    prefixes: Map<number, string[]>;
+  }
+>();
+function membershipIndexesFor(
+  snapshot: import('../../lib/chess/graph/serialization').SerializedOpeningGraph
+) {
+  let indexes = membershipIndexes.get(snapshot);
+  if (!indexes) {
+    indexes = {
+      positions: new Map(snapshot.positionGameIds),
+      prefixes: new Map(snapshot.prefixGameIds),
+    };
+    membershipIndexes.set(snapshot, indexes);
+  }
+  return indexes;
+}
+const EMPTY_MEMBERSHIP: readonly string[] = [];
+export function selectPositionGameIds(
+  snapshot: import('../../lib/chess/graph/serialization').SerializedOpeningGraph,
+  key: string
+): readonly string[] {
+  return membershipIndexesFor(snapshot).positions.get(key) ?? EMPTY_MEMBERSHIP;
+}
+export function selectPrefixGameIds(
+  snapshot: import('../../lib/chess/graph/serialization').SerializedOpeningGraph,
+  pathId: number | null
+): readonly string[] {
+  return pathId === null
+    ? EMPTY_MEMBERSHIP
+    : (membershipIndexesFor(snapshot).prefixes.get(pathId) ?? EMPTY_MEMBERSHIP);
+}
