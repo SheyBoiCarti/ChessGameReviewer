@@ -5,6 +5,7 @@ export interface SavedWorkspaceSession {
   username: string;
   gameId: string;
   ply: number;
+  pgnDigest?: string;
   tab: WorkspaceTab;
   reviewMode: ReviewMode;
 }
@@ -16,7 +17,9 @@ export function readWorkspaceSession(): SavedWorkspaceSession | null {
       !value ||
       typeof value.username !== 'string' ||
       typeof value.gameId !== 'string' ||
-      !Number.isInteger(value.ply) ||
+      (value.pgnDigest !== undefined &&
+        (typeof value.pgnDigest !== 'string' || !/^[a-f0-9]{64}$/.test(value.pgnDigest))) ||
+      !Number.isSafeInteger(value.ply) ||
       value.ply < 0 ||
       !['games', 'analysis', 'opening', 'insights', 'settings'].includes(value.tab) ||
       !['review', 'analysis'].includes(value.reviewMode)

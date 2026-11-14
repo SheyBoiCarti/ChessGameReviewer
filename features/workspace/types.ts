@@ -109,7 +109,7 @@ export type WorkspaceAction =
   | { type: 'query/draftChanged'; query: GameQuery }
   | { type: 'query/started'; query: GameQuery; token: number }
   | { type: 'ingestion/progress'; token: number; progress: IngestionProgress }
-  | { type: 'ingestion/terminal'; token: number; result: IngestionResult }
+  | { type: 'ingestion/terminal'; token: number; result: IngestionResult; ply?: number }
   | { type: 'ingestion/failed'; token: number; error: string }
   | { type: 'ingestion/errorDismissed' }
   | { type: 'graph/started'; token: number }

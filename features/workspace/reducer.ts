@@ -163,7 +163,7 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           error: null,
         },
         graph: action.result.games.length === 0 ? idleGraph : state.graph,
-        selection: { ...emptySelection, gameId },
+        selection: { ...emptySelection, gameId, ply: Math.max(0, action.ply ?? 0) },
       };
     }
     case 'ingestion/failed':

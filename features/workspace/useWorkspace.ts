@@ -12,6 +12,7 @@ import {
 import type { WorkspacePreferences } from './types';
 import { readWorkspaceSession, type SavedWorkspaceSession } from './session';
 import { readCurrentWorkspaceUrlIntent, type WorkspaceUrlIntent } from './urlState';
+import { computePgnDigest } from '../stockfish-analysis/reviewIdentity';
 import { parseSelectedGame } from './parseSelectedGame';
 
 const preferencesStorageKey = 'chess-game-reviewer:preferences';
@@ -104,9 +105,20 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
           if (!startupSession || startupSession.username !== startupQuery.username) return;
           const game = games.find(({ id }) => id === startupSession.gameId);
           if (!game) return;
+          const digest = await computePgnDigest(game.pgn);
+          if (
+            !active ||
+            controller.getState().query.token !== requestToken ||
+            controller.getNavigationVersion() !== navigationVersion
+          )
+            return;
+          const ply =
+            startupSession.pgnDigest === digest
+              ? Math.min(startupSession.ply, parseSelectedGame(game)?.plies.length ?? 0)
+              : 0;
           controller.selectGame(game.id);
-          controller.selectPly(startupSession.ply);
-          setRecoveredSession(startupSession);
+          controller.selectPly(ply);
+          setRecoveredSession({ ...startupSession, ply });
           if (startupSession.tab === 'analysis') void controller.openReview(game.id);
         })
         .catch(() => {

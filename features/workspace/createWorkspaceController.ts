@@ -151,6 +151,8 @@ export function createWorkspaceController(
   const forgetCursorEntry = (username: string, gameId: string, entry: GameReviewCursor) => {
     if (entry.digest)
       cursorEntriesByContent.delete(cursorContentKey(username, gameId, entry.digest));
+    const normalized = username.toLowerCase();
+    cursorCounts.set(normalized, Math.max(0, (cursorCounts.get(normalized) ?? 0) - 1));
   };
   const clearCursorsForUser = (username: string): void => {
     const normalized = username.toLowerCase();
@@ -173,12 +175,22 @@ export function createWorkspaceController(
     cursorCounts.clear();
   };
   const recordLastReviewedPly = (game: GameRecord, ply: number): void => {
-    if (ply <= 0) return;
     const normalized = game.username.toLowerCase();
     const gameKey = gameCursorKey(normalized, game.id);
     const existing = cursorIndexByGame.get(gameKey);
+    if (ply <= 0) {
+      if (existing) {
+        forgetCursorEntry(normalized, game.id, existing);
+        cursorIndexByGame.delete(gameKey);
+      }
+      return;
+    }
+    const digest = existing?.pgn === game.pgn ? existing.digest : null;
+    if (existing?.digest && existing.pgn !== game.pgn)
+      cursorEntriesByContent.delete(cursorContentKey(normalized, game.id, existing.digest));
     cursorIndexByGame.delete(gameKey);
-    cursorIndexByGame.set(gameKey, { ply, pgn: game.pgn, digest: existing?.digest ?? null });
+    cursorIndexByGame.set(gameKey, { ply, pgn: game.pgn, digest });
+    if (digest) cursorEntriesByContent.set(cursorContentKey(normalized, game.id, digest), ply);
     const count = (cursorCounts.get(normalized) ?? 0) + (existing ? 0 : 1);
     cursorCounts.set(normalized, count);
     // Evict least-recently-used entries for this user beyond the bound.
@@ -197,6 +209,7 @@ export function createWorkspaceController(
     }
     // Resolve the durable digest identity asynchronously; PGN equality already guards
     // the synchronous restore path.
+    if (digest) return;
     void (async () => {
       try {
         const digest = await computePgnDigest(game.pgn);
@@ -216,7 +229,12 @@ export function createWorkspaceController(
   const lastReviewedPly = (game: GameRecord): number => {
     const gameKey = gameCursorKey(game.username, game.id);
     const entry = cursorIndexByGame.get(gameKey);
-    if (!entry || entry.pgn !== game.pgn) return 0;
+    if (!entry) return 0;
+    if (entry.pgn !== game.pgn) {
+      forgetCursorEntry(game.username, game.id, entry);
+      cursorIndexByGame.delete(gameKey);
+      return 0;
+    }
     cursorIndexByGame.delete(gameKey);
     cursorIndexByGame.set(gameKey, entry);
     const parsed = parseGamePgn({ game: toNormalizedSummary(game) });
@@ -564,7 +582,16 @@ export function createWorkspaceController(
             onProgress: (progress) => dispatch({ type: 'ingestion/progress', token, progress }),
           });
           if (disposed || token !== state.query.token) return;
-          dispatch({ type: 'ingestion/terminal', token, result });
+          const newest = result.games.reduce<GameRecord | null>(
+            (current, game) => (!current || game.endedAt > current.endedAt ? game : current),
+            null
+          );
+          dispatch({
+            type: 'ingestion/terminal',
+            token,
+            result,
+            ply: newest ? lastReviewedPly(newest) : 0,
+          });
           if (result.games.length === 0) return;
           const strength = state.preferences.analysisStrength;
           const generations = new Map(
@@ -694,6 +721,8 @@ export function createWorkspaceController(
     },
     selectPly(ply) {
       dispatch({ type: 'selection/ply', ply });
+      const game = state.ingestion.result?.games.find((game) => game.id === state.selection.gameId);
+      if (game) recordLastReviewedPly(game, state.selection.ply);
     },
     startAnalysis(strength = state.preferences.analysisStrength) {
       const game = state.ingestion.result?.games.find((game) => game.id === state.selection.gameId);

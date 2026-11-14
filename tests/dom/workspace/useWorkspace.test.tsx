@@ -1,7 +1,8 @@
-import { renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { WorkspaceServices } from '@/features/workspace/createWorkspaceController';
+import { computePgnDigest } from '@/features/stockfish-analysis/reviewIdentity';
 import { useWorkspace } from '@/features/workspace/useWorkspace';
 import type { GameQuery } from '@/lib/api/contracts';
 import type { GameRecord } from '@/lib/db/schema';
@@ -57,6 +58,55 @@ function createTestServices(start: WorkspaceServices['ingestion']['start']): Wor
 }
 
 describe('useWorkspace retained last-reviewed position (T27)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it.each(['compatible', 'changed', 'legacy'] as const)(
+    'restores only a digest-compatible saved session (%s)',
+    async (kind) => {
+      const record = gameRecord('saved-game');
+      localStorage.setItem('chess-game-reviewer:recent-query', JSON.stringify(query));
+      const digest = await computePgnDigest(
+        kind === 'changed' ? record.pgn + '\n{changed}' : record.pgn
+      );
+      localStorage.setItem(
+        'chess-game-reviewer:session',
+        JSON.stringify({
+          username: query.username,
+          gameId: record.id,
+          ply: 99,
+          tab: 'games',
+          reviewMode: 'review',
+          ...(kind === 'legacy' ? {} : { pgnDigest: digest }),
+        })
+      );
+      const services = createTestServices(async () => result([record]));
+      services.data.listUsernames = vi.fn(async () => [query.username]);
+      const hook = renderHook(() => useWorkspace(() => services));
+      await waitFor(() => expect(hook.result.current.startupComplete).toBe(true));
+      expect(hook.result.current.state.selection.ply).toBe(kind === 'compatible' ? 2 : 0);
+      hook.unmount();
+    }
+  );
+
+  it('retains a current cursor across re-import and remembers an intentional move back to zero', async () => {
+    const record = gameRecord('reimport-game');
+    const services = createTestServices(async () => result([record]));
+    const hook = renderHook(() => useWorkspace(() => services));
+    const controller = hook.result.current.controller;
+    await controller.submitQuery(query);
+    controller.selectPly(1);
+    await controller.submitQuery(query);
+    expect(controller.getState().selection.ply).toBe(1);
+    controller.selectPly(0);
+    controller.selectGame(null);
+    controller.selectGame(record.id);
+    expect(controller.getState().selection.ply).toBe(0);
+    hook.unmount();
+  });
+
   it('returns to each game’s last reviewed ply on reopen and starts over only explicitly', async () => {
     const game = gameRecord('game-a', { endedAt: 1_700_000_100 });
     const other = gameRecord('game-b', { endedAt: 1_700_000_000 });

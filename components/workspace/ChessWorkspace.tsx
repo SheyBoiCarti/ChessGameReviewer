@@ -49,6 +49,7 @@ import {
 import { createBrowserWorkspaceServices } from '@/features/workspace/browserServices';
 import type { WorkspaceServices } from '@/features/workspace/createWorkspaceController';
 import { useWorkspace } from '@/features/workspace/useWorkspace';
+import { computePgnDigest } from '@/features/stockfish-analysis/reviewIdentity';
 import { saveWorkspaceSession } from '@/features/workspace/session';
 import {
   readWorkspaceUrl,
@@ -130,19 +131,41 @@ export function ChessWorkspace({
   // the canonical import query, so Review returns retain filter/sort/page/scroll.
   const listStateStoreRef = useRef(new Map<string, GameListState>());
   const listStateKey = canonicalQueryKey(state.query.active ?? recentQuery ?? state.query.draft);
-  const [listState, setListState] = useState<GameListState>(
-    () => listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState }
-  );
-  useEffect(() => {
-    setListState(listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState });
-  }, [listStateKey]);
+  const [listPresentation, setListPresentation] = useState(() => ({
+    key: listStateKey,
+    state: listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState },
+  }));
+  const listState =
+    listPresentation.key === listStateKey
+      ? listPresentation.state
+      : (listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState });
   const handleListStateChange = useCallback(
     (next: GameListState) => {
       listStateStoreRef.current.set(listStateKey, next);
-      setListState(next);
+      setListPresentation({ key: listStateKey, state: next });
     },
     [listStateKey]
   );
+  const selectedRecord =
+    state.ingestion.result?.games.find(({ id }) => id === state.selection.gameId) ?? null;
+  const [sessionContent, setSessionContent] = useState<{
+    record: NonNullable<typeof selectedRecord>;
+    digest: string;
+  } | null>(null);
+  useEffect(() => {
+    let active = true;
+    if (selectedRecord)
+      void computePgnDigest(selectedRecord.pgn)
+        .then((digest) => {
+          if (active) setSessionContent({ record: selectedRecord, digest });
+        })
+        .catch(() => {
+          /* Session recovery remains optional if hashing is unavailable. */
+        });
+    return () => {
+      active = false;
+    };
+  }, [selectedRecord]);
   useEffect(() => {
     // T28: a valid URL intent already governs view and mode; stored session
     // defaults only apply when the URL did not describe a workspace state.
@@ -154,6 +177,9 @@ export function ChessWorkspace({
 
   useEffect(() => {
     if (
+      startupComplete &&
+      sessionContent?.record === selectedRecord &&
+      sessionContent &&
       state.query.active &&
       state.selection.gameId &&
       ['complete', 'partial'].includes(state.ingestion.status)
@@ -162,11 +188,15 @@ export function ChessWorkspace({
         username: state.query.active.username,
         gameId: state.selection.gameId,
         ply: state.selection.ply,
+        pgnDigest: sessionContent.digest,
         tab,
         reviewMode,
       });
     }
   }, [
+    startupComplete,
+    sessionContent,
+    selectedRecord,
     state.query.active,
     state.selection.gameId,
     state.selection.ply,
@@ -315,8 +345,6 @@ export function ChessWorkspace({
     }
   }, [state.graph.snapshot]);
 
-  const selectedRecord =
-    state.ingestion.result?.games.find(({ id }) => id === state.selection.gameId) ?? null;
   const parsedGame = useMemo(() => parseSelectedGame(selectedRecord), [selectedRecord]);
   const fenByPly = useMemo(
     () => Object.fromEntries(parsedGame?.plies.map((move) => [move.ply, move.fenBefore]) ?? []),
@@ -1089,6 +1117,7 @@ export function ChessWorkspace({
                           ? importFeedback
                           : null}
                         <GameSelector
+                          key={listStateKey}
                           games={state.ingestion.result?.games ?? []}
                           selectedGameId={state.selection.gameId}
                           listState={listState}

@@ -422,3 +422,35 @@ test('reopens each game at its own position and starts over explicitly (T27)', a
   await page.getByRole('button', { name: 'Start over', exact: true }).click();
   await expect(page.getByLabel('Position 0 of 8')).toBeVisible();
 });
+
+test('keeps independent list state for each import query (T26/T27)', async ({ page }) => {
+  test.setTimeout(90_000);
+  await installPaginatedWorkspaceFixtures(page);
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page, 500);
+  await expect(page.getByRole('heading', { name: 'Games (500)', exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByLabel('Filter games').fill('opponent-one');
+  await page.getByLabel('Sort games').selectOption('oldest');
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  const viewport = page.getByRole('region', { name: 'Game results' });
+  await viewport.evaluate((el) => {
+    el.scrollTop = 160;
+    el.dispatchEvent(new Event('scroll'));
+  });
+  for (const max of [499, 500]) {
+    await page.getByRole('button', { name: 'Import games', exact: true }).click();
+    await page.getByRole('button', { name: 'Game filters', exact: true }).click();
+    await page.getByLabel('Maximum games').fill(String(max));
+    await page.getByRole('button', { name: 'Find games', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Import games' })).toBeHidden({
+      timeout: 30_000,
+    });
+    if (max === 499) await expect(page.getByLabel('Filter games')).toHaveValue('');
+  }
+  await expect(page.getByLabel('Filter games')).toHaveValue('opponent-one');
+  await expect(page.getByLabel('Sort games')).toHaveValue('oldest');
+  await expect(page.getByText('Page 2 of 13')).toBeVisible();
+  await expect.poll(() => viewport.evaluate((el) => el.scrollTop)).toBe(160);
+});
