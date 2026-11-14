@@ -107,7 +107,7 @@ export function GameSelector({
       viewport.scrollTop = listState.scrollTop;
     }
     lastScrollRef.current = listState.scrollTop;
-  }, [listState.scrollTop, hasRows]);
+  }, [listState.scrollTop, hasRows, listState.filter, listState.sort, page]);
 
   const selectedGame = useMemo(
     () => (selectedGameId ? (games.find((g) => g.id === selectedGameId) ?? null) : null),

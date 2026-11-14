@@ -69,6 +69,28 @@ describe('GameSelector', () => {
     expect(select).not.toHaveBeenCalled();
   });
 
+  it('resets the actual viewport on filter, sort and page changes before leaving the list', async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 45 }, (_, index) =>
+      makeGameRecord({ id: `scroll-${index}`, endedAt: 1700000000 + index })
+    );
+    render(<GameSelector games={many} selectedGameId={null} onSelect={vi.fn()} />);
+    const viewport = screen.getByRole('region', { name: 'Game results' });
+    const scroll = () => {
+      viewport.scrollTop = 160;
+      viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    };
+    scroll();
+    await user.selectOptions(screen.getByLabelText('Sort games'), 'oldest');
+    expect(viewport.scrollTop).toBe(0);
+    scroll();
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(viewport.scrollTop).toBe(0);
+    scroll();
+    await user.type(screen.getByLabelText('Filter games'), 'opponent');
+    expect(viewport.scrollTop).toBe(0);
+  });
+
   it('sorts a copy, displays required metadata, and selects by stable game id without starting analysis', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
