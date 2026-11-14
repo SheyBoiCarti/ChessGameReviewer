@@ -255,6 +255,18 @@ describe('workspace reducer', () => {
     });
   });
 
+  it('clears unscoped repertoire context when deleting the active user or all data', () => {
+    const state = {
+      ...initialWorkspaceState,
+      query: { ...initialWorkspaceState.query, active: query },
+      repertoire: { datasetRevision: 'revision', horizon: 30, moveKeys: ['position\u0000e2e4'] },
+    };
+    expect(
+      reduceWorkspace(state, { type: 'data/userDeleted', username: query.username }).repertoire
+    ).toBeNull();
+    expect(reduceWorkspace(state, { type: 'data/allCleared' }).repertoire).toBeNull();
+  });
+
   it('invalidates active operations and ignores terminals carrying the old token', () => {
     const active = {
       ...initialWorkspaceState,
@@ -270,6 +282,9 @@ describe('workspace reducer', () => {
         snapshot: null,
         diagnosticCodes: [],
         error: null,
+        scope: 'both' as const,
+        datasetRevision: null,
+        requestId: 1,
       },
       analysis: {
         ...initialWorkspaceState.analysis,
@@ -285,6 +300,7 @@ describe('workspace reducer', () => {
     expect(
       reduceWorkspace(invalidated, {
         type: 'graph/failed',
+        requestId: 1,
         token: 4,
         error: 'late failure',
       })
@@ -340,6 +356,9 @@ describe('workspace reducer', () => {
         snapshot: { formatVersion: 1 } as never,
         diagnosticCodes: [],
         error: null,
+        scope: 'both' as const,
+        datasetRevision: null,
+        requestId: 1,
       },
       analysis: {
         status: 'complete' as const,
@@ -454,13 +473,16 @@ describe('workspace reducer', () => {
       token: 4,
       progress: { jobId: 'job', phase: 'fetching' } as never,
     });
-    state = reduceWorkspace(state, { type: 'graph/started', token: 4 });
+    state = reduceWorkspace(state, { type: 'graph/started', token: 4, requestId: 1 });
     state = reduceWorkspace(state, {
       type: 'graph/terminal',
       token: 4,
       status: 'limited',
       snapshot,
       diagnosticCodes: ['ILLEGAL_PGN'],
+      requestId: 1,
+      scope: 'both',
+      datasetRevision: 'rev-1',
     });
     state = reduceWorkspace(state, { type: 'selection/position', positionKey: 'next', pathId: 9 });
     state = reduceWorkspace(state, { type: 'selection/ply', ply: -3 });
@@ -478,7 +500,12 @@ describe('workspace reducer', () => {
     );
     expect(reduceWorkspace(state, { type: 'data/allCleared' }).query.active).toBeNull();
     expect(
-      reduceWorkspace(state, { type: 'graph/failed', token: 4, error: 'graph failed' }).graph.status
+      reduceWorkspace(state, {
+        type: 'graph/failed',
+        requestId: 1,
+        token: 4,
+        error: 'graph failed',
+      }).graph.status
     ).toBe('failed');
     expect(
       reduceWorkspace(state, { type: 'ingestion/failed', token: 4, error: 'load failed' }).ingestion
@@ -494,6 +521,9 @@ describe('workspace reducer', () => {
       status: 'partial',
       snapshot,
       diagnosticCodes: ['ILLEGAL_PGN'],
+      requestId: 0,
+      scope: 'both',
+      datasetRevision: 'rev-1',
     });
 
     expect(state.graph).toMatchObject({

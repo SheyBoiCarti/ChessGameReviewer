@@ -17,7 +17,7 @@ async function openTab(page: Page, name: string) {
   await page.getByRole('button', { name, exact: true }).click();
 }
 
-test('B1: candidate follows an alternate arrival and Back returns to the original line', async ({
+test('B1/T37: a transposed candidate keeps the actual route via row and board input', async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -27,13 +27,62 @@ test('B1: candidate follows an alternate arrival and Back returns to the origina
   await loadFixtureGames(page);
   await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await openTab(page, 'Openings');
+  // The transposition route exists only with position-wide Both scope, so the
+  // test selects it explicitly (T40 defaults to White for mixed datasets).
+  await expect(page.getByRole('radio', { name: /^White/ })).toBeChecked();
+  await page.getByRole('radio', { name: /^Both/ }).click();
+  await expect(page.getByRole('button', { name: /^Play d4,/ })).toBeVisible();
+  const history = page.getByLabel('Opening move history');
   for (const move of ['Nf3', 'd5', 'd4', 'Nf6', 'e3']) {
-    await page.getByRole('button', { name: `Play ${move}`, exact: false }).click();
+    await page.getByRole('button', { name: `Play ${move},`, exact: false }).click();
   }
-  await expect(page.getByRole('button', { name: 'Play e6', exact: false })).toBeVisible();
-  await page.getByRole('button', { name: 'Back', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Play e3', exact: false })).toBeVisible();
+  // The visited notation is the actual clicked sequence, never a stored arrival.
+  await expect(history).toContainText('Nf3 d5 d4 Nf6 e3');
+  await expect(page.getByRole('button', { name: /^Play e6,/ })).toBeVisible();
+
+  // Back one move follows the actual route; the shared position keeps e3.
+  await page.getByRole('button', { name: 'Previous move', exact: true }).click();
+  await expect(history).toContainText('Nf3 d5 d4 Nf6');
+  await expect(history).not.toContainText('e3');
+  await expect(page.getByRole('button', { name: /^Play e3,/ })).toBeVisible();
+
+  // Board input reproduces the same exact route from the root.
+  await page.getByRole('button', { name: 'Starting position', exact: true }).click();
+  for (const [from, to] of [
+    ['g1', 'f3'],
+    ['d7', 'd5'],
+    ['d2', 'd4'],
+    ['g8', 'f6'],
+    ['e2', 'e3'],
+  ]) {
+    await page.locator(`[data-square="${from}"]`).click();
+    await page.locator(`[data-square="${to}"]`).click();
+  }
+  await expect(history).toContainText('Nf3 d5 d4 Nf6 e3');
   expect(errors).toEqual([]);
+});
+
+test('B11/T38: an unobserved board novelty clears candidates until Return', async ({ page }) => {
+  await installWorkspaceFixtures(page);
+  await page.goto('/');
+  await loadFixtureGames(page);
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
+  await openTab(page, 'Openings');
+  await expect(page.getByRole('button', { name: /^Play Nf3,/ })).toBeVisible();
+  await page.locator('[data-square="a2"]').click();
+  await page.locator('[data-square="a3"]').click();
+
+  // Neither root candidates nor root statistics leak into the unknown position.
+  await expect(page.getByRole('button', { name: /^Play / })).toHaveCount(0);
+  await expect(page.getByText(/no observed games reach this position/i)).toBeVisible();
+  await expect(page.locator('.unobserved-move-notice')).toContainText(
+    /the move a3 was not played in any imported games/i
+  );
+
+  // Return atomically restores the last observed entry and its statistics.
+  await page.getByRole('button', { name: /return to observed opening tree/i }).click();
+  await expect(page.getByRole('button', { name: /^Play Nf3,/ })).toBeVisible();
+  await expect(page.getByLabel('Opening move history')).toContainText('Start');
 });
 
 test('B2/B7: cancel retains games with neutral feedback; an empty import clears the graph and count', async ({

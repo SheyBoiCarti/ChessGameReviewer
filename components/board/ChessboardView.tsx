@@ -36,6 +36,8 @@ export interface ChessboardViewProps {
   fen: string;
   orientation: 'white' | 'black';
   isInteractive?: boolean | undefined;
+  /** Keep square focus navigation available when opening piece input is disabled. */
+  squareNavigation?: boolean | undefined;
   onMove?: ((move: AppliedBoardMove) => boolean) | undefined;
   lastMove?: { from: Square; to: Square } | undefined;
   lastMoveBadge?: { square: Square; quality: MoveQuality } | undefined;
@@ -59,6 +61,7 @@ export function ChessboardView({
   fen,
   orientation,
   isInteractive = false,
+  squareNavigation = isInteractive,
   onMove,
   lastMove,
   lastMoveBadge,
@@ -200,6 +203,21 @@ export function ChessboardView({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (
+      event.defaultPrevented ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      pendingPromotion ||
+      target?.closest(
+        'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"]'
+      ) ||
+      document.querySelector('[role="dialog"][aria-modal="true"], dialog[open]')
+    ) {
+      return;
+    }
+
     if (event.key === 'Escape') {
       if (selectedSquare) {
         event.preventDefault();
@@ -210,7 +228,21 @@ export function ChessboardView({
       return;
     }
 
-    if (isInteractive && !event.altKey) {
+    // T39: inside the board, Alt+Left/Right traverses history; plain arrows
+    // retain square navigation. Editable fields and dialogs never see this.
+    if (event.altKey) {
+      if (historyModel && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        event.preventDefault();
+        const next =
+          event.key === 'ArrowLeft'
+            ? Math.max(0, historyModel.currentPly - 1)
+            : Math.min(historyModel.totalPlies, historyModel.currentPly + 1);
+        historyModel.onPlyChange(next);
+      }
+      return;
+    }
+
+    if (squareNavigation && !event.altKey) {
       const current = focusedSquare ?? (orientation === 'white' ? 'e2' : 'e7');
       const fileStep = orientation === 'white' ? 1 : -1;
       const rankStep = orientation === 'white' ? 1 : -1;
@@ -239,7 +271,7 @@ export function ChessboardView({
         setFocusedSquare(next);
         return;
       }
-      if (event.key === 'Enter' || event.key === ' ') {
+      if (isInteractive && (event.key === 'Enter' || event.key === ' ')) {
         event.preventDefault();
         handleSquareClick(current);
         return;
@@ -321,7 +353,7 @@ export function ChessboardView({
               onKeyDown={handleKeyDown}
               aria-activedescendant={focusedSquare ? `square-${focusedSquare}` : undefined}
               aria-describedby={
-                isInteractive
+                squareNavigation
                   ? 'board-keyboard-interactive-help'
                   : historyModel
                     ? 'board-keyboard-help'
@@ -396,9 +428,12 @@ export function ChessboardView({
           {announcement}
         </div>
         <p id="board-keyboard-interactive-help" className="sr-only">
-          Use Arrow keys to navigate squares across files and ranks. Press Enter or Space to select
-          a piece and choose a legal destination. Press Escape to clear selection. Press Alt+Arrow
-          keys or Home/End to navigate history.
+          Use Arrow keys to navigate squares across files and ranks.{' '}
+          {isInteractive
+            ? 'Press Enter or Space to select a piece and choose a legal destination. Press Escape to clear selection. '
+            : 'Piece input is disabled at this position. '}
+          Press Alt+ArrowLeft or Alt+ArrowRight to navigate history; Home and End also move through
+          history.
         </p>
       </div>
       {players ? (

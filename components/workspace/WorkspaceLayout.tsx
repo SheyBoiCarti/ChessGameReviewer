@@ -5,6 +5,7 @@ export interface WorkspaceLayoutProps {
   header?: ReactNode;
   feedback?: ReactNode;
   review?: boolean;
+  opening?: boolean;
   tabs?: ReactNode;
   panel: ReactNode;
 }
@@ -14,12 +15,13 @@ export function WorkspaceLayout({
   header,
   feedback,
   review = false,
+  opening = false,
   tabs,
   panel,
 }: WorkspaceLayoutProps): JSX.Element {
   return (
     <div
-      className={`workspace-layout${!board ? ' workspace-layout--no-board' : ''}${review && board ? ' workspace-layout--review' : ''}`}
+      className={`workspace-layout${!board ? ' workspace-layout--no-board' : ''}${review && board ? ' workspace-layout--review' : ''}${opening && board ? ' workspace-layout--opening' : ''}`}
     >
       <div className="workspace-layout__header">{header}</div>
       <div className="workspace-layout__feedback">{feedback}</div>

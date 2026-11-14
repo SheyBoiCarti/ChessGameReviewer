@@ -1,3 +1,6 @@
+import { DEFAULT_POSITION } from 'chess.js';
+
+import { normalizePositionKey } from '../fen';
 import type { ParsedGame } from '../pgnParser';
 import { addVisit, emptyOutcome } from './outcomes';
 import { PathStore } from './pathStore';
@@ -17,6 +20,8 @@ export interface OpeningGraphSnapshot {
   openingHorizon: number;
   includedGameCount: number;
   remainingGameCount: number;
+  /** Full six-field FEN of the root from the first canonical included source game. */
+  rootFen?: string;
   reachedLimit?: keyof GraphStructuralLimits | 'maxSnapshotBytes';
 }
 
@@ -30,6 +35,7 @@ interface BuildState {
   positions: Map<string, PositionNode>;
   paths: PathStore;
   root: PositionNode | undefined;
+  rootFen: string | undefined;
   edgeCount: number;
   includedGameCount: number;
 }
@@ -134,6 +140,7 @@ export class OpeningGraphBuilder {
 
     if (!state.root) {
       state.root = createNode(rootKey);
+      state.rootFen = firstPly.fenBefore;
       state.positions.set(state.root.key, state.root);
     }
 
@@ -168,11 +175,14 @@ export class OpeningGraphBuilder {
       const firstVisit = !visitedPositions.has(target.key);
       if (this.options.includeRepeatedPositions || firstVisit) {
         addVisit(target.aggregate, visit);
-        const arrival = target.arrivalsByPath.get(pathId) ?? emptyOutcome();
-        addVisit(arrival, visit);
-        target.arrivalsByPath.set(pathId, arrival);
         visitedPositions.add(target.key);
       }
+      // Every played prefix is observed evidence, including a return to a
+      // previously counted position. The repetition policy only affects the
+      // position aggregate; it must not hide exact-line membership.
+      const arrival = target.arrivalsByPath.get(pathId) ?? emptyOutcome();
+      addVisit(arrival, visit);
+      target.arrivalsByPath.set(pathId, arrival);
       source = target;
     }
     state.includedGameCount += 1;
@@ -197,6 +207,7 @@ function createBuildState(): BuildState {
     positions: new Map(),
     paths: new PathStore(),
     root: undefined,
+    rootFen: undefined,
     edgeCount: 0,
     includedGameCount: 0,
   };
@@ -214,7 +225,8 @@ function snapshotFor(
   reachedLimit?: keyof GraphStructuralLimits
 ): OpeningGraphSnapshot {
   if (!state.root) {
-    state.root = createNode('');
+    state.rootFen = DEFAULT_POSITION;
+    state.root = createNode(normalizePositionKey(DEFAULT_POSITION));
     state.positions.set(state.root.key, state.root);
   }
   return {
@@ -225,6 +237,7 @@ function snapshotFor(
     openingHorizon,
     includedGameCount: state.includedGameCount,
     remainingGameCount,
+    ...(state.rootFen ? { rootFen: state.rootFen } : {}),
     ...(reachedLimit ? { reachedLimit } : {}),
   };
 }

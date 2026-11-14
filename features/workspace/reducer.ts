@@ -18,7 +18,15 @@ const emptySelection = {
   ply: 0,
 } as const;
 
-const idleGraph = { status: 'idle', snapshot: null, diagnosticCodes: [], error: null } as const;
+const idleGraph = {
+  status: 'idle',
+  snapshot: null,
+  diagnosticCodes: [],
+  error: null,
+  scope: null,
+  datasetRevision: null,
+  requestId: 0,
+} as const;
 const idleAnalysis = {
   status: 'idle',
   capability: null,
@@ -33,6 +41,7 @@ export const initialWorkspaceState: WorkspaceState = {
   query: { draft: defaultQuery, active: null, token: 0 },
   ingestion: { status: 'idle', progress: null, result: null, error: null },
   graph: idleGraph,
+  repertoire: null,
   dataMaintenance: { status: 'idle', error: null },
   selection: emptySelection,
   analysis: idleAnalysis,
@@ -41,6 +50,7 @@ export const initialWorkspaceState: WorkspaceState = {
     resultPerspective: 'user',
     theme: 'system',
     openingHorizon: 30,
+    openingScope: 'both',
     analysisStrength: 'balanced',
   },
 };
@@ -162,7 +172,8 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           lastAttempt: action.result,
           error: null,
         },
-        graph: action.result.games.length === 0 ? idleGraph : state.graph,
+        graph: idleGraph,
+        repertoire: null,
         selection: { ...emptySelection, gameId, ply: Math.max(0, action.ply ?? 0) },
       };
     }
@@ -192,9 +203,30 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
     case 'graph/started':
       return {
         ...state,
-        graph: { status: 'building', snapshot: null, diagnosticCodes: [], error: null },
+        graph: {
+          status: 'building',
+          snapshot: state.graph.snapshot,
+          diagnosticCodes: [],
+          error: null,
+          scope: state.graph.scope,
+          datasetRevision: state.graph.datasetRevision,
+          requestId: action.requestId,
+        },
       };
-    case 'graph/terminal':
+    case 'graph/rebuildStarted':
+      // T40: a scope/horizon rebuild preserves current content until success.
+      return {
+        ...state,
+        graph: {
+          ...state.graph,
+          status: 'building',
+          diagnosticCodes: [],
+          error: null,
+          requestId: action.requestId,
+        },
+      };
+    case 'graph/terminal': {
+      if (action.requestId !== state.graph.requestId) return state;
       return {
         ...state,
         graph: {
@@ -202,6 +234,9 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           snapshot: action.snapshot,
           diagnosticCodes: action.diagnosticCodes,
           error: null,
+          scope: action.scope,
+          datasetRevision: action.datasetRevision,
+          requestId: action.requestId,
         },
         selection: {
           ...state.selection,
@@ -209,10 +244,26 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           pathId: 0,
         },
       };
-    case 'graph/failed':
+    }
+    case 'repertoire/installed':
       return {
         ...state,
-        graph: { status: 'failed', snapshot: null, diagnosticCodes: [], error: action.error },
+        repertoire: {
+          datasetRevision: action.datasetRevision,
+          horizon: action.horizon,
+          moveKeys: action.moveKeys,
+        },
+      };
+    case 'graph/failed':
+      if (action.requestId !== state.graph.requestId) return state;
+      return {
+        ...state,
+        graph: {
+          ...state.graph,
+          status: 'failed',
+          diagnosticCodes: [],
+          error: action.error,
+        },
       };
     case 'selection/game': {
       const cached = action.gameId
@@ -502,6 +553,7 @@ function resetLoadedData(state: WorkspaceState): WorkspaceState {
     query: { ...state.query, active: null, requested: null },
     ingestion: { status: 'idle', progress: null, result: null, error: null },
     graph: idleGraph,
+    repertoire: null,
     dataMaintenance: state.dataMaintenance,
     selection: emptySelection,
     analysis: idleAnalysis,

@@ -164,6 +164,11 @@ function readStoredPreferences(): Partial<WorkspacePreferences> {
     stored.openingHorizon <= 40
       ? { openingHorizon: stored.openingHorizon }
       : {}),
+    ...(stored.openingScope === 'white' ||
+    stored.openingScope === 'black' ||
+    stored.openingScope === 'both'
+      ? { openingScope: stored.openingScope }
+      : {}),
     ...(stored.analysisStrength === 'quick' ||
     stored.analysisStrength === 'balanced' ||
     stored.analysisStrength === 'deep'

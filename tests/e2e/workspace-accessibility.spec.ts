@@ -351,6 +351,36 @@ test('has no serious or critical axe findings across lifecycle, variation, discl
   ).toEqual([]);
 });
 
+test('opening history responds to Alt+Arrow shortcuts on the board (T39)', async ({ page }) => {
+  await installWorkspaceFixtures(page);
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Openings' }).click();
+  const history = page.getByLabel('Opening move history');
+  await expect(page.getByRole('button', { name: /^Play Nf3,/ })).toBeVisible();
+  for (const move of ['Nf3', 'd5', 'd4', 'Nf6']) {
+    await page.getByRole('button', { name: `Play ${move},`, exact: false }).click();
+  }
+  await expect(history).toContainText('Nf3 d5 d4 Nf6');
+
+  // Inside the board, Alt+ArrowLeft/Right traverse opening history while plain
+  // arrows keep square navigation.
+  const board = page.getByRole('grid', { name: 'Chess board' });
+  await board.focus();
+  await page.keyboard.press('Alt+ArrowLeft');
+  await expect(history).toContainText('Nf3 d5 d4');
+  await expect(history).not.toContainText('Nf6');
+  await page.keyboard.press('Alt+ArrowLeft');
+  await page.keyboard.press('Alt+ArrowLeft');
+  await page.keyboard.press('Alt+ArrowLeft');
+  await expect(history).toContainText('Start');
+  await page.keyboard.press('Alt+ArrowRight');
+  await expect(history).toContainText('Nf3');
+  await expect(history).not.toContainText('d5');
+});
+
 test('rapid keyboard input ends on correct synchronized board, list, and graph position (T34)', async ({
   page,
 }) => {

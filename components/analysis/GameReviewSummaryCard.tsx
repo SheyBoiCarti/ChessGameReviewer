@@ -107,6 +107,11 @@ export function GameReviewSummaryCard({
               </tr>
             </thead>
             <tbody>
+              <tr>
+                <th scope="row">In your repertoire</th>
+                <td>{whiteSummary.repertoireMoves ?? 'Context unavailable'}</td>
+                <td>{blackSummary.repertoireMoves ?? 'Context unavailable'}</td>
+              </tr>
               {REVIEW_MOVE_QUALITIES.map((quality) => {
                 const details = moveQualityDetails(quality);
                 const whiteCount = whiteSummary.breakdown[quality];

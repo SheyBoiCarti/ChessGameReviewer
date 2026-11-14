@@ -2,6 +2,7 @@ import type { GameQuery } from '@/lib/api/contracts';
 import type { SerializedOpeningGraph } from '@/lib/chess/graph/serialization';
 import type { GameRecord } from '@/lib/db/schema';
 import type { EngineCapability } from '@/lib/engine/capabilities';
+import type { OpeningScope } from '../opening-tree/graphIdentity';
 
 import type { AnalysisUpdate, GameAnalysisResult } from '../stockfish-analysis/analyzeGame';
 import type { IngestionProgress, IngestionResult } from '../ingestion/types';
@@ -10,12 +11,14 @@ export type ResultPerspective = 'user' | 'board';
 export type BoardOrientation = 'white' | 'black';
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type AnalysisStrength = 'quick' | 'balanced' | 'deep';
+export type { OpeningScope };
 
 export interface WorkspacePreferences {
   boardOrientation: BoardOrientation;
   resultPerspective: ResultPerspective;
   theme: ThemePreference;
   openingHorizon: number;
+  openingScope: OpeningScope;
   analysisStrength: AnalysisStrength;
 }
 
@@ -68,7 +71,13 @@ export interface WorkspaceState {
     snapshot: SerializedOpeningGraph | null;
     diagnosticCodes: readonly string[];
     error: string | null;
+    /** T40: independent scope identity for the displayed graph. */
+    scope: OpeningScope | null;
+    datasetRevision: string | null;
+    requestId: number;
   };
+  /** Unscoped import context; never replaced by a scoped display graph. */
+  repertoire?: { datasetRevision: string; horizon: number; moveKeys: readonly string[] } | null;
   dataMaintenance: {
     status: 'idle' | 'deleting-user' | 'clearing-all';
     error: string | null;
@@ -112,15 +121,31 @@ export type WorkspaceAction =
   | { type: 'ingestion/terminal'; token: number; result: IngestionResult; ply?: number }
   | { type: 'ingestion/failed'; token: number; error: string }
   | { type: 'ingestion/errorDismissed' }
-  | { type: 'graph/started'; token: number }
+  | { type: 'graph/started'; token: number; requestId: number }
+  | {
+      type: 'graph/rebuildStarted';
+      requestId: number;
+      scope: OpeningScope;
+      datasetRevision: string;
+    }
   | {
       type: 'graph/terminal';
       token: number;
       status: 'partial' | 'limited' | 'complete';
       snapshot: SerializedOpeningGraph;
       diagnosticCodes: readonly string[];
+      requestId: number;
+      scope: OpeningScope;
+      datasetRevision: string;
     }
-  | { type: 'graph/failed'; token: number; error: string }
+  | { type: 'graph/failed'; token: number; requestId: number; error: string }
+  | {
+      type: 'repertoire/installed';
+      token: number;
+      datasetRevision: string;
+      horizon: number;
+      moveKeys: readonly string[];
+    }
   | { type: 'selection/game'; gameId: string | null; ply?: number }
   | { type: 'selection/position'; positionKey: string; pathId: number | null }
   | { type: 'selection/ply'; ply: number }

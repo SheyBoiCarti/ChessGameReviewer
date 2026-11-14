@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_POSITION } from 'chess.js';
 
 import {
   deserializeOpeningGraph,
@@ -8,6 +9,7 @@ import {
 } from '@/lib/chess/graph/serialization';
 import { OpeningGraphBuilder } from '@/lib/chess/graph/openingGraph';
 import { parseGamePgn } from '@/lib/chess/pgnParser';
+import { normalizePositionKey } from '@/lib/chess/fen';
 
 describe('opening graph serialization', () => {
   it('uses an inclusive exact UTF-8 byte boundary', () => {
@@ -38,7 +40,26 @@ describe('opening graph serialization', () => {
       buildTimestamp: 0,
     });
 
-    expect(() => deserializeOpeningGraph(snapshot)).not.toThrow();
+    const restored = deserializeOpeningGraph(snapshot);
+    expect(restored.rootFen).toBe(DEFAULT_POSITION);
+    expect(restored.root.key).toBe(normalizePositionKey(DEFAULT_POSITION));
+    expect(restored.includedGameCount).toBe(0);
+  });
+
+  it('rejects missing, invalid, partial and mismatched root FENs', () => {
+    const snapshot = serializeOpeningGraph(new OpeningGraphBuilder().build([]), {
+      queryFingerprint: 'empty',
+      sourceGameCount: 0,
+      buildTimestamp: 0,
+    });
+    const missing = { ...snapshot };
+    delete missing.rootFen;
+    expect(() => deserializeOpeningGraph(missing)).toThrow('INVALID_GRAPH_ROOT_FEN');
+    for (const rootFen of ['invalid', snapshot.rootKey, '8/7k/8/8/8/8/P6K/8 b - - 17 42']) {
+      expect(() => deserializeOpeningGraph({ ...snapshot, rootFen })).toThrow(
+        'INVALID_GRAPH_ROOT_FEN'
+      );
+    }
   });
   it('round-trips a graph with deterministic position, edge, and path ordering', () => {
     const parsed = parseGamePgn({

@@ -1,3 +1,6 @@
+import { Chess } from 'chess.js';
+
+import { normalizePositionKey } from '../fen';
 import { PathStore } from './pathStore';
 import type { OpeningGraphSnapshot } from './openingGraph';
 import type { MoveEdge, OutcomeAggregate, PathNode, PositionNode } from './types';
@@ -15,6 +18,7 @@ export interface SerializedOpeningGraph {
   rootKey: string;
   includedGameCount: number;
   remainingGameCount: number;
+  rootFen?: string;
   reachedLimit?: string;
   positions: Array<{
     key: string;
@@ -53,6 +57,7 @@ export function serializeOpeningGraph(
     rootKey: graph.root.key,
     includedGameCount: graph.includedGameCount,
     remainingGameCount: graph.remainingGameCount,
+    ...(graph.rootFen ? { rootFen: graph.rootFen } : {}),
     ...(graph.reachedLimit ? { reachedLimit: graph.reachedLimit } : {}),
     positions: [...graph.positions.values()]
       .sort((a, b) => a.key.localeCompare(b.key))
@@ -98,6 +103,17 @@ export function deserializeOpeningGraph(dto: SerializedOpeningGraph): OpeningGra
   const reachedLimit = dto.reachedLimit as
     | Exclude<OpeningGraphSnapshot['reachedLimit'], undefined>
     | undefined;
+  // Missing legacy roots require rebuilding; inventing clocks from a four-field
+  // key would silently change actual move numbering and repetition history.
+  let rootFen: string;
+  try {
+    if (!dto.rootFen || normalizePositionKey(dto.rootFen) !== root.key) {
+      throw new Error('INVALID_GRAPH_ROOT_FEN');
+    }
+    rootFen = new Chess(dto.rootFen).fen();
+  } catch {
+    throw new Error('INVALID_GRAPH_ROOT_FEN');
+  }
   return {
     status: dto.status,
     root,
@@ -106,6 +122,7 @@ export function deserializeOpeningGraph(dto: SerializedOpeningGraph): OpeningGra
     openingHorizon: dto.openingHorizon,
     includedGameCount: dto.includedGameCount,
     remainingGameCount: dto.remainingGameCount,
+    rootFen,
     ...(reachedLimit ? { reachedLimit } : {}),
   };
 }

@@ -34,6 +34,9 @@ test.describe('workspace visual regression', () => {
     await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
     await page.getByRole('button', { name: 'Openings' }).click();
     await expect(page.getByRole('heading', { name: 'Openings', level: 3 })).toBeVisible();
+    await expect(page.getByRole('radio', { name: 'White', exact: true })).toBeChecked();
+    await expect(page.getByRole('radio', { name: 'White', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: /^Play d4,/ })).toHaveCount(0);
     await waitForStableLayout(page);
 
     await expect(page).toHaveScreenshot('opening-tree.png', screenshotOptions());

@@ -5,6 +5,7 @@ import { installEngineFixtures } from './helpers/engineFixtures';
 import {
   installWorkspaceFixtures,
   installLongGameWorkspaceFixtures,
+  installOpeningScopeWorkspaceFixtures,
   loadFixtureGames,
 } from './helpers/workspaceFixtures';
 
@@ -34,6 +35,10 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
   await expect(board).toBeVisible();
   expect(await boardHandle?.evaluate((grid) => grid.isConnected)).toBe(true);
   await expect(page.getByRole('heading', { name: 'Openings', level: 3 })).toBeVisible();
+  // The transposition spans a White and a Black game, so this journey opts into
+  // Both scope (T40 defaults to White for mixed imports).
+  await page.getByRole('radio', { name: /^Both/ }).click();
+  await expect(page.getByRole('button', { name: 'Play d4,' })).toBeVisible();
   await page.getByRole('button', { name: 'Play Nf3' }).click();
   await page.getByRole('button', { name: 'Play d5' }).click();
   await page.getByRole('button', { name: 'Play d4' }).click();
@@ -142,6 +147,54 @@ test('supports interactive board moves, variation sandbox, and unobserved openin
   // Return to main game
   await page.getByRole('button', { name: /return to main game/i }).click();
   await expect(page.locator('.variation-sandbox-banner')).toHaveCount(0);
+});
+
+test('shows independent White/Black/Both opening scope counts (T40)', async ({ page }) => {
+  test.setTimeout(60_000);
+  await installOpeningScopeWorkspaceFixtures(page);
+  await page.goto('/');
+  await page.getByLabel('Username').fill('audit-player');
+  await page.getByRole('button', { name: 'Game filters' }).click();
+  await page.getByRole('radio', { name: 'Custom' }).click();
+  await page.getByLabel('From date').fill('2024-01-01');
+  await page.getByLabel('To date').fill('2024-01-31');
+  await page.getByLabel('Maximum games').fill('20');
+  await page.getByText('Advanced opening settings', { exact: true }).click();
+  await page.getByLabel('Opening horizon (plies)').fill('8');
+  await page.getByLabel('Rated status').selectOption('rated');
+  await page.getByRole('button', { name: 'Find games' }).click();
+  await expect(page.getByText('20 games loaded', { exact: false })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Openings' }).click();
+  // First use with a mixed-color import chooses White; the stored choice is
+  // empty in a fresh browser context, so the White radio is preselected.
+  const white = page.getByRole('radio', { name: /^White/ });
+  await expect(white).toBeChecked();
+  await expect(page.getByRole('button', { name: 'Play e4, 7 games', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Play d4, 3 games', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Play c4, 2 games', exact: true })).toBeVisible();
+
+  // Orientation is independent of the scoped graph.
+  await page.getByRole('button', { name: 'Flip board', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Play e4, 7 games', exact: true })).toBeVisible();
+
+  await page.getByRole('radio', { name: /^Both/ }).click();
+  await expect(page.getByRole('button', { name: 'Play e4, 9 games', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Play d4, 7 games', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Play c4, 2 games', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Play Nf3, 2 games', exact: true })).toBeVisible();
+
+  await page.getByRole('radio', { name: /^Black/ }).click();
+  await expect(page.getByRole('button', { name: 'Play d4, 4 games', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Play e4, 2 games', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Play Nf3, 2 games', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByLabel('Result perspective').selectOption('board');
+  await page.getByRole('button', { name: 'Openings', exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'Black', exact: true })).toBeChecked();
+  await expect(page.getByRole('button', { name: 'Play d4, 4 games', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Play e4, 2 games', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Play Nf3, 2 games', exact: true })).toBeVisible();
 });
 
 test('keeps opening data usable when Stockfish is unavailable', async ({ page }) => {

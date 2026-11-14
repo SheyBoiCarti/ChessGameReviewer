@@ -13,6 +13,7 @@ import {
 
 import { OutcomeBar } from './OutcomeBar';
 import { PathBreadcrumbs } from './PathBreadcrumbs';
+import { OpeningDisclosure } from '@/components/opening/OpeningDisclosure';
 
 export interface OpeningTreeTableProps {
   graph: OpeningGraphSnapshot;
@@ -34,16 +35,28 @@ export function OpeningTreeTable({
   moveOrdersAction,
 }: OpeningTreeTableProps) {
   const [sort, setSort] = useState<MoveSort>('games');
-  const node = graph.positions.get(navigation.positionKey);
+  // T38: an unobserved visited entry is the authoritative current position;
+  // candidates and memberships are empty there.
+  const node = navigation.observed ? graph.positions.get(navigation.positionKey) : undefined;
   if (!node) {
+    if (!navigation.observed) {
+      return (
+        <section className="opening-tree surface-panel" aria-labelledby="opening-tree-heading">
+          <h3 id="opening-tree-heading">Openings</h3>
+          <PathBreadcrumbs graph={graph} navigation={navigation} onNavigate={onNavigate} />
+          <p className="opening-tree__empty" role="status">
+            No observed games reach this position. Further opening input is disabled here.
+          </p>
+        </section>
+      );
+    }
     return <p role="alert">The selected graph position is unavailable. Return to the root.</p>;
   }
   const candidates = selectCandidateMoves(node, sort, perspective);
   const scoreLabel = perspective === 'user' ? 'Expected user score' : 'Expected White score';
   const winRateLabel = perspective === 'user' ? 'Win rate' : 'White win rate';
 
-  const isHorizonReached =
-    navigation.history.length > 0 && navigation.history.length - 1 >= graph.openingHorizon;
+  const isHorizonReached = navigation.cursor >= graph.openingHorizon;
 
   return (
     <section className="opening-tree surface-panel" aria-labelledby="opening-tree-heading">
@@ -90,8 +103,7 @@ export function OpeningTreeTable({
       {candidates.length === 0 ? (
         isHorizonReached ? (
           <p className="opening-tree__empty">
-            Opening depth limit reached. Increase the opening depth in Game filters and import
-            again.
+            Opening depth limit reached. Increase the horizon in Advanced opening settings.
           </p>
         ) : (
           <p className="opening-tree__empty">
@@ -153,8 +165,7 @@ export function OpeningTreeTable({
       )}
 
       {candidates.length > 0 ? (
-        <details className="more-statistics-disclosure">
-          <summary>More statistics</summary>
+        <OpeningDisclosure label="More statistics" className="more-statistics-disclosure">
           <div className="more-statistics-content">
             <p className="field-help">
               The configured horizon is {graph.openingHorizon} plies; the supported maximum is 40
@@ -207,7 +218,7 @@ export function OpeningTreeTable({
               </table>
             </div>
           </div>
-        </details>
+        </OpeningDisclosure>
       ) : null}
 
       {moveOrdersAction ? <div className="opening-tree-actions">{moveOrdersAction}</div> : null}

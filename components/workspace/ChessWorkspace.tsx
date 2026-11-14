@@ -11,6 +11,7 @@ import {
   useCallback,
   type JSX,
 } from 'react';
+import type { GameQuery } from '@/lib/api/contracts';
 import type { Square } from 'chess.js';
 
 import {
@@ -27,6 +28,9 @@ import { IngestionProgress } from '@/components/feedback/IngestionProgress';
 import { OfflineCacheNotice } from '@/components/feedback/OfflineCacheNotice';
 import { MoveOrderDialog } from '@/components/tree/MoveOrderDialog';
 import { OpeningTreeTable } from '@/components/tree/OpeningTreeTable';
+import { OpeningScopeControl } from '@/components/opening/OpeningScopeControl';
+import { OpeningDisclosure } from '@/components/opening/OpeningDisclosure';
+import { OpeningSettings } from '@/components/opening/OpeningSettings';
 import { UnobservedMoveNotice } from '@/components/opening/UnobservedMoveNotice';
 import { OpeningPositionAnalysis } from '@/components/opening/OpeningPositionAnalysis';
 import { AppIcon } from '@/components/ui/AppIcon';
@@ -40,12 +44,21 @@ import {
   type AnalysisVariationState,
 } from '@/features/board/variation';
 import {
+  appendVisitedEntry,
   createGraphNavigation,
-  navigateCandidate,
+  replayGraphNavigation,
   navigateBack,
+  navigateToHistoryIndex,
   resolveBoardMoveInGraph,
+  type GraphNavigationEntry,
   type GraphNavigationState,
 } from '@/features/opening-tree/navigation';
+import { applyRepertoireContext } from '@/features/stockfish-analysis/repertoireContext';
+import { initialOpeningScope, type OpeningScope } from '@/features/opening-tree/graphIdentity';
+import {
+  readStoredOpeningScope,
+  writeStoredOpeningScope,
+} from '@/features/workspace/openingScopePreference';
 import { createBrowserWorkspaceServices } from '@/features/workspace/browserServices';
 import type { WorkspaceServices } from '@/features/workspace/createWorkspaceController';
 import { useWorkspace } from '@/features/workspace/useWorkspace';
@@ -111,8 +124,13 @@ export function ChessWorkspace({
     target: 'username' | 'dates';
     version: number;
   } | null>(null);
+  const [openingImportQuery, setOpeningImportQuery] = useState<GameQuery | null>(null);
+  const [openingNotice, setOpeningNotice] = useState<string | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [navigation, setNavigation] = useState<GraphNavigationState | null>(null);
+  // T40: visited histories are kept per username/dataset/scope/horizon above the
+  // view mount lifetime so opening → Review → Back restores scope and line.
+  const openingHistoryRef = useRef(new Map<string, GraphNavigationState>());
   const [moveOrdersOpen, setMoveOrdersOpen] = useState(false);
   const [resultFocusVersion, setResultFocusVersion] = useState(0);
   const [variationOrigin, setVariationOrigin] = useState<{
@@ -122,11 +140,6 @@ export function ChessWorkspace({
     mode: ReviewMode;
   } | null>(null);
   const [variation, setVariation] = useState<AnalysisVariationState | null>(null);
-  const [unobservedMove, setUnobservedMove] = useState<{
-    move: AppliedBoardMove;
-    returnPositionKey: string;
-    returnPathId: number;
-  } | null>(null);
   // T26: list presentation state is owned above GameSelector's mount lifetime, keyed by
   // the canonical import query, so Review returns retain filter/sort/page/scroll.
   const listStateStoreRef = useRef(new Map<string, GameListState>());
@@ -345,6 +358,135 @@ export function ChessWorkspace({
     }
   }, [state.graph.snapshot]);
 
+  // T40: the per-scope history key spans username, dataset revision, scope and horizon.
+  const openingDatasetKey = [
+    state.query.active?.username ?? '',
+    state.graph.datasetRevision ?? '',
+    state.graph.scope ?? '',
+    state.graph.snapshot?.openingHorizon ?? state.preferences.openingHorizon,
+  ].join('\u0000');
+  const datasetKeyRef = useRef(openingDatasetKey);
+
+  // T40: visited exact-line membership uses the actual sequence of played moves.
+  const visitedSequence = useMemo(() => {
+    if (!navigation) return [];
+    return navigation.history
+      .slice(0, navigation.cursor + 1)
+      .map((entry) => entry.uci)
+      .filter((uci): uci is string => uci !== null);
+  }, [navigation]);
+
+  const openingColorCounts = useMemo(() => {
+    const games = state.ingestion.result?.games ?? [];
+    return {
+      white: games.filter((game) => game.userColor === 'white').length,
+      black: games.filter((game) => game.userColor === 'black').length,
+    };
+  }, [state.ingestion.result]);
+
+  const openingGames = useMemo(() => {
+    const games = state.ingestion.result?.games ?? [];
+    return state.graph.scope === 'both'
+      ? games
+      : games.filter((game) => game.userColor === state.graph.scope);
+  }, [state.ingestion.result, state.graph.scope]);
+  const openingNode = navigation?.observed
+    ? graph?.positions.get(navigation.positionKey)
+    : undefined;
+  // Arrival evidence is only looked up for the actual prefix. Synthesized
+  // transposition routes have zero exact-line games even with shared candidates.
+  const openingExactMatchCount = !navigation?.observed
+    ? 0
+    : navigation.cursor === 0
+      ? (openingNode?.aggregate.games ?? 0)
+      : navigation.pathId === null
+        ? 0
+        : (openingNode?.arrivalsByPath.get(navigation.pathId)?.games ?? 0);
+
+  // Initialize once per committed import. Horizon changes made outside Openings
+  // are applied on entry, independently of the import query and Review selection.
+  const scopeInitializedDatasetRef = useRef(state.ingestion.result);
+  const requestedOpeningRef = useRef('');
+  useEffect(() => {
+    if (tab !== 'opening') return;
+    const result = state.ingestion.result;
+    if (!result || result.games.length === 0 || state.ingestion.status === 'loading') return;
+    const username = state.query.active?.username ?? '';
+    const freshDataset =
+      scopeInitializedDatasetRef.current !== result || !requestedOpeningRef.current;
+    const effective = freshDataset
+      ? (readStoredOpeningScope(username) ?? initialOpeningScope(result.games))
+      : state.preferences.openingScope;
+    scopeInitializedDatasetRef.current = result;
+    if (effective !== state.preferences.openingScope) {
+      controller.dispatch({
+        type: 'preferences/changed',
+        preferences: { openingScope: effective },
+      });
+    }
+    const requestKey = JSON.stringify([
+      state.query.token,
+      effective,
+      state.preferences.openingHorizon,
+    ]);
+    if (requestedOpeningRef.current === requestKey) return;
+    requestedOpeningRef.current = requestKey;
+    void controller.requestOpeningGraph(effective);
+  }, [
+    tab,
+    controller,
+    state.ingestion.result,
+    state.ingestion.status,
+    state.query.active?.username,
+    state.query.token,
+    state.preferences.openingScope,
+    state.preferences.openingHorizon,
+  ]);
+
+  const handleOpeningScopeChange = (scope: OpeningScope) => {
+    writeStoredOpeningScope(state.query.active?.username ?? '', scope);
+    controller.dispatch({ type: 'preferences/changed', preferences: { openingScope: scope } });
+  };
+
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
+  const latestOpeningHistoryRef = useRef(new Map<string, GraphNavigationState>());
+  // Resolve the current entry before painting a replacement graph, so old
+  // arrival IDs never label the new graph's exact-line counts.
+  useLayoutEffect(() => {
+    const previousKey = datasetKeyRef.current;
+    const previous = navigationRef.current;
+    if (previous && previousKey) openingHistoryRef.current.set(previousKey, previous);
+    datasetKeyRef.current = openingDatasetKey;
+    // Save the leaving scope separately; an unchanged dataset restores all redo.
+    if (previous && previousKey) {
+      const [username, , scope] = previousKey.split('\u0000');
+      latestOpeningHistoryRef.current.set(JSON.stringify([username, scope]), previous);
+    }
+    if (!graph) {
+      setNavigation(null);
+      return;
+    }
+    const lineKey = JSON.stringify([state.query.active?.username, state.graph.scope]);
+    const exact = openingHistoryRef.current.get(openingDatasetKey);
+    const saved = exact ?? latestOpeningHistoryRef.current.get(lineKey);
+    const restored = saved ? replayGraphNavigation(saved, graph) : null;
+    setNavigation(restored ?? createGraphNavigation(graph));
+    setMoveOrdersOpen(false);
+    setOpeningNotice(
+      saved && !exact
+        ? 'Imported games or opening depth changed. The valid part of your visited line was restored.'
+        : null
+    );
+    if (openingHistoryRef.current.size > 24) {
+      openingHistoryRef.current.delete(openingHistoryRef.current.keys().next().value!);
+    }
+  }, [graph, openingDatasetKey, state.query.active?.username, state.graph.scope]);
+
+  useEffect(() => {
+    if (navigation) controller.navigateGraph(navigation.positionKey, navigation.pathId);
+  }, [controller, navigation]);
+
   const parsedGame = useMemo(() => parseSelectedGame(selectedRecord), [selectedRecord]);
   const fenByPly = useMemo(
     () => Object.fromEntries(parsedGame?.plies.map((move) => [move.ply, move.fenBefore]) ?? []),
@@ -384,13 +526,28 @@ export function ChessWorkspace({
     setReviewFilter({});
   }, [state.selection.gameId]);
 
+  const repertoireKeys = useMemo(
+    () =>
+      state.repertoire?.horizon === state.preferences.openingHorizon
+        ? new Set(state.repertoire.moveKeys)
+        : null,
+    [state.repertoire, state.preferences.openingHorizon]
+  );
+  const reviewResult = useMemo(
+    () =>
+      state.analysis.result && parsedGame
+        ? applyRepertoireContext(state.analysis.result, parsedGame, repertoireKeys)
+        : state.analysis.result,
+    [state.analysis.result, parsedGame, repertoireKeys]
+  );
+
   const reviewMoments = reviewMomentNavigation(
-    state.analysis.result?.annotations ?? [],
+    reviewResult?.annotations ?? [],
     state.selection.ply,
     reviewFilter
   );
   const selectedPresentation = parsedGame
-    ? selectMovePresentation(parsedGame, state.analysis.result, state.selection.ply)
+    ? selectMovePresentation(parsedGame, reviewResult, state.selection.ply)
     : null;
   const selectedAnnotation =
     tab === 'analysis' && !variation && selectedPresentation?.state === 'ready'
@@ -410,16 +567,6 @@ export function ChessWorkspace({
       : undefined;
 
   useEffect(() => {
-    if (graph) {
-      setNavigation(createGraphNavigation(graph));
-      setUnobservedMove(null);
-    } else {
-      setNavigation(null);
-      setUnobservedMove(null);
-    }
-  }, [graph]);
-
-  useEffect(() => {
     const previous = previousIngestionStatus.current;
     previousIngestionStatus.current = state.ingestion.status;
     if (previous === 'loading' && state.ingestion.status !== 'loading') {
@@ -428,6 +575,7 @@ export function ChessWorkspace({
       const hasGames = (state.ingestion.result?.games.length ?? 0) > 0;
       if (startupComplete && ['complete', 'partial'].includes(state.ingestion.status) && hasGames) {
         setImportOpen(false);
+        setOpeningImportQuery(null);
         selectTab('games');
         setLoadedAnnouncement(`${state.ingestion.result?.games.length} games loaded`);
         requestAnimationFrame(() => titleHeadingRef.current?.focus());
@@ -487,7 +635,9 @@ export function ChessWorkspace({
     setTab(next);
     if (next !== 'opening') {
       setMoveOrdersOpen(false);
-      setUnobservedMove(null);
+      // An unobserved novelty is transient: leaving Openings returns to the
+      // last observed entry instead of keeping a disabled board.
+      setNavigation((prev) => (prev && !prev.observed ? navigateBack(prev) : prev));
     }
     if (next !== 'analysis') {
       setVariation(null);
@@ -557,7 +707,8 @@ export function ChessWorkspace({
 
     if (tab === 'opening') {
       if (!graph || !navigation) return false;
-      if (unobservedMove) return false;
+      // T38: an unobserved novelty disables further opening input until Return.
+      if (!navigation.observed) return false;
 
       const res = resolveBoardMoveInGraph(
         graph,
@@ -566,47 +717,32 @@ export function ChessWorkspace({
         applied
       );
 
-      if (res.observed && res.nextPathId !== null) {
-        setUnobservedMove(null);
-        try {
-          setNavigation((prev) =>
-            prev
-              ? navigateCandidate(
-                  graph,
-                  prev,
-                  {
-                    targetKey: res.nextPositionKey,
-                    uci: applied.uci,
-                    san: applied.san,
-                  },
-                  res.nextPathId
-                )
-              : null
-          );
-          controller.navigateGraph(res.nextPositionKey, res.nextPathId);
-          return true;
-        } catch {
-          return false;
-        }
-      } else {
-        setUnobservedMove({
-          move: applied,
-          returnPositionKey: navigation.positionKey,
-          returnPathId: navigation.pathId,
-        });
-        return true;
-      }
+      // T38: the visited entry is the authoritative current position; the board
+      // shows its actual FEN for both observed and unobserved moves.
+      const entry: GraphNavigationEntry = {
+        positionKey: res.nextPositionKey,
+        fen: res.nextFen,
+        pathId: res.nextPathId,
+        uci: applied.uci,
+        san: applied.san,
+        observed: res.observed,
+      };
+      setNavigation((prev) => (prev ? appendVisitedEntry(prev, entry) : null));
+      controller.navigateGraph(res.nextPositionKey, res.nextPathId);
+      return true;
     }
 
     return false;
   };
 
   const isOpeningBoard = tab === 'opening' && Boolean(graph && navigation);
+  // T38: the unobserved visited entry drives the notice; it is no longer separate state.
+  const unobservedMove = navigation && !navigation.observed ? navigation : null;
   const displayedBoardFen =
     tab === 'analysis' && variation
       ? variationFen(variation)
-      : tab === 'opening' && unobservedMove
-        ? unobservedMove.move.fenAfter
+      : isOpeningBoard && unobservedMove
+        ? unobservedMove.fen
         : displayedFen;
 
   const lastMoveValue: { from: Square; to: Square } | undefined =
@@ -617,10 +753,10 @@ export function ChessWorkspace({
             to: variation.moves[variation.cursor - 1]!.to,
           }
         : undefined
-      : tab === 'opening' && unobservedMove
+      : tab === 'opening' && navigation?.uci
         ? {
-            from: unobservedMove.move.from,
-            to: unobservedMove.move.to,
+            from: navigation.uci.slice(0, 2) as Square,
+            to: navigation.uci.slice(2, 4) as Square,
           }
         : state.selection.ply > 0 && parsedGame && !isOpeningBoard
           ? {
@@ -629,8 +765,15 @@ export function ChessWorkspace({
             }
           : undefined;
 
+  // T39: opening playback reuses the same MoveHistoryModel primitives as Review;
+  // the cursor maps onto the visited history so all controls stay consistent.
   const historyValue: MoveHistoryModel | undefined = isOpeningBoard
-    ? undefined
+    ? {
+        currentPly: navigation!.cursor,
+        totalPlies: navigation!.history.length - 1,
+        onPlyChange: (index) =>
+          setNavigation((prev) => (prev ? navigateToHistoryIndex(prev, index) : null)),
+      }
     : tab === 'analysis' && variation
       ? {
           currentPly: variation.cursor,
@@ -647,13 +790,14 @@ export function ChessWorkspace({
         : undefined;
 
   useEffect(() => {
-    if (tab !== 'games' && tab !== 'analysis') return;
+    if (tab !== 'games' && tab !== 'analysis' && tab !== 'opening') return;
     if (importOpen || aboutOpen || menuOpen || moveOrdersOpen) return;
     if (!historyValue) return;
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing)
+        return;
 
       const active = document.activeElement;
       if (active) {
@@ -662,7 +806,7 @@ export function ChessWorkspace({
           tag === 'input' ||
           tag === 'textarea' ||
           tag === 'select' ||
-          active.getAttribute('contenteditable') === 'true' ||
+          active.closest('[contenteditable]:not([contenteditable="false"])') ||
           active.getAttribute('role') === 'textbox' ||
           active.closest('[role="dialog"]')
         ) {
@@ -728,13 +872,11 @@ export function ChessWorkspace({
         ) : null}
         {tab === 'opening' && unobservedMove ? (
           <UnobservedMoveNotice
-            san={unobservedMove.move.san}
+            san={unobservedMove.san ?? ''}
             onReturn={() => {
-              controller.navigateGraph(
-                unobservedMove.returnPositionKey,
-                unobservedMove.returnPathId
-              );
-              setUnobservedMove(null);
+              const next = navigateBack(navigation!);
+              setNavigation(next);
+              controller.navigateGraph(next.positionKey, next.pathId);
             }}
           />
         ) : null}
@@ -742,6 +884,7 @@ export function ChessWorkspace({
           fen={displayedBoardFen}
           orientation={state.preferences.boardOrientation}
           isInteractive={isInteractive}
+          squareNavigation={isOpeningBoard || isInteractive}
           onMove={handleBoardMove}
           onFlipOrientation={() =>
             controller.dispatch({
@@ -766,24 +909,6 @@ export function ChessWorkspace({
           {...(selectedAnnotation ? { evaluationScore: selectedAnnotation.after.score } : {})}
           {...(tab === 'analysis' && selectedArrow ? { pvArrow: selectedArrow } : {})}
         />
-        {isOpeningBoard && navigation ? (
-          <button
-            type="button"
-            className="button-secondary"
-            disabled={!unobservedMove && navigation.history.length <= 1}
-            onClick={() => {
-              if (unobservedMove) {
-                setUnobservedMove(null);
-                return;
-              }
-              const next = navigateBack(navigation);
-              setNavigation(next);
-              controller.navigateGraph(next.positionKey, next.pathId);
-            }}
-          >
-            Back
-          </button>
-        ) : null}
       </div>
     );
 
@@ -812,10 +937,17 @@ export function ChessWorkspace({
 
   const queryForm = (
     <GameQueryForm
+      key={openingImportQuery ? JSON.stringify(openingImportQuery) : 'default-import'}
       disabled={state.ingestion.status === 'loading'}
       recoveryTarget={queryRecovery?.target ?? null}
       recoveryVersion={queryRecovery?.version ?? 0}
-      initialQuery={state.query.requested ?? state.query.active ?? recentQuery ?? state.query.draft}
+      initialQuery={
+        openingImportQuery ??
+        state.query.requested ??
+        state.query.active ??
+        recentQuery ??
+        state.query.draft
+      }
       onDraftChange={(draft) => {
         if (state.ingestion.error || state.ingestion.status === 'failed')
           controller.dismissIngestionError();
@@ -831,7 +963,10 @@ export function ChessWorkspace({
           preferences: { openingHorizon },
         })
       }
-      onSubmit={(query) => controller.submitQuery(query)}
+      onSubmit={(query) => {
+        setOpeningImportQuery(null);
+        return controller.submitQuery(query);
+      }}
       recentQuery={recentQuery}
       onResume={(query) => controller.submitQuery(query)}
     />
@@ -895,7 +1030,10 @@ export function ChessWorkspace({
   };
 
   return (
-    <div className="workspace-shell" data-modal-root>
+    <div
+      className={`workspace-shell${tab === 'opening' ? ' workspace-shell--opening' : ''}`}
+      data-modal-root
+    >
       {/* Desktop Left Rail Navigation (hidden < 960px via CSS) */}
       <aside className="workspace-rail">
         <WorkspaceNavigation
@@ -909,9 +1047,14 @@ export function ChessWorkspace({
       {/* Main Column */}
       <div className="workspace-main">
         <AppTopBar
-          viewTitle={viewTitle}
+          viewTitle={
+            tab === 'opening' && state.query.active?.username
+              ? `Openings · ${state.query.active.username}`
+              : viewTitle
+          }
           onOpenMenu={() => {
             setImportOpen(false);
+            setOpeningImportQuery(null);
             setMenuOpen(true);
           }}
           menuTriggerRef={menuTriggerRef}
@@ -1054,6 +1197,7 @@ export function ChessWorkspace({
             <WorkspaceLayout
               board={shouldRenderBoard ? board : null}
               review={tab === 'analysis'}
+              opening={tab === 'opening'}
               header={
                 tab === 'analysis' && selectedRecord ? (
                   <div className="review-header">
@@ -1177,25 +1321,41 @@ export function ChessWorkspace({
 
                   {tab === 'opening' ? (
                     graph && navigation ? (
-                      <>
-                        {displayedBoardFen ? (
-                          <OpeningPositionAnalysis fen={displayedBoardFen} />
-                        ) : null}
-                        <OpeningView
-                          openingHorizon={state.preferences.openingHorizon}
-                          onOpeningHorizonChange={(openingHorizon) =>
-                            controller.dispatch({
-                              type: 'preferences/changed',
-                              preferences: { openingHorizon },
-                            })
-                          }
-                          games={state.ingestion.result?.games ?? []}
-                          sequence={graph.paths.sequence(navigation.pathId)}
-                          onSelectGame={(id) => {
-                            controller.selectGame(id);
-                            selectTab('analysis');
+                      <div className="opening-panel">
+                        {/* T41: compact scope/position context comes first. */}
+                        <OpeningScopeControl
+                          value={state.preferences.openingScope}
+                          onChange={handleOpeningScopeChange}
+                          whiteCount={openingColorCounts.white}
+                          blackCount={openingColorCounts.black}
+                          importColors={state.query.active?.colors ?? ['white', 'black']}
+                          disabled={state.graph.status === 'building'}
+                          onRequestLoad={() => {
+                            const query = state.query.active;
+                            if (!query) return;
+                            setOpeningImportQuery({ ...query, colors: ['white', 'black'] });
+                            setImportOpen(true);
                           }}
                         />
+                        {state.graph.status === 'building' ? (
+                          <p role="status" className="sr-only">
+                            Updating opening candidates…
+                          </p>
+                        ) : null}
+                        {state.graph.error ? <p role="alert">{state.graph.error}</p> : null}
+                        {openingNotice ? <p role="status">{openingNotice}</p> : null}
+                        {navigation.observed ? (
+                          <p className="opening-membership field-help">
+                            {state.graph.scope === 'both'
+                              ? 'Both colors'
+                              : state.graph.scope === 'black'
+                                ? 'Black'
+                                : 'White'}{' '}
+                            · Position: {openingNode?.aggregate.games ?? 0} games · Exact line:{' '}
+                            {openingExactMatchCount} games
+                          </p>
+                        ) : null}
+                        {/* T41: notation/navigation and candidates next. */}
                         <OpeningTreeTable
                           graph={graph}
                           navigation={navigation}
@@ -1203,7 +1363,6 @@ export function ChessWorkspace({
                           excludedGameCount={state.graph.snapshot?.excludedGameCount ?? 0}
                           diagnosticCodes={state.graph.diagnosticCodes}
                           onNavigate={(next) => {
-                            setUnobservedMove(null);
                             setNavigation(next);
                             controller.navigateGraph(next.positionKey, next.pathId);
                           }}
@@ -1222,6 +1381,34 @@ export function ChessWorkspace({
                             </button>
                           }
                         />
+                        <OpeningSettings
+                          value={state.preferences.openingHorizon}
+                          onChange={(openingHorizon) =>
+                            controller.dispatch({
+                              type: 'preferences/changed',
+                              preferences: { openingHorizon },
+                            })
+                          }
+                        />
+                        {/* T41: expensive secondary contents mount only on expansion. */}
+                        <OpeningDisclosure label="Stockfish analysis">
+                          {displayedBoardFen ? (
+                            <OpeningPositionAnalysis fen={displayedBoardFen} />
+                          ) : null}
+                        </OpeningDisclosure>
+                        <OpeningDisclosure
+                          label={`Matching games (${openingExactMatchCount})`}
+                          className="opening-disclosure opening-matching-disclosure"
+                        >
+                          <OpeningView
+                            games={navigation.observed ? openingGames : []}
+                            sequence={visitedSequence}
+                            onSelectGame={(id) => {
+                              controller.selectGame(id);
+                              selectTab('analysis');
+                            }}
+                          />
+                        </OpeningDisclosure>
                         {moveOrdersOpen ? (
                           <MoveOrderDialog
                             node={graph.positions.get(navigation.positionKey)!}
@@ -1231,7 +1418,7 @@ export function ChessWorkspace({
                             onClose={() => setMoveOrdersOpen(false)}
                           />
                         ) : null}
-                      </>
+                      </div>
                     ) : (
                       <div className="workspace-empty">
                         <h2>Explore your openings</h2>
@@ -1264,7 +1451,7 @@ export function ChessWorkspace({
                         onReturnToGame={returnToGame}
                         capability={state.analysis.capability}
                         status={state.analysis.status}
-                        result={state.analysis.result}
+                        result={reviewResult}
                         showingPrevious={state.analysis.showingPrevious}
                         previousStrength={state.analysis.previousStrength}
                         progress={state.analysis.progress}
@@ -1316,7 +1503,10 @@ export function ChessWorkspace({
       <UtilityRail
         title="Import games"
         open={importOpen}
-        onOpenChange={setImportOpen}
+        onOpenChange={(open) => {
+          setImportOpen(open);
+          if (!open) setOpeningImportQuery(null);
+        }}
         id="game-query-drawer"
         returnFocusRef={importTriggerRef}
         resultFocusVersion={resultFocusVersion}
@@ -1402,6 +1592,7 @@ function BoardPanel({
   fen,
   orientation,
   isInteractive,
+  squareNavigation,
   onMove,
   lastMove,
   lastMoveBadge,
@@ -1414,6 +1605,7 @@ function BoardPanel({
   fen: string | null;
   orientation: 'white' | 'black';
   isInteractive: boolean;
+  squareNavigation: boolean;
   onMove?: ((move: AppliedBoardMove) => boolean) | undefined;
   lastMove?: { from: Square; to: Square } | undefined;
   lastMoveBadge?: { square: Square; quality: MoveQuality } | undefined;
@@ -1430,6 +1622,7 @@ function BoardPanel({
       fen={fen}
       orientation={orientation}
       isInteractive={isInteractive}
+      squareNavigation={squareNavigation}
       {...(onMove !== undefined ? { onMove } : {})}
       {...(history !== undefined ? { history } : {})}
       {...(lastMove !== undefined ? { lastMove } : {})}
@@ -1483,9 +1676,10 @@ function boardFen(
   game: ParsedGame | null,
   ply: number
 ): string | null {
+  // T36: the visited entry carries the actual full FEN; the four-field position
+  // key is never promoted to a fake six-field FEN.
   if (tab === 'opening' && graph && navigation) {
-    const key = graph.positions.get(navigation.positionKey)?.key;
-    return key ? `${key} 0 1` : null;
+    return navigation.fen;
   }
   if (!game || game.plies.length === 0) return null;
   if (ply <= 0) return game.plies[0]!.fenBefore;

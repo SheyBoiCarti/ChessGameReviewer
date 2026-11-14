@@ -111,6 +111,135 @@ describe('workspace controller', () => {
     controller.dispose();
   });
 
+  it('builds an independent scoped opening graph and ignores stale graph requests (T40)', async () => {
+    const black = { ...game, id: 'game-2', userColor: 'black' as const, endedAt: 2_000_000 };
+    const services = createServices(async () => result(secondQuery, [game, black]));
+    const baseline = services.graph.build;
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    expect(controller.getState().graph.scope).toBe('both');
+    expect(controller.getState().graph.datasetRevision).toBeTruthy();
+
+    const calls: unknown[][] = [];
+    services.graph.build = async (games, options, fingerprint) => {
+      calls.push([games, options, fingerprint]);
+      return baseline(games, options, fingerprint);
+    };
+
+    await controller.requestOpeningGraph('white');
+    expect(controller.getState().graph.scope).toBe('white');
+    expect(controller.getState().graph.snapshot?.queryFingerprint).toBe(
+      'fingerprint-second-player'
+    );
+
+    await controller.requestOpeningGraph('black');
+    expect(controller.getState().graph.scope).toBe('black');
+
+    // Each scoped build receives only its color's metadata-filtered records.
+    expect(calls).toHaveLength(2);
+    expect(calls[0]![0]).toHaveLength(1);
+    expect((calls[0]![0] as { userColor: string }[])[0]?.userColor).toBe('white');
+    expect(calls[1]![0]).toHaveLength(1);
+    expect((calls[1]![0] as { userColor: string }[])[0]?.userColor).toBe('black');
+
+    // A late superseded result does not install over a newer request.
+    const slowWhite = deferred<Awaited<ReturnType<WorkspaceServices['graph']['build']>>>();
+    services.graph.build = async () => slowWhite.promise;
+    const stale = controller.requestOpeningGraph('white');
+    services.graph.build = baseline;
+    await controller.requestOpeningGraph('black');
+    expect(controller.getState().graph.scope).toBe('black');
+    slowWhite.resolve({
+      status: 'complete',
+      snapshot: {
+        formatVersion: 1,
+        queryFingerprint: 'fp-1',
+        sourceGameCount: 1,
+        excludedGameCount: 0,
+        openingHorizon: 30,
+        buildTimestamp: 1,
+        status: 'complete',
+        rootKey: 'root-position',
+        includedGameCount: 1,
+        remainingGameCount: 0,
+        positions: [],
+        paths: [],
+      },
+    });
+    await stale;
+    expect(controller.getState().graph.scope).toBe('black');
+    controller.dispose();
+  });
+
+  it('keeps displayed graph identity until success and rejects stale failures', async () => {
+    const services = createServices(async () =>
+      result(secondQuery, [game, { ...game, id: 'black', userColor: 'black' }])
+    );
+    const baseline = services.graph.build;
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    const displayed = controller.getState().graph;
+    let rejectOld!: (error: Error) => void;
+    services.graph.build = () =>
+      new Promise((_resolve, reject) => {
+        rejectOld = reject;
+      });
+    const old = controller.requestOpeningGraph('white');
+    expect(controller.getState().graph).toMatchObject({
+      snapshot: displayed.snapshot,
+      scope: 'both',
+      datasetRevision: displayed.datasetRevision,
+    });
+    services.graph.build = baseline;
+    await controller.requestOpeningGraph('black');
+    const latest = controller.getState().graph;
+    rejectOld(new Error('late worker failure'));
+    await old;
+    expect(controller.getState().graph).toBe(latest);
+    controller.dispose();
+  });
+
+  it('keeps unscoped repertoire context and Review selection across scope builds', async () => {
+    const services = createServices(async () =>
+      result(secondQuery, [game, { ...game, id: 'black', userColor: 'black' }])
+    );
+    services.engine.initialize = vi.fn(services.engine.initialize);
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    controller.selectPly(1);
+    const selection = controller.getState().selection;
+    const context = controller.getState().repertoire;
+    expect(context).toBeTruthy();
+    await controller.requestOpeningGraph('white');
+    await controller.requestOpeningGraph('black');
+    expect(controller.getState().repertoire).toBe(context);
+    expect(controller.getState().selection.gameId).toBe(selection.gameId);
+    expect(controller.getState().selection.ply).toBe(1);
+    expect(services.engine.initialize).not.toHaveBeenCalled();
+    controller.dispatch({ type: 'preferences/changed', preferences: { openingHorizon: 10 } });
+    await controller.requestOpeningGraph('black');
+    expect(controller.getState().repertoire?.horizon).toBe(10);
+    controller.dispose();
+  });
+
+  it('keeps existing content when the requested color was excluded from import', async () => {
+    const whiteOnly = { ...secondQuery, colors: ['white'] as const };
+    const services = createServices(async () =>
+      result({ ...whiteOnly, colors: ['white'] }, [game])
+    );
+    services.graph.build = vi.fn(services.graph.build);
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery({ ...whiteOnly, colors: ['white'] });
+    await controller.requestOpeningGraph('white');
+    const displayed = controller.getState().graph;
+    const calls = vi.mocked(services.graph.build).mock.calls.length;
+    await controller.requestOpeningGraph('black');
+    expect(controller.getState().graph).toBe(displayed);
+    expect(services.graph.build).toHaveBeenCalledTimes(calls);
+    expect(controller.getState().query.active?.colors).toEqual(['white']);
+    controller.dispose();
+  });
+
   it('opens a review once on double activation and preserves the same game ply', async () => {
     const services = createServices(async () => result(secondQuery, [game]));
     services.analysis.analyze = vi.fn(services.analysis.analyze);

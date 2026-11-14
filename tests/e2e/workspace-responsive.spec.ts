@@ -231,7 +231,7 @@ test('keeps evaluation labels readable over either fill direction in every theme
   }
 });
 
-test('contains games and opening candidates in fixed-height scroll viewports', async ({ page }) => {
+test('bounds games and content-sized opening candidates in scroll viewports', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await installOverflowWorkspaceFixtures(page);
   await page.goto('/');
@@ -258,7 +258,8 @@ test('contains games and opening candidates in fixed-height scroll viewports', a
   const candidates = page.getByRole('region', { name: 'Opening candidate results' });
   await expect(candidates.getByRole('button', { name: /^Play / })).toHaveCount(20);
   const candidateMetrics = await scrollMetrics(candidates);
-  expect(candidateMetrics.clientHeight).toBe(gameMetrics.clientHeight);
+  expect(candidateMetrics.clientHeight).toBeGreaterThanOrEqual(3 * 44);
+  expect(candidateMetrics.clientHeight).toBeLessThanOrEqual(24 * 16);
   expect(candidateMetrics.scrollHeight).toBeGreaterThan(candidateMetrics.clientHeight);
 
   const headingBefore = await candidates.getByRole('columnheader', { name: 'Move' }).boundingBox();
@@ -267,6 +268,114 @@ test('contains games and opening candidates in fixed-height scroll viewports', a
   expect(headingBefore).not.toBeNull();
   expect(headingAfter).not.toBeNull();
   expect(Math.abs(headingAfter!.y - headingBefore!.y)).toBeLessThanOrEqual(1);
+});
+
+test('opening candidates sit directly under compact controls without overflow (T41)', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await installOverflowWorkspaceFixtures(page);
+  await page.goto('/');
+  await loadFixtureGames(page, 20);
+  await expect(
+    page.getByRole('button', { name: /^Preview .*overflow-opponent-20/i })
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Openings' }).click();
+  const firstCandidate = page
+    .getByRole('table', { name: 'Opening candidates', exact: true })
+    .locator('tbody tr')
+    .first();
+
+  // At desktop size the first candidate is immediately after the compact
+  // controls instead of a large reserved viewport.
+  await expect(firstCandidate).toBeVisible();
+  const desktop = await firstCandidate.boundingBox();
+  expect(desktop!.y).toBeLessThanOrEqual(260);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
+  ).toBeLessThanOrEqual(1);
+
+  const context = page.getByRole('region', { name: 'Contextual workspace', exact: true });
+  const candidates = page.getByRole('region', { name: 'Opening candidate results', exact: true });
+  const candidateRows = candidates.locator('tbody tr');
+  await expect(candidateRows).toHaveCount(20);
+  expect((await scrollMetrics(context)).scrollTop).toBe(0);
+  expect((await scrollMetrics(candidates)).scrollTop).toBe(0);
+  // Three full candidates fit in the initial desktop context without scrolling it.
+  for (let index = 0; index < 3; index += 1) {
+    await expect(candidateRows.nth(index)).toBeInViewport({ ratio: 1 });
+  }
+  await testInfo.attach('opening-desktop-candidates', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+
+  // Large lists scroll within their own bounded region and expose the final move.
+  const candidateMetrics = await scrollMetrics(candidates);
+  expect(candidateMetrics.scrollHeight).toBeGreaterThan(candidateMetrics.clientHeight);
+  await candidates.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  await expect.poll(async () => (await scrollMetrics(candidates)).scrollTop).toBeGreaterThan(0);
+  await expect(candidateRows.last().getByRole('button')).toBeInViewport({ ratio: 1 });
+  expect((await scrollMetrics(context)).scrollTop).toBe(0);
+
+  // A one-row node uses its content height instead of retaining the large viewport.
+  await candidates.evaluate((element) => element.scrollTo({ top: 0 }));
+  await page.getByRole('button', { name: 'Play a3, 1 games', exact: true }).click();
+  await expect(candidateRows).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Play a6, 1 games', exact: true })).toBeVisible();
+  const oneRow = await scrollMetrics(candidates);
+  expect(oneRow.clientHeight).toBeLessThan(150);
+  expect(oneRow.scrollHeight).toBeLessThanOrEqual(oneRow.clientHeight + 1);
+  await testInfo.attach('opening-desktop-one-row', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+  await page.getByRole('button', { name: 'Starting position', exact: true }).click();
+
+  // On phones the candidates follow board/playback and stay within reach.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(firstCandidate).toBeVisible();
+  const mobile = await firstCandidate.boundingBox();
+  expect(mobile!.y).toBeLessThanOrEqual(650);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
+  ).toBeLessThanOrEqual(1);
+
+  // Text resizing keeps the expanded statistics and source-game controls reachable.
+  const originalFontSize = await page.evaluate(() =>
+    Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+  );
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  expect(
+    await page.evaluate(() =>
+      Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+    )
+  ).toBeGreaterThanOrEqual(originalFontSize * 2);
+  await page.getByText('More statistics', { exact: true }).click();
+  const statistics = page.getByRole('region', { name: 'Detailed opening statistics', exact: true });
+  await expect(statistics.getByRole('table')).toBeVisible();
+  const sampleHeader = statistics.getByRole('columnheader', { name: 'Sample size', exact: true });
+  await sampleHeader.scrollIntoViewIfNeeded();
+  await expect(sampleHeader).toBeInViewport();
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+  await testInfo.attach('opening-mobile-expanded-statistics-200-percent', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+  await page.getByText('Matching games (20)', { exact: true }).click();
+  const sourceGames = page.getByRole('region', { name: 'Games in this opening', exact: true });
+  await expect(sourceGames.getByRole('button')).toHaveCount(20);
+  const source = sourceGames.getByRole('button').first();
+  await source.scrollIntoViewIfNeeded();
+  await expect(source).toBeInViewport();
+  await expect(source).toBeEnabled();
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+  await testInfo.attach('opening-mobile-matching-games-200-percent', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
 });
 
 test('keeps tab, hover-button, and eyebrow text at AA contrast in every theme', async ({

@@ -1,8 +1,28 @@
-import { render, screen, within } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ChessboardView } from '@/components/board/ChessboardView';
+
+it('keeps opening square navigation when further piece input is disabled', () => {
+  const onPlyChange = vi.fn();
+  render(
+    <ChessboardView
+      fen="rnbqkbnr/pppppppp/8/8/8/P7/1PPPPPPP/RNBQKBNR b KQkq - 0 1"
+      orientation="white"
+      isInteractive={false}
+      squareNavigation
+      history={{ currentPly: 1, totalPlies: 1, onPlyChange }}
+    />
+  );
+  const board = screen.getByRole('grid', { name: 'Chess board' });
+  expect(board).toHaveAccessibleDescription(/Piece input is disabled at this position/);
+  fireEvent.keyDown(board, { key: 'ArrowLeft' });
+  expect(onPlyChange).not.toHaveBeenCalled();
+  expect(board).toHaveAttribute('aria-activedescendant', 'square-d2');
+  fireEvent.keyDown(board, { key: 'ArrowLeft', altKey: true });
+  expect(onPlyChange).toHaveBeenCalledWith(0);
+});
 
 describe('ChessboardView', () => {
   it('shows board flipping without disabled playback arrows when no history is supplied', async () => {
@@ -111,6 +131,32 @@ describe('ChessboardView', () => {
     expect(onPlyChange).toHaveBeenLastCalledWith(0);
   });
 
+  it('traverses history with Alt+ArrowLeft/Right while plain arrows stay square navigation', async () => {
+    const user = userEvent.setup();
+    const onPlyChange = vi.fn();
+    render(
+      <ChessboardView
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        orientation="white"
+        isInteractive
+        currentPly={1}
+        totalPlies={3}
+        onPlyChange={onPlyChange}
+      />
+    );
+
+    const board = screen.getByRole('grid', { name: /chess board/i });
+    board.focus();
+    // Plain arrows move square focus, never history.
+    await user.keyboard('{ArrowRight}');
+    expect(onPlyChange).not.toHaveBeenCalled();
+    // Alt+Left/Right traverse history (T39).
+    await user.keyboard('{Alt>}{ArrowLeft}{/Alt}');
+    expect(onPlyChange).toHaveBeenLastCalledWith(0);
+    await user.keyboard('{Alt>}{ArrowRight}{/Alt}');
+    expect(onPlyChange).toHaveBeenLastCalledWith(2);
+  });
+
   it('turns invalid FEN into a recoverable alert', () => {
     render(
       <ChessboardView
@@ -123,6 +169,67 @@ describe('ChessboardView', () => {
     );
     expect(screen.getByRole('alert')).toHaveTextContent(/position is invalid/i);
     expect(screen.getByRole('button', { name: /return to start/i })).toBeInTheDocument();
+  });
+
+  it('ignores unsupported modifiers, prevented events, editable descendants, and open dialogs', () => {
+    const onPlyChange = vi.fn();
+    render(
+      <ChessboardView
+        fen="8/8/8/8/8/8/8/K6k w - - 0 1"
+        orientation="white"
+        currentPly={1}
+        totalPlies={3}
+        onPlyChange={onPlyChange}
+      />
+    );
+    const board = screen.getByRole('grid', { name: /chess board/i });
+    for (const modifier of ['ctrlKey', 'metaKey', 'shiftKey']) {
+      fireEvent.keyDown(board, { key: 'ArrowRight', [modifier]: true });
+      fireEvent.keyDown(board, { key: 'ArrowLeft', altKey: true, [modifier]: true });
+    }
+    fireEvent.keyDown(board, { key: 'End', altKey: true });
+    const prevented = createEvent.keyDown(board, { key: 'ArrowRight' });
+    prevented.preventDefault();
+    fireEvent(board, prevented);
+
+    const editable = document.createElement('div');
+    editable.setAttribute('contenteditable', '');
+    const descendant = document.createElement('span');
+    editable.append(descendant);
+    board.append(editable);
+    fireEvent.keyDown(descendant, { key: 'ArrowRight' });
+    editable.remove();
+
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    document.body.append(dialog);
+    fireEvent.keyDown(board, { key: 'ArrowRight' });
+    dialog.remove();
+    expect(onPlyChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(board, { key: 'ArrowRight' });
+    expect(onPlyChange).toHaveBeenCalledWith(2);
+  });
+
+  it('blocks board history shortcuts while the promotion dialog is open', async () => {
+    const user = userEvent.setup();
+    const onPlyChange = vi.fn();
+    render(
+      <ChessboardView
+        fen="7k/P7/8/8/8/8/8/K7 w - - 0 1"
+        orientation="white"
+        isInteractive
+        history={{ currentPly: 1, totalPlies: 3, onPlyChange }}
+      />
+    );
+    await user.click(screen.getByRole('gridcell', { name: 'a7' }));
+    await user.click(screen.getByRole('gridcell', { name: 'a8' }));
+    expect(screen.getByRole('dialog', { name: 'Promote pawn' })).toBeVisible();
+    fireEvent.keyDown(screen.getByRole('grid', { name: /chess board/i }), {
+      key: 'ArrowLeft',
+      altKey: true,
+    });
+    expect(onPlyChange).not.toHaveBeenCalled();
   });
 
   it('draws a labelled principal-variation arrow without changing board semantics', () => {

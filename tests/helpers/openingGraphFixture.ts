@@ -1,85 +1,66 @@
-import { PathStore } from '@/lib/chess/graph/pathStore';
+import { Chess } from 'chess.js';
+
+import { OpeningGraphBuilder } from '@/lib/chess/graph/openingGraph';
+import { parseGamePgn } from '@/lib/chess/pgnParser';
+import { normalizePositionKey } from '@/lib/chess/fen';
 import type { OpeningGraphSnapshot } from '@/lib/chess/graph/openingGraph';
-import type { MoveEdge, OutcomeAggregate, PositionNode } from '@/lib/chess/graph/types';
+
+/**
+ * Legal two-route transposition graph built from parsed PGN games:
+ * Nf3 d5 d4 Nf6 and d4 d5 Nf3 Nf6 reach the same normalized position,
+ * and e4 e5 Nf3 branches independently. Position keys are actual
+ * normalized FEN keys, not fake labels.
+ */
+const fixtureGames = [
+  '1. Nf3 d5 2. d4 Nf6 1-0',
+  '1. d4 d5 2. Nf3 Nf6 0-1',
+  '1. e4 e5 2. Nf3 1/2-1/2',
+];
+
+export function buildOpeningGraphFixture(
+  status: 'complete' | 'limited' = 'complete'
+): OpeningGraphSnapshot {
+  const games = fixtureGames.map((moves, index) => {
+    const parsed = parseGamePgn({
+      game: {
+        id: `fixture-${index}`,
+        url: `https://example.test/fixture-${index}`,
+        usernameKey: 'fixture-user',
+        userColor: 'white',
+        result: moves.endsWith('1-0') ? 'win' : moves.endsWith('0-1') ? 'loss' : 'draw',
+        endedAt: index,
+        timeClass: 'blitz',
+        rated: true,
+        userRating: 1500,
+        opponentRating: 1600,
+        whitePlayer: { username: 'fixture-user', rating: 1500 },
+        blackPlayer: { username: 'opponent', rating: 1600 },
+        rules: 'chess',
+        pgn: moves,
+      },
+    });
+    if (!parsed.ok) throw new Error('Fixture PGN should parse');
+    return parsed.game;
+  });
+  const graph = new OpeningGraphBuilder({ maxOpeningPlies: 4 }).build(games);
+  return status === 'limited'
+    ? { ...graph, status, remainingGameCount: 2, reachedLimit: 'maxEdges' as const }
+    : graph;
+}
+
+let cached: OpeningGraphSnapshot | null = null;
 
 export function openingGraphFixture(
   status: 'complete' | 'limited' = 'complete'
 ): OpeningGraphSnapshot {
-  const paths = PathStore.fromNodes([
-    { id: 0, parentId: null, uci: null, san: null, ply: 0 },
-    { id: 1, parentId: 0, uci: 'e2e4', san: 'e4', ply: 1 },
-    { id: 2, parentId: 1, uci: 'e7e5', san: 'e5', ply: 2 },
-    { id: 3, parentId: 2, uci: 'g1f3', san: 'Nf3', ply: 3 },
-    { id: 4, parentId: 0, uci: 'd2d4', san: 'd4', ply: 1 },
-    { id: 5, parentId: 4, uci: 'd7d5', san: 'd5', ply: 2 },
-    { id: 6, parentId: 5, uci: 'g1f3', san: 'Nf3', ply: 3 },
-  ]);
-  const root = position(
-    '8/8/8/8/8/8/8/K6k w - -',
-    [move('e2e4', 'e4', 'after-e4'), move('d2d4', 'd4', 'after-d4')],
-    [[0, aggregate(5, 2, 2, 1)]]
-  );
-  const positions = new Map<string, PositionNode>([
-    [root.key, root],
-    ['after-e4', position('after-e4', [move('e7e5', 'e5', 'after-e5')])],
-    ['after-e5', position('after-e5', [move('g1f3', 'Nf3', 'transposed-target')])],
-    ['after-d4', position('after-d4', [move('d7d5', 'd5', 'after-d5')])],
-    ['after-d5', position('after-d5', [move('g1f3', 'Nf3', 'transposed-target')])],
-    [
-      'transposed-target',
-      position(
-        'transposed-target',
-        [],
-        [
-          [3, aggregate(3, 2, 0, 1)],
-          [6, aggregate(2, 0, 1, 1)],
-        ]
-      ),
-    ],
-  ]);
-  return {
-    status,
-    root,
-    positions,
-    paths,
-    openingHorizon: 30,
-    includedGameCount: 5,
-    remainingGameCount: status === 'limited' ? 2 : 0,
-    ...(status === 'limited' ? { reachedLimit: 'maxEdges' as const } : {}),
-  };
+  if (status === 'limited') return buildOpeningGraphFixture(status);
+  if (!cached) cached = buildOpeningGraphFixture(status);
+  return cached;
 }
 
-function position(
-  key: string,
-  moves: MoveEdge[],
-  arrivals: Array<[number, OutcomeAggregate]> = []
-): PositionNode {
-  return {
-    key,
-    aggregate: aggregate(5, 2, 2, 1),
-    outgoing: new Map(moves.map((value) => [value.uci, value])),
-    arrivalsByPath: new Map(arrivals),
-  };
-}
-
-function move(uci: string, san: string, targetKey: string): MoveEdge {
-  return { uci, san, targetKey, aggregate: aggregate(5, 2, 2, 1) };
-}
-
-function aggregate(
-  games: number,
-  userWins: number,
-  draws: number,
-  userLosses: number
-): OutcomeAggregate {
-  return {
-    games,
-    userWins,
-    draws,
-    userLosses,
-    whiteWins: userWins,
-    blackWins: userLosses,
-    opponentRatingSum: games * 1800,
-    opponentRatingCount: games,
-  };
+/** Normalized position key after the given SAN plies of the shared fixture game A. */
+export function fixtureKeyAfter(...sans: string[]): string {
+  const chess = new Chess();
+  for (const san of sans) chess.move(san);
+  return normalizePositionKey(chess.fen());
 }

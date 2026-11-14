@@ -12,7 +12,9 @@ import { clearWorkspaceSession } from './session';
 import type { GraphBuildWorkerResult } from '../opening-tree/graphWorkerClient';
 import type { IngestionProgress, IngestionResult } from '../ingestion/types';
 import { initialWorkspaceState, reduceWorkspace } from './reducer';
-import type { WorkspaceAction, WorkspacePreferences, WorkspaceState } from './types';
+import type { OpeningScope, WorkspaceAction, WorkspacePreferences, WorkspaceState } from './types';
+import { computeDatasetRevision } from '../opening-tree/graphIdentity';
+import { collectPersonalRepertoireMoveKeys } from '../stockfish-analysis/bookMoves';
 
 /** T27: at most 500 retained last-reviewed cursors per user, least-recently-used eviction. */
 const MAX_CURSORS_PER_USER = 500;
@@ -88,6 +90,8 @@ export interface WorkspaceController {
   /** Explicit Start over: selects position zero and forgets the retained cursor (T27). */
   startOver(gameId: string): void;
   navigateGraph(positionKey: string, pathId: number | null): void;
+  /** T40: independent opening graph request sequence; never calls submitQuery. */
+  requestOpeningGraph(scope: OpeningScope): Promise<void>;
   selectPly(ply: number): void;
   startAnalysis(strength?: AnalysisStrength): Promise<void>;
   cancelAnalysis(): void;
@@ -118,6 +122,17 @@ export function createWorkspaceController(
   let nextToken = 0;
   let disposed = false;
   let engineSequence = 0;
+  // T40: opening graph requests carry their own sequence, independent of query tokens.
+  let graphSequence = 0;
+  const datasetRevisions = new WeakMap<IngestionResult, string>();
+  const revisionFor = (dataset: IngestionResult) => {
+    let revision = datasetRevisions.get(dataset);
+    if (!revision) {
+      revision = computeDatasetRevision(dataset.games);
+      datasetRevisions.set(dataset, revision);
+    }
+    return revision;
+  };
   // Local run generation guards progress; per-game generations guard terminal projections.
   // Restore generations below protect reads; saved envelope ownership is extended in T18.
   let analysisSequence = 0;
@@ -282,6 +297,60 @@ export function createWorkspaceController(
     state = next;
     for (const listener of listeners) listener();
   };
+
+  /**
+   * T40: builds the displayed opening graph from metadata-filtered accepted
+   * records. Never replays games on the main thread; stale requests are
+   * ignored by graph request identity, even within the same query token.
+   */
+  function buildOpeningGraph(
+    games: readonly GameRecord[],
+    horizon: number,
+    scope: OpeningScope,
+    datasetRevision: string,
+    queryFingerprint: string,
+    graphRequestId: number,
+    token: number
+  ): Promise<void> {
+    const scopedGames = scope === 'both' ? games : games.filter((game) => game.userColor === scope);
+    return services.graph
+      .build(
+        scopedGames.map(toNormalizedSummary),
+        {
+          maxOpeningPlies: horizon,
+          includeRepeatedPositions: false,
+        },
+        queryFingerprint
+      )
+      .then((graph) => {
+        if (disposed || token !== state.query.token || graphRequestId !== graphSequence) return;
+        dispatch({
+          type: 'graph/terminal',
+          token,
+          status: graph.status,
+          snapshot: graph.snapshot,
+          diagnosticCodes: graph.status === 'complete' ? [] : graph.diagnosticCodes,
+          requestId: graphRequestId,
+          scope,
+          datasetRevision,
+        });
+        if (scope === 'both') {
+          dispatch({
+            type: 'repertoire/installed',
+            token,
+            datasetRevision,
+            horizon,
+            moveKeys: collectPersonalRepertoireMoveKeys(graph.snapshot),
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (disposed || token !== state.query.token || graphRequestId !== graphSequence) return;
+        const message = error instanceof Error ? error.message : 'Graph build failed.';
+        if (message !== 'GRAPH_BUILD_CANCELLED')
+          dispatch({ type: 'graph/failed', token, requestId: graphRequestId, error: message });
+      });
+  }
 
   const trackedOperation = (
     assign: (promise: Promise<void> | null) => void
@@ -656,32 +725,18 @@ export function createWorkspaceController(
               }
             })();
           }, 0);
-          dispatch({ type: 'graph/started', token });
-          void services.graph
-            .build(
-              result.games.map(toNormalizedSummary),
-              {
-                maxOpeningPlies: state.preferences.openingHorizon,
-                includeRepeatedPositions: false,
-              },
-              result.fingerprint
-            )
-            .then((graph) => {
-              if (disposed || token !== state.query.token) return;
-              dispatch({
-                type: 'graph/terminal',
-                token,
-                status: graph.status,
-                snapshot: graph.snapshot,
-                diagnosticCodes: graph.status === 'complete' ? [] : graph.diagnosticCodes,
-              });
-            })
-            .catch((error: unknown) => {
-              if (disposed || token !== state.query.token) return;
-              const message = error instanceof Error ? error.message : 'Graph build failed.';
-              if (message !== 'GRAPH_BUILD_CANCELLED')
-                dispatch({ type: 'graph/failed', token, error: message });
-            });
+          const graphRequestId = ++graphSequence;
+          const datasetRevision = revisionFor(result);
+          dispatch({ type: 'graph/started', token, requestId: graphRequestId });
+          void buildOpeningGraph(
+            result.games,
+            state.preferences.openingHorizon,
+            'both',
+            datasetRevision,
+            result.fingerprint,
+            graphRequestId,
+            token
+          );
         } catch (error) {
           console.error('[workspace operation failed]', error);
           if (disposed || token !== state.query.token) return;
@@ -689,7 +744,7 @@ export function createWorkspaceController(
           if (state.ingestion.status === 'loading') {
             dispatch({ type: 'ingestion/failed', token, error: message });
           } else if (message !== 'GRAPH_BUILD_CANCELLED') {
-            dispatch({ type: 'graph/failed', token, error: message });
+            dispatch({ type: 'graph/failed', token, requestId: graphSequence, error: message });
           }
         }
       } finally {
@@ -718,6 +773,63 @@ export function createWorkspaceController(
     },
     navigateGraph(positionKey, pathId) {
       dispatch({ type: 'selection/position', positionKey, pathId });
+    },
+    async requestOpeningGraph(scope: OpeningScope) {
+      const dataset = state.ingestion.result;
+      if (!dataset || dataset.games.length === 0 || disposed || maintenance) {
+        return Promise.resolve();
+      }
+      // A color excluded from import needs an explicit load. Retain current
+      // candidates and line while the user edits or submits that import.
+      if (scope !== 'both' && !state.query.active?.colors.includes(scope)) return;
+      const horizon = state.preferences.openingHorizon;
+      const datasetRevision = revisionFor(dataset);
+      const graphRequestId = ++graphSequence;
+      dispatch({
+        type: 'graph/rebuildStarted',
+        requestId: graphRequestId,
+        scope,
+        datasetRevision,
+      });
+      const token = state.query.token;
+      await buildOpeningGraph(
+        dataset.games,
+        horizon,
+        scope,
+        datasetRevision,
+        dataset.fingerprint,
+        graphRequestId,
+        token
+      );
+      if (
+        disposed ||
+        token !== state.query.token ||
+        graphRequestId !== graphSequence ||
+        scope === 'both'
+      )
+        return;
+      if (
+        state.repertoire?.datasetRevision === datasetRevision &&
+        state.repertoire.horizon === horizon
+      )
+        return;
+      try {
+        const context = await services.graph.build(
+          dataset.games.map(toNormalizedSummary),
+          { maxOpeningPlies: horizon, includeRepeatedPositions: false },
+          dataset.fingerprint
+        );
+        if (disposed || token !== state.query.token || graphRequestId !== graphSequence) return;
+        dispatch({
+          type: 'repertoire/installed',
+          token,
+          datasetRevision,
+          horizon,
+          moveKeys: collectPersonalRepertoireMoveKeys(context.snapshot),
+        });
+      } catch {
+        // Repertoire tags remain unavailable; base scores and scoped candidates stay usable.
+      }
     },
     selectPly(ply) {
       dispatch({ type: 'selection/ply', ply });
