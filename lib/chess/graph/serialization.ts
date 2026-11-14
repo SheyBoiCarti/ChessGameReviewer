@@ -121,6 +121,7 @@ export function deserializeOpeningGraph(dto: SerializedOpeningGraph): OpeningGra
     throw new Error('INVALID_GRAPH_ROOT_FEN');
   }
   const included = new Set(dto.includedGameIds);
+  const pathIds = new Set(dto.paths.map((path) => path.id));
   const validIds = (ids: unknown): ids is string[] =>
     Array.isArray(ids) &&
     ids.every((id) => typeof id === 'string' && included.has(id)) &&
@@ -133,9 +134,7 @@ export function deserializeOpeningGraph(dto: SerializedOpeningGraph): OpeningGra
     !Array.isArray(dto.positionGameIds) ||
     !Array.isArray(dto.prefixGameIds) ||
     dto.positionGameIds.some(([key, ids]) => !positions.has(key) || !validIds(ids)) ||
-    dto.prefixGameIds.some(
-      ([id, ids]) => !dto.paths.some((path) => path.id === id) || !validIds(ids)
-    ) ||
+    dto.prefixGameIds.some(([id, ids]) => !pathIds.has(id) || !validIds(ids)) ||
     new Map(dto.positionGameIds).size !== dto.positionGameIds.length ||
     new Map(dto.prefixGameIds).size !== dto.prefixGameIds.length ||
     (dto.includedGameCount > 0 &&

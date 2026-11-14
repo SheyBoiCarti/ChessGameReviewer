@@ -55,6 +55,27 @@ describe('analysis data worker', () => {
     expect(fit.snapshot.formatVersion).toBe(2);
   });
 
+  it('reports exact included IDs after skipped empty and incompatible-root games', async () => {
+    const standard = parsed('b-standard', '1. e4 e5 1-0');
+    const empty = { ...standard, id: 'a-empty', plies: [] };
+    const custom = parsed(
+      'c-custom',
+      '[SetUp "1"]\n[FEN "8/7k/8/8/8/8/P6K/8 w - - 17 42"]\n\n42. a3 Kg6 1-0'
+    );
+    const later = parsed('d-standard', '1. d4 d5 1-0');
+    const fit = await buildGraphWithinByteBudget(
+      [later, empty, custom, standard],
+      { maxOpeningPlies: 2, includeRepeatedPositions: false },
+      { queryFingerprint: 'skip-root', sourceGameCount: 4, excludedGameCount: 0, buildTimestamp: 1 }
+    );
+    expect(fit.snapshot.includedGameIds).toEqual(['b-standard', 'd-standard']);
+    expect(fit.snapshot.excludedGameCount).toBe(2);
+    expect(fit.snapshot.remainingGameCount).toBe(0);
+    expect(new Map(fit.snapshot.positionGameIds).get(fit.snapshot.rootKey)).toEqual(
+      fit.snapshot.includedGameIds
+    );
+  });
+
   it('accepts a serialized graph at its exact byte limit', async () => {
     const games = [parsed('one', '1. e4 e5 1-0')];
     const metadata = {
