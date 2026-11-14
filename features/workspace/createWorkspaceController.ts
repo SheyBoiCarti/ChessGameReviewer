@@ -7,11 +7,15 @@ import type { GameRecord } from '@/lib/db/schema';
 
 import type { AnalysisUpdate, GameAnalysisResult } from '../stockfish-analysis/analyzeGame';
 import { computePgnDigest, reviewResultKey } from '../stockfish-analysis/reviewIdentity';
-import type { AnalysisStrength } from './types';
+import type { AnalysisStrength, GameReviewCursor } from './types';
+import { clearWorkspaceSession } from './session';
 import type { GraphBuildWorkerResult } from '../opening-tree/graphWorkerClient';
 import type { IngestionProgress, IngestionResult } from '../ingestion/types';
 import { initialWorkspaceState, reduceWorkspace } from './reducer';
 import type { WorkspaceAction, WorkspacePreferences, WorkspaceState } from './types';
+
+/** T27: at most 500 retained last-reviewed cursors per user, least-recently-used eviction. */
+const MAX_CURSORS_PER_USER = 500;
 
 interface IngestionStartOptions {
   manualRefresh?: boolean;
@@ -77,6 +81,8 @@ export interface WorkspaceController {
   openReview(gameId: string): Promise<void>;
   invalidateReviewIntent(): void;
   selectGame(gameId: string | null): void;
+  /** Explicit Start over: selects position zero and forgets the retained cursor (T27). */
+  startOver(gameId: string): void;
   navigateGraph(positionKey: string, pathId: number | null): void;
   selectPly(ply: number): void;
   startAnalysis(strength?: AnalysisStrength): Promise<void>;
@@ -128,6 +134,91 @@ export function createWorkspaceController(
   let runningReview: { key: string; promise: Promise<void> } | null = null;
   const contentKey = (game: GameRecord, strength: AnalysisStrength) =>
     JSON.stringify([game.username, game.id, game.pgn, strength]);
+  // T27: retained last-reviewed original plies. The synchronous index is keyed by
+  // normalized username + game id; durable entries are keyed by the PGN digest so a
+  // changed digest resets the retained ply to zero. Variation origins stay separate.
+  const cursorIndexByGame = new Map<string, GameReviewCursor>();
+  const cursorEntriesByContent = new Map<string, number>();
+  const cursorCounts = new Map<string, number>();
+  const gameCursorKey = (username: string, gameId: string) =>
+    JSON.stringify([username.toLowerCase(), gameId]);
+  const cursorContentKey = (username: string, gameId: string, digest: string) =>
+    JSON.stringify([username.toLowerCase(), gameId, digest]);
+  const forgetCursorEntry = (username: string, gameId: string, entry: GameReviewCursor) => {
+    if (entry.digest)
+      cursorEntriesByContent.delete(cursorContentKey(username, gameId, entry.digest));
+  };
+  const clearCursorsForUser = (username: string): void => {
+    const normalized = username.toLowerCase();
+    for (const [key, entry] of cursorIndexByGame) {
+      const parsed = JSON.parse(key) as [string, string];
+      if (parsed[0] === normalized) {
+        forgetCursorEntry(normalized, parsed[1], entry);
+        cursorIndexByGame.delete(key);
+      }
+    }
+    cursorCounts.delete(normalized);
+  };
+  const clearAllCursors = (): void => {
+    for (const [key, entry] of cursorIndexByGame) {
+      const parsed = JSON.parse(key) as [string, string];
+      forgetCursorEntry(parsed[0], parsed[1], entry);
+      cursorIndexByGame.delete(key);
+    }
+    cursorEntriesByContent.clear();
+    cursorCounts.clear();
+  };
+  const recordLastReviewedPly = (game: GameRecord, ply: number): void => {
+    if (ply <= 0) return;
+    const normalized = game.username.toLowerCase();
+    const gameKey = gameCursorKey(normalized, game.id);
+    const existing = cursorIndexByGame.get(gameKey);
+    cursorIndexByGame.delete(gameKey);
+    cursorIndexByGame.set(gameKey, { ply, pgn: game.pgn, digest: existing?.digest ?? null });
+    const count = (cursorCounts.get(normalized) ?? 0) + (existing ? 0 : 1);
+    cursorCounts.set(normalized, count);
+    // Evict least-recently-used entries for this user beyond the bound.
+    if (count > MAX_CURSORS_PER_USER) {
+      let toEvict = count - MAX_CURSORS_PER_USER;
+      for (const [key, entry] of cursorIndexByGame) {
+        if (toEvict === 0) break;
+        const parsed = JSON.parse(key) as [string, string];
+        if (parsed[0] === normalized) {
+          forgetCursorEntry(normalized, parsed[1], entry);
+          cursorIndexByGame.delete(key);
+          toEvict -= 1;
+        }
+      }
+      cursorCounts.set(normalized, MAX_CURSORS_PER_USER);
+    }
+    // Resolve the durable digest identity asynchronously; PGN equality already guards
+    // the synchronous restore path.
+    void (async () => {
+      try {
+        const digest = await computePgnDigest(game.pgn);
+        const entry = cursorIndexByGame.get(gameKey);
+        if (!entry || entry.pgn !== game.pgn || entry.digest === digest) return;
+        if (entry.digest)
+          cursorEntriesByContent.delete(cursorContentKey(normalized, game.id, entry.digest));
+        cursorIndexByGame.set(gameKey, { ...entry, digest });
+        cursorEntriesByContent.set(cursorContentKey(normalized, game.id, digest), entry.ply);
+      } catch {
+        /* The digest identity is optional for the in-memory cursor. */
+      }
+    })();
+  };
+  /** Restores the retained ply for `game`, or zero when absent or content-changed.
+   * The clamp happens only after the current game parses legally. */
+  const lastReviewedPly = (game: GameRecord): number => {
+    const gameKey = gameCursorKey(game.username, game.id);
+    const entry = cursorIndexByGame.get(gameKey);
+    if (!entry || entry.pgn !== game.pgn) return 0;
+    cursorIndexByGame.delete(gameKey);
+    cursorIndexByGame.set(gameKey, entry);
+    const parsed = parseGamePgn({ game: toNormalizedSummary(game) });
+    if (!parsed.ok) return 0;
+    return Math.min(entry.ply, parsed.game.plies.length);
+  };
   const rememberReview = (
     game: GameRecord,
     strength: AnalysisStrength,
@@ -155,6 +246,15 @@ export function createWorkspaceController(
       action.preferences.analysisStrength !== state.preferences.analysisStrength
     )
       invalidateReviewIntent();
+    // T27: deletion removes retained cursors from memory and the saved session.
+    if (action.type === 'data/userDeleted') {
+      clearCursorsForUser(action.username);
+      if (state.query.active?.username === action.username) clearWorkspaceSession();
+    }
+    if (action.type === 'data/allCleared') {
+      clearAllCursors();
+      clearWorkspaceSession();
+    }
     const next = reduceWorkspace(state, action);
     if (next === state) return;
     state = next;
@@ -296,12 +396,49 @@ export function createWorkspaceController(
   function selectGame(gameId: string | null): void {
     if (gameId === state.selection.gameId) return;
     invalidateReviewIntent();
-    if (gameId) restoreGenerations.set(gameId, (restoreGenerations.get(gameId) ?? 0) + 1);
+    // Retain the leaving game's reviewed position before switching (T27). A variation
+    // origin never reaches this path: stepping a PV does not dispatch selection/ply.
+    const leavingGameId = state.selection.gameId;
+    const leavingPly = state.selection.ply;
+    if (leavingGameId) {
+      const leavingGame = state.ingestion.result?.games.find(
+        (game) => game.id === leavingGameId
+      );
+      if (leavingGame) recordLastReviewedPly(leavingGame, leavingPly);
+    }
+    let retainedPly: number | undefined;
+    if (gameId) {
+      restoreGenerations.set(gameId, (restoreGenerations.get(gameId) ?? 0) + 1);
+      const nextGame = state.ingestion.result?.games.find((game) => game.id === gameId);
+      if (nextGame) {
+        const restored = lastReviewedPly(nextGame);
+        if (restored > 0) retainedPly = restored;
+      }
+    }
     analysisSequence++;
     runningReview = null;
     analysisController?.abort();
     analysisController = null;
-    dispatch({ type: 'selection/game', gameId });
+    dispatch({ type: 'selection/game', gameId, ...(retainedPly ? { ply: retainedPly } : {}) });
+  }
+
+  function startOver(gameId: string): void {
+    invalidateReviewIntent();
+    // An explicit Start over intentionally selects zero and forgets the retained cursor.
+    const game = state.ingestion.result?.games.find(
+      (candidate) => candidate.id === gameId
+    );
+    if (game) {
+      const gameKey = gameCursorKey(game.username, gameId);
+      const entry = cursorIndexByGame.get(gameKey);
+      if (entry) {
+        forgetCursorEntry(game.username, gameId, entry);
+        cursorIndexByGame.delete(gameKey);
+      }
+    }
+    if (state.selection.gameId === gameId) {
+      dispatch({ type: 'selection/ply', ply: 0 });
+    }
   }
 
   function requestReview(
@@ -541,6 +678,7 @@ export function createWorkspaceController(
     probeEngine: () => initializeEngine(),
     retryEngine: () => initializeEngine(true),
     selectGame,
+    startOver,
     invalidateReviewIntent,
     openReview(gameId) {
       const game = state.ingestion.result?.games.find((game) => game.id === gameId);

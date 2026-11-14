@@ -92,6 +92,21 @@ describe('workspace reducer', () => {
     expect(state.analysis.result?.annotations).toHaveLength(1);
   });
 
+  // T27: explicit game selection can install a retained last-reviewed ply.
+  it('selects a game at the retained clamped ply and without it at zero', () => {
+    const withCursor = reduceWorkspace(initialWorkspaceState, {
+      type: 'selection/game',
+      gameId: 'game-1',
+      ply: 28,
+    });
+    expect(withCursor.selection).toMatchObject({ gameId: 'game-1', ply: 28 });
+    const withoutCursor = reduceWorkspace(initialWorkspaceState, {
+      type: 'selection/game',
+      gameId: 'game-1',
+    });
+    expect(withoutCursor.selection).toMatchObject({ gameId: 'game-1', ply: 0 });
+  });
+
   // T03 baseline: query ownership precedes every ingestion progress projection.
   it('ignores stale ingestion progress without changing state identity', () => {
     expect(

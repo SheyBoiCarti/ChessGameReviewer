@@ -35,3 +35,12 @@ export function saveWorkspaceSession(value: SavedWorkspaceSession): void {
     /* Storage is optional. */
   }
 }
+
+/** T27: deletion removes the retained session entry along with the local data. */
+export function clearWorkspaceSession(): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    /* Storage is optional. */
+  }
+}

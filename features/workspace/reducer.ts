@@ -245,7 +245,13 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         : null;
       return {
         ...state,
-        selection: { ...state.selection, gameId: action.gameId, ply: 0 },
+        // A retained last-reviewed ply (T27) is installed atomically with the selection;
+        // without one, explicit selection starts at position zero.
+        selection: {
+          ...state.selection,
+          gameId: action.gameId,
+          ply: Math.max(0, action.ply ?? 0),
+        },
         analysis: {
           ...idleAnalysis,
           capability: state.analysis.capability,

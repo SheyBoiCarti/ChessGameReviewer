@@ -29,6 +29,16 @@ export interface WorkspaceSelection {
   ply: number;
 }
 
+/** T27: retained last-reviewed original ply per game.
+ * The synchronous index is keyed by normalized username + game id; the durable content
+ * identity is the PGN digest (T06), so a changed PGN resets the retained ply to zero.
+ */
+export interface GameReviewCursor {
+  ply: number;
+  pgn: string;
+  digest: string | null;
+}
+
 export interface ReviewRunIdentity {
   queryToken: number;
   username: string;
@@ -109,7 +119,7 @@ export type WorkspaceAction =
       diagnosticCodes: readonly string[];
     }
   | { type: 'graph/failed'; token: number; error: string }
-  | { type: 'selection/game'; gameId: string | null }
+  | { type: 'selection/game'; gameId: string | null; ply?: number }
   | { type: 'selection/position'; positionKey: string; pathId: number | null }
   | { type: 'selection/ply'; ply: number }
   | { type: 'analysis/probing' }
