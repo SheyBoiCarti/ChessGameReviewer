@@ -7,11 +7,12 @@ import type {
 } from '../api/contracts';
 
 export const DB_NAME = 'ChessGameAnalyzerDB';
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 export const NORMALIZER_VERSION = 5;
 
 export const STORES = {
   ARCHIVE_SYNC: 'archiveSync',
+  NORMALIZED_MONTHS: 'normalizedMonths',
   GAMES: 'games',
   EVALUATIONS: 'evaluations',
   GRAPH_SNAPSHOTS: 'graphSnapshots',
@@ -167,4 +168,69 @@ export function isValidCachedProfileRecord(val: unknown): boolean {
     (val['stats'] === null || isObject(val['stats'])) &&
     isFiniteNumber(val['fetchedAt'])
   );
+}
+
+export type ValidationState = 'unknown' | 'valid' | 'invalid';
+export interface ValidationEnvelope {
+  state: ValidationState;
+  pgnDigest: string;
+  parserVersion: string;
+  positionVersion: string;
+  normalizerVersion: number;
+  diagnosticCodes: string[];
+}
+export interface NormalizedMonthCandidate {
+  game: GameRecord;
+  validation: ValidationEnvelope;
+}
+export interface NormalizedMonthRecord {
+  username: string;
+  month: string;
+  fetchedAt: number;
+  completeFetch: boolean;
+  lastUsedAt: number;
+  candidates: NormalizedMonthCandidate[];
+}
+export function isValidValidationEnvelope(data: unknown): data is ValidationEnvelope {
+  if (!isObject(data)) return false;
+  return (
+    (data.state === 'unknown' || data.state === 'valid' || data.state === 'invalid') &&
+    typeof data.pgnDigest === 'string' &&
+    /^[a-f0-9]{64}$/.test(data.pgnDigest) &&
+    typeof data.parserVersion === 'string' &&
+    data.parserVersion.length > 0 &&
+    typeof data.positionVersion === 'string' &&
+    data.positionVersion.length > 0 &&
+    Number.isInteger(data.normalizerVersion) &&
+    Array.isArray(data.diagnosticCodes) &&
+    data.diagnosticCodes.length <= 20 &&
+    data.diagnosticCodes.every((code) => typeof code === 'string' && code.length <= 100)
+  );
+}
+export function isValidNormalizedMonthRecord(data: unknown): data is NormalizedMonthRecord {
+  if (!isObject(data)) return false;
+  if (
+    typeof data.username !== 'string' ||
+    data.username.length === 0 ||
+    data.username !== data.username.toLowerCase() ||
+    !isMonth(data.month) ||
+    !isFiniteNumber(data.fetchedAt) ||
+    !isFiniteNumber(data.lastUsedAt) ||
+    typeof data.completeFetch !== 'boolean' ||
+    !Array.isArray(data.candidates)
+  )
+    return false;
+  const ids = new Set<string>();
+  return data.candidates.every((candidate: unknown) => {
+    if (
+      !isObject(candidate) ||
+      !isValidGameRecord(candidate.game) ||
+      candidate.game.username !== data.username ||
+      !isValidValidationEnvelope(candidate.validation) ||
+      ids.has(candidate.game.id)
+    )
+      return false;
+    ids.add(candidate.game.id);
+    return true;
+  });
 }

@@ -1,3 +1,5 @@
+import { makeNormalizedMonth } from '../../helpers/normalizedMonthFixture';
+import { putNormalizedMonth, readNormalizedMonth } from '@/lib/db/repositories';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openDatabase, closeDatabase } from '../../../lib/db/openDatabase';
 import {
@@ -33,6 +35,15 @@ describe('deleteLocalData API', () => {
     if (db) closeDatabase(db);
   });
 
+  it('deletes normalized months for a user and on clear-all while preserving other users', async () => {
+    await putNormalizedMonth(db, makeNormalizedMonth());
+    await putNormalizedMonth(db, makeNormalizedMonth({ username: 'other', candidates: [] }));
+    await deleteUserData(db, 'JaneDoe');
+    expect(await readNormalizedMonth(db, 'janedoe', '2026-08')).toBeNull();
+    expect(await readNormalizedMonth(db, 'other', '2026-08')).not.toBeNull();
+    await clearAllData(db);
+    expect(await readNormalizedMonth(db, 'other', '2026-08')).toBeNull();
+  });
   describe('deleteUserData', () => {
     it('deletes all games, archiveSync, and graphSnapshots for a specific user and returns confirmation counts', async () => {
       const janeGame: GameRecord = {

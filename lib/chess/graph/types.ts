@@ -49,3 +49,7 @@ export interface GraphStructuralLimits {
   maxEdges: number;
   maxPathNodes: number;
 }
+
+export const PGN_PARSER_VERSION = 'chessjs-1.4.0-strict-v1';
+export const POSITION_KEY_VERSION = 'legal-ep-four-field-v1';
+export const OPENING_PROJECTION_VERSION = 1;

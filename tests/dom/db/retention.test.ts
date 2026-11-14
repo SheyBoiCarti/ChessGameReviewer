@@ -1,3 +1,6 @@
+import { evictNormalizedMonths, normalizedMonthByteSize } from '@/lib/db/retention';
+import { makeNormalizedMonth } from '../../helpers/normalizedMonthFixture';
+import { putNormalizedMonth, readNormalizedMonth } from '@/lib/db/repositories';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openDatabase, closeDatabase } from '../../../lib/db/openDatabase';
 import {
@@ -40,6 +43,36 @@ describe('Retention & LRU Eviction', () => {
     if (db) closeDatabase(db);
   });
 
+  it('evicts normalized payload and coverage atomically by LRU count and actual UTF-8 bytes', async () => {
+    const old = makeNormalizedMonth({ month: '2026-07', lastUsedAt: 1 });
+    const newer = makeNormalizedMonth({ lastUsedAt: 2 });
+    const { putArchiveSync, getArchiveSync } = await import('@/lib/db/repositories');
+    const { makeArchiveSync } = await import('../../helpers/phase1Fixtures');
+    await putArchiveSync(db, makeArchiveSync({ key: 'janedoe:2026-07', month: '2026-07' }));
+    await putNormalizedMonth(db, old);
+    await putNormalizedMonth(db, newer);
+    expect(await evictNormalizedMonths(db, { maxCount: 1 })).toBe(1);
+    expect(await readNormalizedMonth(db, 'janedoe', '2026-07')).toBeNull();
+    expect(await getArchiveSync(db, 'janedoe', '2026-07')).toBeNull();
+    expect(
+      await evictNormalizedMonths(db, { maxTotalBytes: normalizedMonthByteSize(newer) - 1 })
+    ).toBe(1);
+    expect(await readNormalizedMonth(db, 'janedoe', '2026-08')).toBeNull();
+  });
+  it('enforces the default 120-month limit during writes, without relying on later cleanup', async () => {
+    for (let index = 0; index < 121; index++) {
+      const month = `${2000 + Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
+      await putNormalizedMonth(db, makeNormalizedMonth({ month, lastUsedAt: index }));
+    }
+    expect(await readNormalizedMonth(db, 'janedoe', '2000-01')).toBeNull();
+    const tx = db.transaction(STORES.NORMALIZED_MONTHS);
+    expect(
+      await new Promise((resolve) => {
+        const req = tx.objectStore(STORES.NORMALIZED_MONTHS).count();
+        req.onsuccess = () => resolve(req.result);
+      })
+    ).toBe(120);
+  });
   describe('evictEvaluations', () => {
     it('supports zero and rejects invalid retention limits', async () => {
       await putEvaluation(db, {

@@ -1,5 +1,8 @@
+import { retainNormalizedMonths } from './retention';
 import {
   STORES,
+  type NormalizedMonthRecord,
+  isValidNormalizedMonthRecord,
   ArchiveSyncRecord,
   GameRecord,
   EvaluationRecord,
@@ -488,4 +491,41 @@ export async function putPlayerProfile(
     throw new Error('Invalid CachedProfileRecord provided to putPlayerProfile.');
   }
   await setMeta(db, `profile:${record.username.toLowerCase()}`, record);
+}
+
+export async function readNormalizedMonth(
+  db: IDBDatabase,
+  username: string,
+  month: string
+): Promise<NormalizedMonthRecord | null> {
+  const tx = db.transaction([STORES.NORMALIZED_MONTHS], 'readwrite');
+  const done = transactionDone(tx);
+  const store = tx.objectStore(STORES.NORMALIZED_MONTHS);
+  const result: unknown = await reqToPromise(store.get([username.toLowerCase(), month]));
+  if (!isValidNormalizedMonthRecord(result)) {
+    await done;
+    return null;
+  }
+  const record = { ...result, lastUsedAt: Date.now() };
+  store.put(record);
+  await done;
+  return record;
+}
+export async function putNormalizedMonth(
+  db: IDBDatabase,
+  record: NormalizedMonthRecord,
+  signal?: AbortSignal
+): Promise<void> {
+  throwIfAborted(signal);
+  if (!isValidNormalizedMonthRecord(record)) throw new TypeError('Invalid normalized month');
+  const tx = db.transaction([STORES.NORMALIZED_MONTHS, STORES.ARCHIVE_SYNC], 'readwrite');
+  const done = transactionDone(tx);
+  const abort = () => tx.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    tx.objectStore(STORES.NORMALIZED_MONTHS).put(record);
+    await Promise.all([retainNormalizedMonths(tx), done]);
+  } finally {
+    signal?.removeEventListener('abort', abort);
+  }
 }

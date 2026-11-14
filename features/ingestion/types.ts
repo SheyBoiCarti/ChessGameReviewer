@@ -85,3 +85,10 @@ export interface RunIngestionOptions {
 }
 
 export type StartOptions = Omit<RunIngestionOptions, 'deps' | 'jobId' | 'signal'>;
+
+export type {
+  ValidationState,
+  ValidationEnvelope,
+  NormalizedMonthCandidate,
+  NormalizedMonthRecord,
+} from '../../lib/db/schema';

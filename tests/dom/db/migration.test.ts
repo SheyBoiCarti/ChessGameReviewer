@@ -1,3 +1,5 @@
+import { makeNormalizedMonth } from '../../helpers/normalizedMonthFixture';
+import { putNormalizedMonth, readNormalizedMonth } from '@/lib/db/repositories';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openDatabase, closeDatabase, SchemaVersionError } from '../../../lib/db/openDatabase';
 import { DB_NAME, STORES } from '../../../lib/db/schema';
@@ -7,6 +9,30 @@ describe('Schema Migration & Upgrade', () => {
     indexedDB.deleteDatabase(DB_NAME);
   });
 
+  it('opens v3 data non-destructively with no trusted legacy validation', async () => {
+    const name = `${DB_NAME}-v3`;
+    const legacy = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name, 3);
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore(STORES.GAMES, { keyPath: 'id' });
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const { upsertGames, getGamesForUser } = await import('@/lib/db/repositories');
+    const { makeGameRecord } = await import('../../helpers/phase1Fixtures');
+    await upsertGames(legacy, [makeGameRecord()]);
+    closeDatabase(legacy);
+    const db = await openDatabase({ name });
+    expect(db.version).toBe(4);
+    expect(await getGamesForUser(db, 'janedoe')).toHaveLength(1);
+    expect(await readNormalizedMonth(db, 'janedoe', '2026-08')).toBeNull();
+    await putNormalizedMonth(db, makeNormalizedMonth());
+    expect(
+      db.transaction(STORES.NORMALIZED_MONTHS).objectStore(STORES.NORMALIZED_MONTHS).keyPath
+    ).toEqual(['username', 'month']);
+    closeDatabase(db);
+  });
   it('upgrades safely from an artificial prior database version and adds missing indexes to existing stores', async () => {
     // Create DB v1 with a games store lacking indexes
     await new Promise<void>((resolve, reject) => {
@@ -30,7 +56,8 @@ describe('Schema Migration & Upgrade', () => {
     // Open via openDatabase with current schema version
     const db = await openDatabase();
 
-    expect(db.version).toBe(3);
+    expect(db.version).toBe(4);
+    expect(db.objectStoreNames.contains('normalizedMonths')).toBe(true);
     expect(db.objectStoreNames.contains(STORES.ARCHIVE_SYNC)).toBe(true);
     expect(db.objectStoreNames.contains(STORES.GAMES)).toBe(true);
     expect(db.objectStoreNames.contains(STORES.EVALUATIONS)).toBe(true);
@@ -129,7 +156,8 @@ describe('Schema Migration & Upgrade', () => {
 
     // 2. Open via openDatabase (which triggers upgrade to SCHEMA_VERSION = 3)
     const db = await openDatabase();
-    expect(db.version).toBe(3);
+    expect(db.version).toBe(4);
+    expect(db.objectStoreNames.contains('normalizedMonths')).toBe(true);
 
     // 3. Verify upgraded records
     const tx = db.transaction([STORES.GAMES], 'readonly');
