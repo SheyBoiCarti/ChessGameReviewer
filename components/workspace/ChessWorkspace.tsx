@@ -1130,6 +1130,11 @@ export function ChessWorkspace({
                           }}
                           onReview={(gameId) => {
                             setVariation(null);
+                            controller.selectGame(gameId);
+                            const candidate =
+                              state.ingestion.result?.games.find((game) => game.id === gameId) ??
+                              null;
+                            if (!parseSelectedGame(candidate)?.plies.length) return;
                             setReviewMode('review');
                             selectTab('analysis');
                             void controller.openReview(gameId);

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -214,6 +214,26 @@ describe('Bug fixes exploratory verification', () => {
     // T28 URL sync persists view params in this shared jsdom window; reset so
     // each test mounts from a clean address bar.
     window.history.replaceState(null, '', '/');
+  });
+
+  it('keeps a card with no legal moves in preview instead of reviewing the previous game', async () => {
+    const user = userEvent.setup();
+    const emptyGame = {
+      ...sampleGame,
+      id: 'empty-game',
+      endedAt: sampleGame.endedAt - 1,
+      pgn: '[Result "1-0"]\n\n1-0',
+    };
+    const services = makeMockServices([sampleGame, emptyGame]);
+    render(<ChessWorkspace createServices={() => services} />);
+    await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
+    await user.click(screen.getByRole('button', { name: 'Find games' }));
+    const rows = screen.getByRole('list', { name: 'Games' }).children;
+    await user.click(within(rows[1] as HTMLElement).getByRole('button', { name: /^Review / }));
+    expect(screen.queryByRole('button', { name: 'Back to games' })).not.toBeInTheDocument();
+    expect(screen.getAllByText('This game has no reviewable moves.')[0]).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Review game' })).toBeDisabled();
+    expect(services.analysis.analyze).not.toHaveBeenCalled();
   });
 
   it('Bug 3: retains existing active games when a re-import query fails and provides recovery', async () => {
