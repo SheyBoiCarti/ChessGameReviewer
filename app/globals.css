@@ -4102,13 +4102,23 @@ li[data-selected='true'] {
 }
 
 .game-card-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 0.25rem;
 }
 .game-card-actions .game-card {
-  flex: 1;
+  position: relative;
+  width: 100%;
   min-width: 0;
+}
+.game-card-actions .game-row-top {
+  width: 100%;
+}
+.game-card-actions .game-row-bottom {
+  white-space: normal;
+  flex-wrap: wrap;
+  overflow: visible;
 }
 .game-row-metadata {
   display: block;
@@ -4127,4 +4137,17 @@ li[data-selected='true'] {
   justify-content: space-between;
   gap: 0.5rem;
   padding-top: 0.75rem;
+}
+
+.game-pagination {
+  flex-wrap: wrap;
+}
+.game-pagination span {
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+.game-pagination button {
+  flex: 1;
+  padding-inline: 0.5rem;
+  font-size: 0.8rem;
 }

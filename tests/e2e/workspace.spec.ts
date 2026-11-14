@@ -343,6 +343,7 @@ test('paginates 500 games and retains page and viewport through review (T29)', a
     timeout: 30_000,
   });
   await expect(page.getByRole('list', { name: 'Games' }).locator(':scope > li')).toHaveCount(20);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThan(2000);
   await page.getByRole('button', { name: 'Next page', exact: true }).click();
   await expect(page.getByText('Page 2 of 25')).toBeVisible();
   const viewport = page.getByRole('region', { name: 'Game results' });

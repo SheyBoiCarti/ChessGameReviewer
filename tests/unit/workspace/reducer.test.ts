@@ -14,6 +14,50 @@ const query: GameQuery = {
 };
 
 describe('workspace reducer', () => {
+  it('keeps the committed query identity during replacement and failure, then commits an empty success', () => {
+    const committed = { ...query, dateFrom: '2024-01-01', rated: true };
+    const requested = { ...query, username: 'other-player', colors: ['black'] as const };
+    const replacement = { ...requested, colors: ['black'] as GameQuery['colors'] };
+    const oldResult = {
+      jobId: 'old',
+      fingerprint: 'old',
+      status: 'complete' as const,
+      games: [{ id: 'old' } as never],
+      diagnostics: [],
+      failedMonths: [],
+      offlineCacheOnly: false,
+    };
+    let state = reduceWorkspace(
+      {
+        ...initialWorkspaceState,
+        query: { draft: committed, active: committed, token: 0 },
+        ingestion: { ...initialWorkspaceState.ingestion, result: oldResult },
+      },
+      { type: 'query/started', query: replacement, token: 1 }
+    );
+    expect(state.query.active).toEqual(committed);
+    state = reduceWorkspace(state, {
+      type: 'ingestion/terminal',
+      token: 1,
+      result: {
+        ...oldResult,
+        status: 'failed',
+        games: [],
+        diagnostics: [{ code: 'PLAYER_NOT_FOUND', message: 'No such player', severity: 'error' }],
+      },
+    });
+    expect(state.query.active).toEqual(committed);
+    expect(state.ingestion.result).toBe(oldResult);
+    state = reduceWorkspace(state, { type: 'query/started', query: replacement, token: 2 });
+    state = reduceWorkspace(state, {
+      type: 'ingestion/terminal',
+      token: 2,
+      result: { ...oldResult, games: [] },
+    });
+    expect(state.query.active).toEqual(replacement);
+    expect(state.ingestion.status).toBe('empty');
+  });
+
   it('accumulates unique completed moves and rejects stale or stopped updates', () => {
     const identity = {
       queryToken: 0,
@@ -309,7 +353,8 @@ describe('workspace reducer', () => {
 
     const next = reduceWorkspace(loaded, { type: 'query/started', query, token: 2 });
 
-    expect(next.query.active).toEqual(query);
+    expect(next.query.active).toBeNull();
+    expect(next.query.requested).toEqual(query);
     expect(next.graph).toMatchObject({ status: 'idle', snapshot: null });
     expect(next.selection).toEqual({ gameId: null, positionKey: null, pathId: null, ply: 0 });
     expect(next.analysis).toMatchObject({ status: 'idle', result: null });
@@ -367,7 +412,7 @@ describe('workspace reducer', () => {
     expect(failed.ingestion.error).toBe('User not found');
     expect(failed.ingestion.result?.games).toEqual([loadedGame]);
     expect(failed.selection.gameId).toBe('g-1');
-    expect(failed.query.active?.username).toBe('shehey');
+    expect(failed.query.active).toEqual(query);
 
     const dismissed = reduceWorkspace(failed, { type: 'ingestion/errorDismissed' });
     expect(dismissed.ingestion.status).toBe('complete');

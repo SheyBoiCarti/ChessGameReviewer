@@ -4,6 +4,7 @@ import { installWorkspaceFixtures, loadFixtureGames } from './helpers/workspaceF
 
 test.describe('workspace visual regression', () => {
   test.beforeEach(async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-11-14T12:00:00Z') });
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
     await installWorkspaceFixtures(page);

@@ -246,6 +246,7 @@ test('contains games and opening candidates in fixed-height scroll viewports', a
       .first()
       .evaluate((el) => el.scrollWidth - el.clientWidth)
   ).toBeLessThanOrEqual(1);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThan(2000);
   const gameMetrics = await scrollMetrics(gameResults);
   expect(gameMetrics.clientHeight).toBeGreaterThanOrEqual(16 * 16 - 1);
   expect(gameMetrics.clientHeight).toBeLessThanOrEqual(28 * 16 + 1);
