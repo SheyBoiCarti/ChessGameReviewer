@@ -105,7 +105,7 @@ describe('Board orientation and player metadata invariants', () => {
       render(<ChessWorkspace createServices={() => services} />);
       await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
       await user.click(screen.getByRole('button', { name: /find games/i }));
-      await user.click(screen.getByRole('button', { name: /cmzulu/i }));
+      await user.click(screen.getByRole('button', { name: /^Preview .*cmzulu/i }));
       await user.click(screen.getByRole('button', { name: /^review$/i }));
       expect(spy.mock.calls.some(([record]) => record?.id === 'other-game')).toBe(false);
       expect(spy.mock.calls.some(([record]) => record?.id === sampleGame.id)).toBe(true);
@@ -126,7 +126,7 @@ describe('Board orientation and player metadata invariants', () => {
     await user.click(screen.getByRole('button', { name: /find games/i }));
 
     // Select the game
-    await user.click(screen.getByRole('button', { name: /cmzulu/i }));
+    await user.click(screen.getByRole('button', { name: /^Preview .*cmzulu/i }));
 
     // Verify initial White orientation: Black on top, White on bottom
     const topRowInitial = screen.getByLabelText(/black: iamsheyboicarti \(1150\)/i);
@@ -173,7 +173,7 @@ describe('Board orientation and player metadata invariants', () => {
     const usernameInput = screen.getByLabelText(/^username$/i);
     await user.type(usernameInput, 'iamSheyBoiCarti');
     await user.click(screen.getByRole('button', { name: /find games/i }));
-    await user.click(screen.getByRole('button', { name: /cmzulu/i }));
+    await user.click(screen.getByRole('button', { name: /^Preview .*cmzulu/i }));
 
     // Navigate history to ply 2 (1...e5)
     const board = screen.getByRole('grid', { name: /chess board/i });

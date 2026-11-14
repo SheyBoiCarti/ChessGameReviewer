@@ -38,6 +38,7 @@ interface RequiredRuntimeOptions {
   jobId: string;
   signal: AbortSignal;
   manualRefresh: boolean;
+  cacheOnly: boolean;
   now: () => number;
   retry: RetryOptions;
   onProgress?: (progress: IngestionProgress) => void;
@@ -323,6 +324,12 @@ async function resolveArchiveMonths(
 ): Promise<{ months: string[]; offlineCacheOnly: boolean }> {
   const cached = await runtime.deps.readArchiveList(query.username);
   const now = runtime.now();
+  if (runtime.cacheOnly) {
+    return {
+      months: planArchiveMonths(cached?.months ?? syncs.map((sync) => sync.month), query),
+      offlineCacheOnly: false,
+    };
+  }
   if (!runtime.manualRefresh && cached && isFresh(cached.fetchedAt, ARCHIVE_LIST_FRESH_MS, now)) {
     return { months: planArchiveMonths(cached.months, query), offlineCacheOnly: false };
   }
@@ -434,7 +441,7 @@ async function executeIngestion(
         if (games.length === query.maxGames) break;
         continue;
       }
-      if (planning.offlineCacheOnly) {
+      if (runtime.cacheOnly || planning.offlineCacheOnly) {
         const cachedGames = await runtime.deps.readMonthGames(query.username, month);
         recordsFetched += cachedGames.length;
         const validCachedGames = await validateGames(cachedGames);
@@ -574,6 +581,7 @@ export async function runIngestion(
     jobId: options.jobId ?? 'ingestion-job',
     signal,
     manualRefresh: options.manualRefresh ?? false,
+    cacheOnly: options.cacheOnly ?? false,
     now: options.now ?? Date.now,
     retry: {
       signal,

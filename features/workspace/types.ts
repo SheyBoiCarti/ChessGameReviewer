@@ -52,13 +52,15 @@ export interface WorkspaceState {
   query: {
     draft: GameQuery;
     active: GameQuery | null;
-    previousActive?: GameQuery | null;
+    /** Latest request is separate from the committed dataset, including after failure. */
+    requested?: GameQuery | null;
     token: number;
   };
   ingestion: {
     status: 'idle' | 'loading' | 'partial' | 'cancelled' | 'empty' | 'failed' | 'complete';
     progress: IngestionProgress | null;
     result: IngestionResult | null;
+    lastAttempt?: IngestionResult | null;
     error: string | null;
   };
   graph: {

@@ -14,10 +14,7 @@ const query: GameQuery = {
   colors: ['white', 'black'],
 };
 
-function gameRecord(
-  id: string,
-  overrides: Partial<GameRecord> = {}
-): GameRecord {
+function gameRecord(id: string, overrides: Partial<GameRecord> = {}): GameRecord {
   return {
     id,
     username: 'cursor-player',
@@ -49,12 +46,10 @@ function result(games: GameRecord[]): IngestionResult {
   };
 }
 
-function createTestServices(
-  start: WorkspaceServices['ingestion']['start']
-): WorkspaceServices {
+function createTestServices(start: WorkspaceServices['ingestion']['start']): WorkspaceServices {
   return {
     ingestion: { start, cancel: vi.fn(), dispose: vi.fn() },
-    graph: { build: vi.fn(), cancel: vi.fn(), dispose: vi.fn() },
+    graph: { build: vi.fn(() => new Promise<never>(() => {})), cancel: vi.fn(), dispose: vi.fn() },
     engine: { retryInitialize: vi.fn(), initialize: vi.fn(), dispose: vi.fn() },
     data: { deleteUsername: vi.fn(), clearAll: vi.fn(), dispose: vi.fn() },
     analysis: { analyze: vi.fn() },

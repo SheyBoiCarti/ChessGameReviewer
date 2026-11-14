@@ -78,6 +78,29 @@ function deferred<T>(): {
 }
 
 describe('runIngestion', () => {
+  it('restores stale local games for a URL without any external request', async () => {
+    const cachedGame = makeGameRecord();
+    const deps = fakeDependencies({
+      readArchiveList: vi
+        .fn()
+        .mockResolvedValue({ username: 'janedoe', months: ['2026-08'], fetchedAt: 0 }),
+      readArchiveSyncs: vi.fn().mockResolvedValue([makeArchiveSync({ lastSuccessfulFetchAt: 0 })]),
+      readMonthGames: vi.fn().mockResolvedValue([cachedGame]),
+    });
+    const loaded = await runIngestion(makeQuery(), { deps, now: () => NOW, cacheOnly: true });
+    expect(loaded.games.map((game) => game.id)).toEqual([cachedGame.id]);
+    expect(deps.fetchArchives).not.toHaveBeenCalled();
+    expect(deps.fetchMonthlyGames).not.toHaveBeenCalled();
+  });
+
+  it('keeps a missing local URL dataset empty instead of fetching it', async () => {
+    const deps = fakeDependencies();
+    const loaded = await runIngestion(makeQuery(), { deps, now: () => NOW, cacheOnly: true });
+    expect(loaded.games).toEqual([]);
+    expect(deps.fetchArchives).not.toHaveBeenCalled();
+    expect(deps.fetchMonthlyGames).not.toHaveBeenCalled();
+  });
+
   it.each(['live', 'warm', 'offline'] as const)(
     'selects newest eligible games before limits 1 and 5 from unsorted two-month %s archives',
     async (mode) => {

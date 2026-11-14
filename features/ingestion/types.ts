@@ -76,6 +76,8 @@ export interface RunIngestionOptions {
   jobId?: string;
   signal?: AbortSignal;
   manualRefresh?: boolean;
+  /** URL recovery may only read records already present on this device. */
+  cacheOnly?: boolean;
   now?: () => number;
   random?: () => number;
   wait?: (delayMs: number, signal: AbortSignal) => Promise<void>;

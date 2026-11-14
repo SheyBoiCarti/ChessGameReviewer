@@ -19,6 +19,7 @@ const MAX_CURSORS_PER_USER = 500;
 
 interface IngestionStartOptions {
   manualRefresh?: boolean;
+  cacheOnly?: boolean;
   onProgress?: (progress: IngestionProgress) => void;
 }
 
@@ -73,7 +74,10 @@ export interface WorkspaceController {
   getState(): WorkspaceState;
   getNavigationVersion(): number;
   subscribe(listener: () => void): () => void;
-  submitQuery(query: GameQuery, options?: { manualRefresh?: boolean }): Promise<void>;
+  submitQuery(
+    query: GameQuery,
+    options?: { manualRefresh?: boolean; cacheOnly?: boolean }
+  ): Promise<void>;
   cancelIngestion(): void;
   dismissIngestionError(): void;
   probeEngine(): Promise<void>;
@@ -401,9 +405,7 @@ export function createWorkspaceController(
     const leavingGameId = state.selection.gameId;
     const leavingPly = state.selection.ply;
     if (leavingGameId) {
-      const leavingGame = state.ingestion.result?.games.find(
-        (game) => game.id === leavingGameId
-      );
+      const leavingGame = state.ingestion.result?.games.find((game) => game.id === leavingGameId);
       if (leavingGame) recordLastReviewedPly(leavingGame, leavingPly);
     }
     let retainedPly: number | undefined;
@@ -425,9 +427,7 @@ export function createWorkspaceController(
   function startOver(gameId: string): void {
     invalidateReviewIntent();
     // An explicit Start over intentionally selects zero and forgets the retained cursor.
-    const game = state.ingestion.result?.games.find(
-      (candidate) => candidate.id === gameId
-    );
+    const game = state.ingestion.result?.games.find((candidate) => candidate.id === gameId);
     if (game) {
       const gameKey = gameCursorKey(game.username, gameId);
       const entry = cursorIndexByGame.get(gameKey);
@@ -560,6 +560,7 @@ export function createWorkspaceController(
             ...(options.manualRefresh !== undefined
               ? { manualRefresh: options.manualRefresh }
               : {}),
+            ...(options.cacheOnly !== undefined ? { cacheOnly: options.cacheOnly } : {}),
             onProgress: (progress) => dispatch({ type: 'ingestion/progress', token, progress }),
           });
           if (disposed || token !== state.query.token) return;

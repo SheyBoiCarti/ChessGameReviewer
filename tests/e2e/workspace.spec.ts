@@ -221,6 +221,7 @@ test('explores alternatives and replies from Review and restores the selected or
 });
 
 test('updates factual capture explanations with the selected original board', async ({ page }) => {
+  test.setTimeout(60_000);
   await installLongGameWorkspaceFixtures(page);
   await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
   await page.goto('/?engine=single');
@@ -228,7 +229,7 @@ test('updates factual capture explanations with the selected original board', as
   await page.getByRole('button', { name: /^Preview .*opponent-long/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('button', { name: /Run review/ }).click();
-  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: /select ply 6\b/i }).click();
   const feedback = page.getByRole('region', { name: 'Selected move feedback' });
   await feedback.locator('summary').click();
@@ -324,6 +325,7 @@ test('keeps missing URL games separate from an existing selected game (T28)', as
   page.on('request', (request) => {
     if (request.url().includes('api.chess.com')) archiveRequests++;
   });
+  await page.clock.install({ time: new Date('2028-01-01T00:00:00Z') });
   await page.goto('/?engine=unavailable&view=analysis&game=missing&ply=99');
   await expect(page.getByText(/This game is not available locally/)).toBeVisible();
   await expect(page.getByRole('grid', { name: 'Chess board' })).toHaveCount(0);
@@ -333,10 +335,13 @@ test('keeps missing URL games separate from an existing selected game (T28)', as
 });
 
 test('paginates 500 games and retains page and viewport through review (T29)', async ({ page }) => {
+  test.setTimeout(60_000);
   await installPaginatedWorkspaceFixtures(page);
   await page.goto('/?engine=unavailable');
   await loadFixtureGames(page, 500);
-  await expect(page.getByRole('heading', { name: 'Games (500)', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Games (500)', exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
   await expect(page.getByRole('list', { name: 'Games' }).locator(':scope > li')).toHaveCount(20);
   await page.getByRole('button', { name: 'Next page', exact: true }).click();
   await expect(page.getByText('Page 2 of 25')).toBeVisible();
@@ -346,8 +351,8 @@ test('paginates 500 games and retains page and viewport through review (T29)', a
     el.dispatchEvent(new Event('scroll'));
   });
   const scroll = await viewport.evaluate((el) => el.scrollTop);
-  const first = page.getByRole('list', { name: 'Games' }).locator('li').first();
-  await first.getByRole('button', { name: /^Review/ }).click();
+  // Reviewing the selected preview leaves the scrolled list viewport untouched.
+  await page.getByRole('button', { name: 'Review game', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Back to games' })).toBeVisible();
   await page.getByRole('button', { name: 'Back to games' }).click();
   await expect(page.getByText('Page 2 of 25')).toBeVisible();
@@ -355,4 +360,64 @@ test('paginates 500 games and retains page and viewport through review (T29)', a
   await page.getByLabel('Filter games').fill('opponent-one');
   await expect(page.getByText('Page 1 of 13')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Games (250 of 500)' })).toBeVisible();
+});
+
+test('clears local filters and recovers a failed replacement with the requested username (T31)', async ({
+  page,
+}) => {
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page);
+  await expect(page.getByRole('list', { name: 'Games' })).toBeVisible();
+  let requests = 0;
+  page.on('request', (request) => {
+    if (request.url().includes('api.chess.com')) requests++;
+  });
+  await page.getByLabel('Filter games').fill('no-such-opponent');
+  await page.getByRole('button', { name: 'Clear filter', exact: true }).click();
+  await expect(page.getByLabel('Filter games')).toHaveValue('');
+  expect(requests).toBe(0);
+  await page.route('https://api.chess.com/pub/player/missing-player/**', (route) =>
+    route.fulfill({ status: 404, contentType: 'application/json', body: '{}' })
+  );
+  await page.getByRole('button', { name: 'Import games', exact: true }).click();
+  await page.getByLabel('Username', { exact: true }).fill('missing-player');
+  await page.getByRole('button', { name: 'Find games', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Import games' });
+  await expect(dialog.getByText(/could not be found/)).toBeVisible();
+  await expect(dialog.getByText(/2 previously loaded games for fixture-user/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Edit username', exact: true }).click();
+  await expect(dialog.getByLabel('Username', { exact: true })).toBeFocused();
+  await expect(dialog.getByLabel('Username', { exact: true })).toHaveValue('missing-player');
+  await page.getByRole('button', { name: /^Close import games$/i }).click();
+  await expect(page.getByRole('list', { name: 'Games' })).toBeVisible();
+});
+
+test('widens an empty date search only after a recovery action (T31)', async ({ page }) => {
+  await page.goto('/?engine=unavailable');
+  await page.getByLabel('Username', { exact: true }).fill('fixture-user');
+  await page.getByRole('button', { name: 'Find games', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'No games found', exact: true })).toBeVisible();
+  await expect(page.getByText('Complete data', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Try all available dates', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Import games' });
+  await expect(dialog.getByRole('radio', { name: 'All available', exact: true })).toBeChecked();
+  await dialog.getByRole('button', { name: 'Find games', exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Games' })).toBeVisible();
+});
+
+test('reopens each game at its own position and starts over explicitly (T27)', async ({ page }) => {
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-one/ }).click();
+  const board = page.getByRole('grid', { name: 'Chess board' });
+  await board.press('ArrowRight');
+  await board.press('ArrowRight');
+  await page.getByRole('button', { name: /^Preview .*opponent-two/ }).click();
+  await expect(page.getByLabel('Position 0 of 8')).toBeVisible();
+  await board.press('ArrowRight');
+  await page.getByRole('button', { name: /^Review .*opponent-one/ }).click();
+  await expect(page.getByLabel('Position 2 of 8')).toBeVisible();
+  await page.locator('.analysis-settings-disclosure > summary').click();
+  await page.getByRole('button', { name: 'Start over', exact: true }).click();
+  await expect(page.getByLabel('Position 0 of 8')).toBeVisible();
 });

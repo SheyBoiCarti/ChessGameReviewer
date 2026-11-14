@@ -64,15 +64,13 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         ...state,
         query: {
           draft: action.query,
-          active: action.query,
-          previousActive:
-            state.ingestion.status === 'loading'
-              ? (state.query.previousActive ?? state.query.active)
-              : state.query.active,
+          active: hasExistingGames ? state.query.active : null,
+          requested: action.query,
           token: action.token,
         },
         ingestion: {
           status: 'loading',
+          lastAttempt: null,
           progress: null,
           result: hasExistingGames ? state.ingestion.result : null,
           error: null,
@@ -91,24 +89,11 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         (action.result.status === 'cancelled' && action.result.games.length === 0);
 
       if (isFailed && hasExistingGames) {
-        const previousUsername = state.ingestion.result?.games[0]?.username;
         return {
           ...state,
-          query: {
-            ...state.query,
-            active:
-              (state.query.previousActive
-                ? {
-                    ...state.query.previousActive,
-                    username: previousUsername ?? state.query.previousActive.username,
-                  }
-                : null) ??
-              (previousUsername && state.query.active
-                ? { ...state.query.active, username: previousUsername }
-                : state.query.active),
-          },
           ingestion: {
             ...state.ingestion,
+            lastAttempt: action.result,
             status: action.result.status === 'cancelled' ? 'cancelled' : 'failed',
             error:
               action.result.status === 'cancelled'
@@ -148,6 +133,10 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
       const cached = gameId ? (resultsByGameId[gameId] ?? null) : null;
       return {
         ...state,
+        query: {
+          ...state.query,
+          active: isFailed ? state.query.active : (state.query.requested ?? state.query.active),
+        },
         analysis: {
           ...state.analysis,
           resultsByGameId,
@@ -170,32 +159,18 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           status,
           progress: state.ingestion.progress,
           result: action.result,
+          lastAttempt: action.result,
           error: null,
         },
         graph: action.result.games.length === 0 ? idleGraph : state.graph,
         selection: { ...emptySelection, gameId },
       };
     }
-    case 'ingestion/failed': {
-      const hasExistingGames = (state.ingestion.result?.games.length ?? 0) > 0;
-      const previousUsername = state.ingestion.result?.games[0]?.username;
+    case 'ingestion/failed':
       return {
         ...state,
-        query: {
-          ...state.query,
-          active:
-            hasExistingGames && state.query.previousActive
-              ? {
-                  ...state.query.previousActive,
-                  username: previousUsername ?? state.query.previousActive.username,
-                }
-              : hasExistingGames && previousUsername && state.query.active
-                ? { ...state.query.active, username: previousUsername }
-                : state.query.active,
-        },
-        ingestion: { ...state.ingestion, status: 'failed', error: action.error },
+        ingestion: { ...state.ingestion, status: 'failed', error: action.error, lastAttempt: null },
       };
-    }
     case 'ingestion/errorDismissed': {
       const currentResult = state.ingestion.result;
       const recoveredStatus = currentResult
@@ -524,7 +499,7 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
 function resetLoadedData(state: WorkspaceState): WorkspaceState {
   return {
     ...state,
-    query: { ...state.query, active: null },
+    query: { ...state.query, active: null, requested: null },
     ingestion: { status: 'idle', progress: null, result: null, error: null },
     graph: idleGraph,
     dataMaintenance: state.dataMaintenance,

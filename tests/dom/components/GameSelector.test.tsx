@@ -58,6 +58,17 @@ describe('GameSelector', () => {
     expect(onReview).toHaveBeenCalledWith(record.id);
   });
 
+  it('clears an unmatched UI filter without selecting or fetching a game', async () => {
+    const select = vi.fn();
+    const user = userEvent.setup();
+    render(<GameSelector games={games} selectedGameId="older" onSelect={select} />);
+    await user.type(screen.getByLabelText('Filter games'), 'no-such-opponent');
+    await user.click(screen.getByRole('button', { name: 'Clear filter' }));
+    expect(screen.getByLabelText('Filter games')).toHaveValue('');
+    expect(screen.getByRole('list', { name: 'Games' }).children).toHaveLength(2);
+    expect(select).not.toHaveBeenCalled();
+  });
+
   it('sorts a copy, displays required metadata, and selects by stable game id without starting analysis', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();

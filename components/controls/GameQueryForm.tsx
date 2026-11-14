@@ -1,32 +1,21 @@
-"use client";
+'use client';
 
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 
-import { OpeningSettings } from "@/components/opening/OpeningSettings";
-import {
-  DatePreset,
-  resolveDatePreset,
-} from "@/features/ingestion/datePresets";
-import type {
-  Diagnostic,
-  GameQuery,
-  PlayerColor,
-  TimeClass,
-} from "@/lib/api/contracts";
-import { validateGameQuery } from "@/lib/validation/gameQuery";
+import { OpeningSettings } from '@/components/opening/OpeningSettings';
+import { DatePreset, resolveDatePreset } from '@/features/ingestion/datePresets';
+import type { Diagnostic, GameQuery, PlayerColor, TimeClass } from '@/lib/api/contracts';
+import { validateGameQuery } from '@/lib/validation/gameQuery';
 
-const timeClassOptions: readonly TimeClass[] = [
-  "bullet",
-  "blitz",
-  "rapid",
-  "daily",
-];
+const timeClassOptions: readonly TimeClass[] = ['bullet', 'blitz', 'rapid', 'daily'];
 const colorOptions: ReadonlyArray<{ value: PlayerColor; label: string }> = [
-  { value: "white", label: "White games" },
-  { value: "black", label: "Black games" },
+  { value: 'white', label: 'White games' },
+  { value: 'black', label: 'Black games' },
 ];
 
 export interface GameQueryFormProps {
+  recoveryTarget?: 'username' | 'dates' | null;
+  recoveryVersion?: number;
   onSubmit(query: GameQuery): void | Promise<void>;
   disabled?: boolean;
   openingHorizon?: number;
@@ -46,83 +35,55 @@ export function GameQueryForm({
   onDraftChange,
   recentQuery = null,
   onResume,
+  recoveryTarget,
+  recoveryVersion,
 }: GameQueryFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
-  const [username, setUsername] = useState(initialQuery?.username ?? "");
+  const [username, setUsername] = useState(initialQuery?.username ?? '');
   const [datePreset, setDatePreset] = useState<DatePreset>(() => {
     const now = new Date();
-    const last30 = resolveDatePreset("last30", now);
-    const thisMonth = resolveDatePreset("thisMonth", now);
-    if (
-      recentQuery &&
-      initialQuery?.dateFrom === undefined &&
-      initialQuery?.dateTo === undefined
-    ) {
-      return recentQuery.dateFrom || recentQuery.dateTo ? "custom" : "all";
+    const last30 = resolveDatePreset('last30', now);
+    const thisMonth = resolveDatePreset('thisMonth', now);
+    if (recentQuery && initialQuery?.dateFrom === undefined && initialQuery?.dateTo === undefined) {
+      return recentQuery.dateFrom || recentQuery.dateTo ? 'custom' : 'all';
     }
-    if (
-      initialQuery?.dateFrom !== undefined ||
-      initialQuery?.dateTo !== undefined
-    ) {
-      const df = initialQuery.dateFrom ?? "";
-      const dt = initialQuery.dateTo ?? "";
-      if (df === last30.dateFrom && dt === last30.dateTo) return "last30";
-      if (df === thisMonth.dateFrom && dt === thisMonth.dateTo)
-        return "thisMonth";
-      if (df === "" && dt === "") return "all";
-      return "custom";
+    if (initialQuery?.dateFrom !== undefined || initialQuery?.dateTo !== undefined) {
+      const df = initialQuery.dateFrom ?? '';
+      const dt = initialQuery.dateTo ?? '';
+      if (df === last30.dateFrom && dt === last30.dateTo) return 'last30';
+      if (df === thisMonth.dateFrom && dt === thisMonth.dateTo) return 'thisMonth';
+      if (df === '' && dt === '') return 'all';
+      return 'custom';
     }
-    return "last30";
+    return 'last30';
   });
   const [dateFrom, setDateFrom] = useState(() => {
-    if (
-      recentQuery &&
-      initialQuery?.dateFrom === undefined &&
-      initialQuery?.dateTo === undefined
-    ) {
-      return recentQuery.dateFrom ?? "";
+    if (recentQuery && initialQuery?.dateFrom === undefined && initialQuery?.dateTo === undefined) {
+      return recentQuery.dateFrom ?? '';
     }
-    if (
-      initialQuery?.dateFrom !== undefined ||
-      initialQuery?.dateTo !== undefined
-    ) {
-      return initialQuery.dateFrom ?? "";
+    if (initialQuery?.dateFrom !== undefined || initialQuery?.dateTo !== undefined) {
+      return initialQuery.dateFrom ?? '';
     }
-    return resolveDatePreset("last30", new Date()).dateFrom;
+    return resolveDatePreset('last30', new Date()).dateFrom;
   });
   const [dateTo, setDateTo] = useState(() => {
-    if (
-      recentQuery &&
-      initialQuery?.dateFrom === undefined &&
-      initialQuery?.dateTo === undefined
-    ) {
-      return recentQuery.dateTo ?? "";
+    if (recentQuery && initialQuery?.dateFrom === undefined && initialQuery?.dateTo === undefined) {
+      return recentQuery.dateTo ?? '';
     }
-    if (
-      initialQuery?.dateFrom !== undefined ||
-      initialQuery?.dateTo !== undefined
-    ) {
-      return initialQuery.dateTo ?? "";
+    if (initialQuery?.dateFrom !== undefined || initialQuery?.dateTo !== undefined) {
+      return initialQuery.dateTo ?? '';
     }
-    return resolveDatePreset("last30", new Date()).dateTo;
+    return resolveDatePreset('last30', new Date()).dateTo;
   });
-  const [maxGames, setMaxGames] = useState(
-    String(initialQuery?.maxGames ?? 500),
-  );
+  const [maxGames, setMaxGames] = useState(String(initialQuery?.maxGames ?? 500));
   const [timeClasses, setTimeClasses] = useState<TimeClass[]>(
-    initialQuery?.timeClasses
-      ? [...initialQuery.timeClasses]
-      : [...timeClassOptions],
+    initialQuery?.timeClasses ? [...initialQuery.timeClasses] : [...timeClassOptions]
   );
   const [colors, setColors] = useState<PlayerColor[]>(
-    initialQuery?.colors ? [...initialQuery.colors] : ["white", "black"],
+    initialQuery?.colors ? [...initialQuery.colors] : ['white', 'black']
   );
-  const [rated, setRated] = useState<"any" | "rated" | "unrated">(
-    initialQuery?.rated === true
-      ? "rated"
-      : initialQuery?.rated === false
-        ? "unrated"
-        : "any",
+  const [rated, setRated] = useState<'any' | 'rated' | 'unrated'>(
+    initialQuery?.rated === true ? 'rated' : initialQuery?.rated === false ? 'unrated' : 'any'
   );
   const [horizonDraft, setHorizonDraft] = useState(String(openingHorizon));
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
@@ -136,7 +97,7 @@ export function GameQueryForm({
   const handleSelectPreset = (preset: DatePreset) => {
     setDiagnostics([]);
     setDatePreset(preset);
-    if (preset === "custom") {
+    if (preset === 'custom') {
       return;
     }
     const resolved = resolveDatePreset(preset, new Date());
@@ -149,27 +110,21 @@ export function GameQueryForm({
       maxGames: Number(maxGames) || 500,
       timeClasses,
       colors,
-      rated: rated === "any" ? undefined : rated === "rated",
+      rated: rated === 'any' ? undefined : rated === 'rated',
     });
   };
 
   const loadDraft = (query: GameQuery) => {
     setUsername(query.username);
-    const df = query.dateFrom ?? "";
-    const dt = query.dateTo ?? "";
+    const df = query.dateFrom ?? '';
+    const dt = query.dateTo ?? '';
     setDateFrom(df);
     setDateTo(dt);
-    setDatePreset(df || dt ? "custom" : "all");
+    setDatePreset(df || dt ? 'custom' : 'all');
     setMaxGames(String(query.maxGames));
     setTimeClasses([...query.timeClasses]);
     setColors([...query.colors]);
-    setRated(
-      query.rated === true
-        ? "rated"
-        : query.rated === false
-          ? "unrated"
-          : "any",
-    );
+    setRated(query.rated === true ? 'rated' : query.rated === false ? 'unrated' : 'any');
     setDiagnostics([]);
     setHorizonError(null);
   };
@@ -183,19 +138,42 @@ export function GameQueryForm({
       maxGames: Number(maxGames) || 500,
       timeClasses,
       colors,
-      rated: rated === "any" ? undefined : rated === "rated",
+      rated: rated === 'any' ? undefined : rated === 'rated',
       ...changes,
     });
   };
 
   useEffect(() => {
     if (!diagnostics.length && !horizonError) return;
-    const field = formRef.current?.querySelector<HTMLElement>(
-      '[aria-describedby$="-error"]',
-    );
-    if (field?.matches("input, select")) field.focus();
-    else field?.querySelector<HTMLElement>("input, select")?.focus();
+    const field = formRef.current?.querySelector<HTMLElement>('[aria-describedby$="-error"]');
+    if (field?.matches('input, select')) field.focus();
+    else field?.querySelector<HTMLElement>('input, select')?.focus();
   }, [diagnostics, horizonError]);
+
+  useEffect(() => {
+    if (!recoveryTarget) return;
+    if (recoveryTarget === 'dates') {
+      setDatePreset('all');
+      setDateFrom('');
+      setDateTo('');
+      setFiltersOpen(true);
+      onDraftChange?.({
+        username,
+        dateFrom: '',
+        dateTo: '',
+        maxGames: Number(maxGames),
+        timeClasses,
+        colors,
+        rated: rated === 'any' ? undefined : rated === 'rated',
+      });
+      formRef.current?.querySelector<HTMLElement>('button[type="submit"]')?.focus();
+    } else {
+      const field = formRef.current?.querySelector<HTMLInputElement>('input[name="username"]');
+      field?.focus();
+      field?.select();
+    }
+    // A recovery action runs once per explicit activation, not on typing.
+  }, [recoveryVersion]);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -206,29 +184,25 @@ export function GameQueryForm({
       maxGames: Number(maxGames),
       timeClasses,
       colors,
-      ...(rated === "any" ? {} : { rated: rated === "rated" }),
+      ...(rated === 'any' ? {} : { rated: rated === 'rated' }),
     };
     const validation = validateGameQuery(candidate);
     if (!validation.success) {
       setDiagnostics(validation.diagnostics);
-      if (validation.diagnostics.some((d) => d.code !== "INVALID_USERNAME")) {
+      if (validation.diagnostics.some((d) => d.code !== 'INVALID_USERNAME')) {
         setFiltersOpen(true);
       }
       const hasDateDiag = validation.diagnostics.some((d) =>
-        [
-          "INVALID_DATE_FROM",
-          "INVALID_DATE_TO",
-          "INVERTED_DATE_RANGE",
-        ].includes(d.code),
+        ['INVALID_DATE_FROM', 'INVALID_DATE_TO', 'INVERTED_DATE_RANGE'].includes(d.code)
       );
       if (hasDateDiag) {
-        setDatePreset("custom");
+        setDatePreset('custom');
       }
       return;
     }
     const horizon = Number(horizonDraft);
     if (!Number.isInteger(horizon) || horizon < 2 || horizon > 40) {
-      setHorizonError("Choose a whole number from 2 to 40 plies.");
+      setHorizonError('Choose a whole number from 2 to 40 plies.');
       setFiltersOpen(true);
       return;
     }
@@ -238,16 +212,15 @@ export function GameQueryForm({
     void onSubmit(validation.data);
   };
 
-  const diagnostic = (code: string) =>
-    diagnostics.find((item) => item.code === code);
-  const maxGamesError = diagnostic("INVALID_MAX_GAMES");
-  const timeClassError = diagnostic("INVALID_TIME_CLASSES");
-  const colorError = diagnostic("INVALID_COLORS");
-  const ratedStatusError = diagnostic("INVALID_RATED_STATUS");
+  const diagnostic = (code: string) => diagnostics.find((item) => item.code === code);
+  const maxGamesError = diagnostic('INVALID_MAX_GAMES');
+  const timeClassError = diagnostic('INVALID_TIME_CLASSES');
+  const colorError = diagnostic('INVALID_COLORS');
+  const ratedStatusError = diagnostic('INVALID_RATED_STATUS');
   const dateError =
-    diagnostic("INVALID_DATE_FROM") ??
-    diagnostic("INVALID_DATE_TO") ??
-    diagnostic("INVERTED_DATE_RANGE");
+    diagnostic('INVALID_DATE_FROM') ??
+    diagnostic('INVALID_DATE_TO') ??
+    diagnostic('INVERTED_DATE_RANGE');
 
   return (
     <form ref={formRef} className="query-form" onSubmit={submit} noValidate>
@@ -263,23 +236,21 @@ export function GameQueryForm({
             setUsername(next);
             updateDraft({ username: next });
           }}
-          aria-describedby={
-            diagnostic("INVALID_USERNAME") ? "username-error" : undefined
-          }
+          aria-describedby={diagnostic('INVALID_USERNAME') ? 'username-error' : undefined}
           disabled={disabled}
         />
-        {diagnostic("INVALID_USERNAME") ? (
+        {diagnostic('INVALID_USERNAME') ? (
           <p id="username-error" className="field-error">
-            {diagnostic("INVALID_USERNAME")?.message}
+            {diagnostic('INVALID_USERNAME')?.message}
           </p>
         ) : null}
       </div>
 
       <div className="query-filter-summary" aria-live="polite">
         {dateFrom || dateTo
-          ? `${dateFrom || "Beginning"} – ${dateTo || "today"} UTC`
-          : "All available dates"}{" "}
-        · {datePreset === "last30" ? "Last 30 days · " : ""}
+          ? `${dateFrom || 'Beginning'} – ${dateTo || 'today'} UTC`
+          : 'All available dates'}{' '}
+        · {datePreset === 'last30' ? 'Last 30 days · ' : ''}
         {filterSummary(timeClasses, colors, rated, maxGames)}
       </div>
       <button
@@ -292,11 +263,7 @@ export function GameQueryForm({
         Game filters
       </button>
 
-      <div
-        id="game-query-filters"
-        className="query-filter-fields"
-        hidden={!filtersOpen}
-      >
+      <div id="game-query-filters" className="query-filter-fields" hidden={!filtersOpen}>
         <fieldset className="field date-range-fieldset">
           <legend>Date range</legend>
           <div className="date-preset-grid">
@@ -305,8 +272,8 @@ export function GameQueryForm({
                 type="radio"
                 name="date-preset"
                 value="last30"
-                checked={datePreset === "last30"}
-                onChange={() => handleSelectPreset("last30")}
+                checked={datePreset === 'last30'}
+                onChange={() => handleSelectPreset('last30')}
                 disabled={disabled}
               />
               Last 30 days
@@ -316,8 +283,8 @@ export function GameQueryForm({
                 type="radio"
                 name="date-preset"
                 value="thisMonth"
-                checked={datePreset === "thisMonth"}
-                onChange={() => handleSelectPreset("thisMonth")}
+                checked={datePreset === 'thisMonth'}
+                onChange={() => handleSelectPreset('thisMonth')}
                 disabled={disabled}
               />
               This month
@@ -327,8 +294,8 @@ export function GameQueryForm({
                 type="radio"
                 name="date-preset"
                 value="all"
-                checked={datePreset === "all"}
-                onChange={() => handleSelectPreset("all")}
+                checked={datePreset === 'all'}
+                onChange={() => handleSelectPreset('all')}
                 disabled={disabled}
               />
               All available
@@ -338,8 +305,8 @@ export function GameQueryForm({
                 type="radio"
                 name="date-preset"
                 value="custom"
-                checked={datePreset === "custom"}
-                onChange={() => handleSelectPreset("custom")}
+                checked={datePreset === 'custom'}
+                onChange={() => handleSelectPreset('custom')}
                 disabled={disabled}
               />
               Custom
@@ -347,7 +314,7 @@ export function GameQueryForm({
           </div>
         </fieldset>
 
-        {datePreset === "custom" ? (
+        {datePreset === 'custom' ? (
           <div className="date-fields">
             <div className="field">
               <label htmlFor="game-query-from">From date</label>
@@ -357,11 +324,11 @@ export function GameQueryForm({
                 value={dateFrom}
                 onChange={(event) => {
                   const next = event.currentTarget.value;
-                  setDatePreset("custom");
+                  setDatePreset('custom');
                   setDateFrom(next);
                   updateDraft({ dateFrom: next });
                 }}
-                aria-describedby={dateError ? "date-error" : "date-help"}
+                aria-describedby={dateError ? 'date-error' : 'date-help'}
                 disabled={disabled}
               />
             </div>
@@ -373,11 +340,11 @@ export function GameQueryForm({
                 value={dateTo}
                 onChange={(event) => {
                   const next = event.currentTarget.value;
-                  setDatePreset("custom");
+                  setDatePreset('custom');
                   setDateTo(next);
                   updateDraft({ dateTo: next });
                 }}
-                aria-describedby={dateError ? "date-error" : "date-help"}
+                aria-describedby={dateError ? 'date-error' : 'date-help'}
                 disabled={disabled}
               />
             </div>
@@ -407,9 +374,7 @@ export function GameQueryForm({
                 setMaxGames(next);
                 updateDraft({ maxGames: Number(next) || 500 });
               }}
-              aria-describedby={
-                maxGamesError ? "maximum-games-error" : undefined
-              }
+              aria-describedby={maxGamesError ? 'maximum-games-error' : undefined}
               disabled={disabled}
             />
             {maxGamesError ? (
@@ -420,9 +385,7 @@ export function GameQueryForm({
           </div>
         </div>
 
-        <fieldset
-          aria-describedby={timeClassError ? "time-classes-error" : undefined}
-        >
+        <fieldset aria-describedby={timeClassError ? 'time-classes-error' : undefined}>
           <legend>Time classes</legend>
           <div className="choice-row">
             {timeClassOptions.map((timeClass) => (
@@ -448,7 +411,7 @@ export function GameQueryForm({
           ) : null}
         </fieldset>
 
-        <fieldset aria-describedby={colorError ? "colors-error" : undefined}>
+        <fieldset aria-describedby={colorError ? 'colors-error' : undefined}>
           <legend>Player colour</legend>
           <div className="choice-row">
             {colorOptions.map(({ value, label }) => (
@@ -482,13 +445,9 @@ export function GameQueryForm({
             onChange={(event) => {
               const next = event.currentTarget.value as typeof rated;
               setRated(next);
-              updateDraft({
-                rated: next === "any" ? undefined : next === "rated",
-              });
+              updateDraft({ rated: next === 'any' ? undefined : next === 'rated' });
             }}
-            aria-describedby={
-              ratedStatusError ? "rated-status-error" : undefined
-            }
+            aria-describedby={ratedStatusError ? 'rated-status-error' : undefined}
             disabled={disabled}
           >
             <option value="any">Rated and unrated</option>
@@ -537,30 +496,22 @@ export function GameQueryForm({
 function filterSummary(
   timeClasses: readonly TimeClass[],
   colors: readonly PlayerColor[],
-  rated: "any" | "rated" | "unrated",
-  maxGames: string,
+  rated: 'any' | 'rated' | 'unrated',
+  maxGames: string
 ): string {
   const timeLabel =
     timeClasses.length === timeClassOptions.length
-      ? "All time classes"
-      : timeClasses.map(titleCase).join(", ") || "No time classes";
+      ? 'All time classes'
+      : timeClasses.map(titleCase).join(', ') || 'No time classes';
   const colorLabel =
-    colors.length === colorOptions.length
-      ? "both colours"
-      : colors.join(", ") || "no colours";
+    colors.length === colorOptions.length ? 'both colours' : colors.join(', ') || 'no colours';
   const ratedLabel =
-    rated === "any"
-      ? "rated and unrated"
-      : rated === "rated"
-        ? "rated only"
-        : "unrated only";
-  return `${timeLabel}; ${colorLabel}; ${ratedLabel}; up to ${maxGames || "0"} games.`;
+    rated === 'any' ? 'rated and unrated' : rated === 'rated' ? 'rated only' : 'unrated only';
+  return `${timeLabel}; ${colorLabel}; ${ratedLabel}; up to ${maxGames || '0'} games.`;
 }
 
 function toggle<T>(values: readonly T[], value: T): T[] {
-  return values.includes(value)
-    ? values.filter((item) => item !== value)
-    : [...values, value];
+  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }
 
 function titleCase(value: string): string {

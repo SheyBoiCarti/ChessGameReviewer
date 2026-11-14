@@ -249,7 +249,7 @@ describe('Bug fixes exploratory verification', () => {
 
     // An alert banner informing them of the failure is shown with "Keep current games"
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    expect(screen.getByText(/User not found \(404\)/i)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/User not found \(404\)/i);
     const keepGamesBtn = screen.getByRole('button', { name: /keep current games/i });
     expect(keepGamesBtn).toBeInTheDocument();
 

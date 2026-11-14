@@ -71,7 +71,9 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
             !usernames.includes(startupQuery.username)
           )
             return;
-          const submission = controller.submitQuery(startupQuery);
+          const submission = controller.submitQuery(startupQuery, {
+            cacheOnly: urlIntent !== null,
+          });
           const navigationVersion = controller.getNavigationVersion();
           const requestToken = controller.getState().query.token;
           await submission;

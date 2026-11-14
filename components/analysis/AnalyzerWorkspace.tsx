@@ -59,6 +59,7 @@ export interface AnalyzerWorkspaceProps {
   onStrengthChange(value: AnalysisStrength): void;
   onStart(value: AnalysisStrength): void;
   onCancel(): void;
+  onStartOver?(): void;
   onResume(): void;
   onRetryEngine?(): void;
   onSelectPly(ply: number): void;
@@ -88,6 +89,7 @@ export function AnalyzerWorkspace({
   onStrengthChange,
   onStart,
   onCancel,
+  onStartOver,
   onResume,
   onRetryEngine,
   onSelectPly,
@@ -404,6 +406,11 @@ export function AnalyzerWorkspace({
       <details className="analysis-settings-disclosure">
         <summary>Settings</summary>
         <div className="analysis-settings-body">
+          {onStartOver ? (
+            <button type="button" className="button-secondary" onClick={onStartOver}>
+              Start over
+            </button>
+          ) : null}
           <AnalysisSettings
             strength={strength}
             disabled={probing || unavailable || status === 'running' || status === 'stopping'}

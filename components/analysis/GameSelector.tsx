@@ -194,11 +194,23 @@ export function GameSelector({
         </div>
       ) : null}
       {rows.length === 0 ? (
-        <p className="empty-copy">
-          {hasLoaded || games.length > 0
-            ? 'No games match this filter. Try another opponent name.'
-            : 'Load a player’s games to choose a game and begin reviewing.'}
-        </p>
+        <div className="empty-copy">
+          <p>
+            {games.length > 0
+              ? 'No games match this filter. Try another opponent name.'
+              : hasLoaded
+                ? 'No games found for this search. Try another date range or edit your search.'
+                : 'Find a player’s games to choose a game and begin reviewing.'}
+          </p>
+          {listState.filter.trim() ? (
+            <button
+              type="button"
+              onClick={() => updateListState({ filter: '', page: 1, scrollTop: 0 })}
+            >
+              Clear filter
+            </button>
+          ) : null}
+        </div>
       ) : (
         <div
           ref={viewportRef}

@@ -188,6 +188,8 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   });
   expect(reviewCount).toBe(0);
   await page.reload();
+  await expect(page.getByText('No stored usernames were found.')).toBeVisible();
+  await openTab(page, 'Games');
   await expect(page.getByLabel('Username')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toHaveCount(0);
 });

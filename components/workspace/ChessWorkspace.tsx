@@ -106,6 +106,10 @@ export function ChessWorkspace({
   });
   const [menuOpen, setMenuOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [queryRecovery, setQueryRecovery] = useState<{
+    target: 'username' | 'dates';
+    version: number;
+  } | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [navigation, setNavigation] = useState<GraphNavigationState | null>(null);
   const [moveOrdersOpen, setMoveOrdersOpen] = useState(false);
@@ -779,7 +783,9 @@ export function ChessWorkspace({
   const queryForm = (
     <GameQueryForm
       disabled={state.ingestion.status === 'loading'}
-      initialQuery={state.query.active ?? recentQuery ?? state.query.draft}
+      recoveryTarget={queryRecovery?.target ?? null}
+      recoveryVersion={queryRecovery?.version ?? 0}
+      initialQuery={state.query.requested ?? state.query.active ?? recentQuery ?? state.query.draft}
       onDraftChange={(draft) => {
         if (state.ingestion.error || state.ingestion.status === 'failed')
           controller.dismissIngestionError();
@@ -801,6 +807,55 @@ export function ChessWorkspace({
     />
   );
 
+  const recoverQuery = (target: 'username' | 'dates') => {
+    setQueryRecovery((previous) => ({ target, version: (previous?.version ?? 0) + 1 }));
+    setImportOpen(true);
+  };
+  const feedbackResult = ['failed', 'cancelled'].includes(state.ingestion.status)
+    ? (state.ingestion.lastAttempt ?? {
+        jobId: 'failed',
+        fingerprint: '',
+        status: 'failed' as const,
+        games: [],
+        failedMonths: [],
+        diagnostics: [
+          {
+            code: 'IMPORT_FAILED',
+            message: state.ingestion.error ?? 'Games could not be loaded.',
+            severity: 'error' as const,
+          },
+        ],
+        offlineCacheOnly: false,
+      })
+    : state.ingestion.result;
+  const importFeedback =
+    feedbackResult && state.ingestion.status !== 'loading' ? (
+      <div
+        className="utility-rail__result"
+        data-utility-rail-result
+        role="region"
+        aria-label="Ingestion result"
+        tabIndex={-1}
+      >
+        <DiagnosticSummary
+          result={feedbackResult}
+          onRetry={() => {
+            const query = state.query.requested ?? state.query.active;
+            if (query) void controller.submitQuery(query, { manualRefresh: true });
+          }}
+          onEditUsername={() => recoverQuery('username')}
+          onExpandDates={() => recoverQuery('dates')}
+          retainedCount={
+            state.ingestion.status === 'failed' && hasGamesLoaded
+              ? (state.ingestion.result?.games.length ?? 0)
+              : 0
+          }
+          retainedUsername={state.query.active?.username}
+          onKeepCurrent={() => controller.dismissIngestionError()}
+        />
+      </div>
+    ) : null;
+
   const handleReviewModeChange = (mode: ReviewMode) => {
     if (mode !== reviewMode) controller.invalidateReviewIntent();
     if (mode === 'review') {
@@ -811,23 +866,6 @@ export function ChessWorkspace({
 
   return (
     <div className="workspace-shell" data-modal-root>
-      {urlRecovery ? (
-        <div className="status-card" role="status">
-          <p>{urlRecovery}</p>
-          <button
-            type="button"
-            onClick={() => {
-              setUrlRecovery(null);
-              selectTab('games');
-            }}
-          >
-            Choose a game
-          </button>
-          <button type="button" onClick={() => setImportOpen(true)}>
-            Import linked games
-          </button>
-        </div>
-      ) : null}
       {/* Desktop Left Rail Navigation (hidden < 960px via CSS) */}
       <aside className="workspace-rail">
         <WorkspaceNavigation
@@ -859,6 +897,24 @@ export function ChessWorkspace({
         />
 
         <main className="workspace-content">
+          {urlRecovery ? (
+            <div className="status-card" role="status">
+              <p>{urlRecovery}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setUrlRecovery(null);
+                  selectTab('games');
+                }}
+              >
+                Choose a game
+              </button>
+              <button type="button" onClick={() => setImportOpen(true)}>
+                Import linked games
+              </button>
+            </div>
+          ) : null}
+
           {state.ingestion.status === 'cancelled' && !importOpen ? (
             <p role="status">
               Import cancelled.{' '}
@@ -1028,53 +1084,10 @@ export function ChessWorkspace({
                     hasGamesLoaded ? (
                       <>
                         {state.ingestion.result?.offlineCacheOnly ? <OfflineCacheNotice /> : null}
-                        {state.ingestion.status === 'failed' || state.ingestion.error ? (
-                          <div
-                            className="status-card status-failed"
-                            role="alert"
-                            style={{ marginBottom: '1rem' }}
-                          >
-                            <div
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                gap: '0.75rem',
-                              }}
-                            >
-                              <div>
-                                <h3>Games could not be loaded</h3>
-                                <p>
-                                  {state.ingestion.error ?? 'Failed to import games.'} Retaining
-                                  previously loaded games.
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                className="button button--secondary button--sm"
-                                onClick={() => controller.dismissIngestionError()}
-                              >
-                                Keep current games
-                              </button>
-                            </div>
-                          </div>
-                        ) : null}
-                        {state.ingestion.result?.status === 'partial' ? (
-                          <div className="partial-import-notice" role="status">
-                            <p>Some games could not be imported.</p>
-                            <details className="diagnostic-details">
-                              <summary>Diagnostics</summary>
-                              <DiagnosticSummary
-                                result={state.ingestion.result}
-                                onRetry={() => {
-                                  const active = state.query.active;
-                                  if (active)
-                                    void controller.submitQuery(active, { manualRefresh: true });
-                                }}
-                              />
-                            </details>
-                          </div>
-                        ) : null}
+                        {!importOpen &&
+                        ['failed', 'partial', 'cancelled'].includes(state.ingestion.status)
+                          ? importFeedback
+                          : null}
                         <GameSelector
                           games={state.ingestion.result?.games ?? []}
                           selectedGameId={state.selection.gameId}
@@ -1120,42 +1133,7 @@ export function ChessWorkspace({
                             onCancel={controller.cancelIngestion}
                           />
                         ) : null}
-                        {!state.ingestion.result &&
-                        state.ingestion.status === 'failed' &&
-                        state.ingestion.error ? (
-                          <div
-                            className="status-card status-failed"
-                            role="alert"
-                            style={{ marginTop: '1rem' }}
-                          >
-                            <h3>Games could not be loaded</h3>
-                            <p>{state.ingestion.error}</p>
-                          </div>
-                        ) : null}
-                        {state.ingestion.result && state.ingestion.status !== 'loading' ? (
-                          <div
-                            className="utility-rail__result"
-                            data-utility-rail-result
-                            role="region"
-                            aria-label="Ingestion result"
-                            tabIndex={-1}
-                          >
-                            <DiagnosticSummary
-                              result={state.ingestion.result}
-                              onRetry={() => {
-                                const active = state.query.active;
-                                if (active)
-                                  void controller.submitQuery(active, { manualRefresh: true });
-                              }}
-                              onViewGames={() => {
-                                const firstGame = state.ingestion.result?.games[0];
-                                if (firstGame) {
-                                  controller.selectGame(firstGame.id);
-                                }
-                              }}
-                            />
-                          </div>
-                        ) : null}
+                        {!importOpen ? importFeedback : null}
                         {state.ingestion.result?.offlineCacheOnly ? <OfflineCacheNotice /> : null}
                       </div>
                     )
@@ -1266,6 +1244,12 @@ export function ChessWorkspace({
                         onRetryEngine={() => void controller.retryEngine()}
                         onCancel={controller.cancelAnalysis}
                         onResume={() => void controller.startAnalysis()}
+                        onStartOver={() => {
+                          setVariation(null);
+                          setVariationOrigin(null);
+                          setReviewMode('review');
+                          if (state.selection.gameId) controller.startOver(state.selection.gameId);
+                        }}
                         onSelectPly={handlePlyChange}
                         selectedPly={state.selection.ply}
                         fenByPly={fenByPly}
@@ -1308,44 +1292,7 @@ export function ChessWorkspace({
             onCancel={controller.cancelIngestion}
           />
         ) : null}
-        {state.ingestion.status === 'failed' && state.ingestion.error ? (
-          <div className="status-card status-failed" role="alert" style={{ marginTop: '1rem' }}>
-            <h3>Games could not be loaded</h3>
-            <p>{state.ingestion.error}</p>
-            {hasGamesLoaded ? (
-              <p className="field-help" style={{ marginTop: '0.5rem' }}>
-                Your previously loaded games remain available in the workspace.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-        {state.ingestion.status === 'cancelled' ? (
-          <p role="status">
-            Import cancelled.{' '}
-            {hasGamesLoaded
-              ? 'Previously loaded games are still available.'
-              : 'You can load games again.'}
-          </p>
-        ) : null}
-        {state.ingestion.result &&
-        state.ingestion.status !== 'loading' &&
-        (!hasGamesLoaded || state.ingestion.status !== 'failed') ? (
-          <div
-            className="utility-rail__result"
-            data-utility-rail-result
-            role="region"
-            aria-label="Ingestion result"
-            tabIndex={-1}
-          >
-            <DiagnosticSummary
-              result={state.ingestion.result}
-              onRetry={() => {
-                const active = state.query.active;
-                if (active) void controller.submitQuery(active, { manualRefresh: true });
-              }}
-            />
-          </div>
-        ) : null}
+        {importFeedback}
         {state.ingestion.result?.offlineCacheOnly ? <OfflineCacheNotice /> : null}
       </UtilityRail>
 

@@ -238,7 +238,14 @@ test('contains games and opening candidates in fixed-height scroll viewports', a
   await loadFixtureGames(page, 20);
 
   const gameResults = page.getByRole('region', { name: 'Game results' });
-  await expect(gameResults.getByRole('button', {name: /^Preview/})).toHaveCount(20);
+  await expect(gameResults.getByRole('button', { name: /^Preview/ })).toHaveCount(20);
+  await expect(gameResults.getByRole('button', { name: /^Review/ }).first()).toBeInViewport();
+  expect(
+    await gameResults
+      .locator('li')
+      .first()
+      .evaluate((el) => el.scrollWidth - el.clientWidth)
+  ).toBeLessThanOrEqual(1);
   const gameMetrics = await scrollMetrics(gameResults);
   expect(gameMetrics.clientHeight).toBeGreaterThanOrEqual(16 * 16 - 1);
   expect(gameMetrics.clientHeight).toBeLessThanOrEqual(28 * 16 + 1);
