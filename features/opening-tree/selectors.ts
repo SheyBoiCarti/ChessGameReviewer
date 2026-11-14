@@ -224,3 +224,17 @@ export function selectPrefixGameIds(
     ? EMPTY_MEMBERSHIP
     : (membershipIndexesFor(snapshot).prefixes.get(pathId) ?? EMPTY_MEMBERSHIP);
 }
+
+export function selectLatestGameEndedAt(
+  ids: readonly string[],
+  gamesById: ReadonlyMap<string, { endedAt: number }>
+): number | null {
+  let latest: number | null = null;
+  for (const id of ids) {
+    const game = gamesById.get(id);
+    if (game && (latest === null || game.endedAt > latest)) {
+      latest = game.endedAt;
+    }
+  }
+  return latest;
+}

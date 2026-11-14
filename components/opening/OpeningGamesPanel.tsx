@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, type JSX } from 'react';
+import { useMemo, useState, type JSX } from 'react';
 import type { GameRecord } from '@/lib/db/schema';
 
 const PAGE_SIZE = 50;
+const utcDateFormatter = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeZone: 'UTC' });
+
 export function OpeningGamesPanel({
   ids,
   gamesById,
@@ -14,22 +16,34 @@ export function OpeningGamesPanel({
   onSelectGame(id: string): void;
 }): JSX.Element {
   const [page, setPage] = useState(0);
-  const pageCount = Math.max(1, Math.ceil(ids.length / PAGE_SIZE));
+
+  const sortedIds = useMemo(() => {
+    return [...ids].sort((a, b) => {
+      const gameA = gamesById.get(a);
+      const gameB = gamesById.get(b);
+      const timeA = gameA?.endedAt ?? 0;
+      const timeB = gameB?.endedAt ?? 0;
+      return timeB - timeA;
+    });
+  }, [ids, gamesById]);
+
+  const pageCount = Math.max(1, Math.ceil(sortedIds.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount - 1);
+
   return (
     <>
       <div className="result-viewport">
         <ul aria-label="Matching source games">
-          {ids.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE).map((id) => {
+          {sortedIds.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE).map((id) => {
             const record = gamesById.get(id);
             if (!record) return null;
+            const formattedDate = utcDateFormatter.format(new Date(record.endedAt * 1000));
             return (
               <li key={id}>
                 <button type="button" className="button-secondary" onClick={() => onSelectGame(id)}>
                   {record.whitePlayer.username ?? 'White'} vs{' '}
                   {record.blackPlayer.username ?? 'Black'} · You played{' '}
-                  {record.userColor === 'white' ? 'White' : 'Black'} ·{' '}
-                  {new Date(record.endedAt * 1000).toLocaleDateString()}
+                  {record.userColor === 'white' ? 'White' : 'Black'} · {formattedDate}
                 </button>
               </li>
             );

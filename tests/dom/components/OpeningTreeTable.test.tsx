@@ -361,4 +361,19 @@ describe('OpeningTreeTable', () => {
       expect.objectContaining({ positionKey: fixtureKeyAfter('e4') })
     );
   });
+
+  it('T55: labels position sample context clearly for transposed/shared positions', () => {
+    const whiteGraph = buildAuditScopeGraph('white');
+    render(
+      <OpeningTreeTable
+        graph={whiteGraph}
+        navigation={createGraphNavigation(whiteGraph)}
+        perspective="user"
+        onNavigate={vi.fn()}
+      />
+    );
+    const sampleContext = screen.getByLabelText(/position sample context/i);
+    expect(sampleContext).toHaveTextContent(/position sample:\s*12\s*games/i);
+    expect(sampleContext).toHaveTextContent(/continuations/i);
+  });
 });

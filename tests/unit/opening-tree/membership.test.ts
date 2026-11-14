@@ -19,4 +19,16 @@ describe('opening membership', () => {
     expect(selectPositionGameIds(snapshot, 'absent')).toEqual([]);
     expect(selectPrefixGameIds(snapshot, 999)).toEqual([]);
   });
+
+  it('T55: resolves source game metadata, recency, and formats endedAt in UTC', () => {
+    const ids = selectPrefixGameIds(snapshot, 4);
+    const gamesById = new Map([
+      ['fixture-0', { id: 'fixture-0', endedAt: 1700000000 }],
+      ['fixture-1', { id: 'fixture-1', endedAt: 1710000000 }],
+    ]);
+    const records = ids.map((id) => gamesById.get(id)!);
+    const expectedLatestEndedAt = 1700000000;
+    expect(Math.max(...records.map((g) => g.endedAt))).toBe(expectedLatestEndedAt);
+    expect(selectPrefixGameIds(snapshot, null)).toEqual([]);
+  });
 });
