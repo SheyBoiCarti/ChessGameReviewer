@@ -35,6 +35,7 @@ function fakeDependencies(overrides: Partial<IngestionDependencies> = {}): Inges
     writeArchiveList: vi.fn().mockResolvedValue(undefined),
     readArchiveSyncs: vi.fn().mockResolvedValue([]),
     readMonthGames: vi.fn().mockResolvedValue([]),
+    readNormalizedMonth: vi.fn().mockResolvedValue(null),
     validatePgns: vi.fn(async (games: readonly { id: string }[]) => ({
       validGameIds: games.map(({ id }) => id),
       diagnostics: [],
@@ -240,7 +241,8 @@ describe('runIngestion', () => {
     expect(persistMonth).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ id: 'recovered-game', result: 'draw' })]),
       expect.objectContaining({ normalizerVersion: NORMALIZER_VERSION }),
-      expect.anything()
+      expect.anything(),
+      expect.objectContaining({ completeFetch: true })
     );
     expect(NORMALIZER_VERSION).toBe(5);
   });
@@ -994,4 +996,89 @@ describe('IngestionManager', () => {
       vi.unstubAllGlobals();
     }
   });
+});
+
+it('T45: persists current validation and performs zero strict replays on an unchanged warm import', async () => {
+  let normalized: import('@/lib/db/schema').NormalizedMonthRecord | null = null;
+  let cached: import('@/lib/db/schema').GameRecord[] = [];
+  let marker: import('@/lib/db/schema').ArchiveSyncRecord | null = null;
+  const deps = fakeDependencies({
+    fetchMonthlyGames: vi.fn().mockResolvedValue([makeRawGame()]),
+    readMonthGames: vi.fn(async () => cached),
+    readArchiveSyncs: vi.fn(async () => (marker ? [marker] : [])),
+    readArchiveList: vi.fn(async () => ({
+      username: 'janedoe',
+      months: ['2026-08'],
+      fetchedAt: NOW,
+    })),
+    readNormalizedMonth: vi.fn(async () => normalized),
+    persistMonth: vi.fn(async (games, sync, _signal, coverage) => {
+      cached = games;
+      marker = sync;
+      normalized = coverage ?? null;
+    }),
+  });
+  expect((await runIngestion(makeQuery(), { deps, now: () => NOW })).games).toHaveLength(1);
+  vi.mocked(deps.validatePgns).mockClear();
+  expect((await runIngestion(makeQuery(), { deps, now: () => NOW })).games).toHaveLength(1);
+  expect(deps.validatePgns).not.toHaveBeenCalled();
+});
+
+it.each(['unknown', 'parser', 'position', 'normalizer', 'digest', 'corrupt', 'pgn'] as const)(
+  'T45: revalidates %s cached validation before acceptance',
+  async (reason) => {
+    const { makeNormalizedMonth } = await import('../../helpers/normalizedMonthFixture');
+    const { computePgnDigest } = await import('@/features/stockfish-analysis/reviewIdentity');
+    const game = makeGameRecord();
+    const coverage = makeNormalizedMonth();
+    const envelope = coverage.candidates[0]!.validation;
+    Object.assign(envelope, { state: 'valid', pgnDigest: await computePgnDigest(game.pgn) });
+    if (reason === 'unknown') envelope.state = 'unknown';
+    if (reason === 'parser') envelope.parserVersion = 'old';
+    if (reason === 'position') envelope.positionVersion = 'old';
+    if (reason === 'normalizer') envelope.normalizerVersion--;
+    if (reason === 'digest') envelope.pgnDigest = '0'.repeat(64);
+    if (reason === 'corrupt') Object.assign(envelope, { diagnosticCodes: null });
+    if (reason === 'pgn') game.pgn = '1. d4 d5 1/2-1/2';
+    const deps = fakeDependencies({
+      readArchiveSyncs: vi.fn().mockResolvedValue([makeArchiveSync()]),
+      readArchiveList: vi
+        .fn()
+        .mockResolvedValue({ username: 'janedoe', months: ['2026-08'], fetchedAt: NOW }),
+      readMonthGames: vi.fn().mockResolvedValue([game]),
+      readNormalizedMonth: vi.fn().mockResolvedValue(coverage),
+    });
+    expect((await runIngestion(makeQuery(), { deps, now: () => NOW })).games).toHaveLength(1);
+    expect(deps.validatePgns).toHaveBeenCalledTimes(1);
+    expect(deps.validatePgns).toHaveBeenCalledWith([game], expect.anything());
+  }
+);
+
+it('T45: excludes compatible invalid candidates without replay, retains diagnostics, and does not refresh fetched coverage', async () => {
+  const { makeNormalizedMonth } = await import('../../helpers/normalizedMonthFixture');
+  const { computePgnDigest } = await import('@/features/stockfish-analysis/reviewIdentity');
+  const coverage = makeNormalizedMonth({ fetchedAt: 1 });
+  const game = coverage.candidates[0]!.game;
+  Object.assign(coverage.candidates[0]!.validation, {
+    state: 'invalid',
+    pgnDigest: await computePgnDigest(game.pgn),
+    diagnosticCodes: ['ILLEGAL_PGN'],
+  });
+  const deps = fakeDependencies({
+    readArchiveSyncs: vi.fn().mockResolvedValue([makeArchiveSync({ lastSuccessfulFetchAt: 1 })]),
+    readArchiveList: vi
+      .fn()
+      .mockResolvedValue({ username: 'janedoe', months: ['2026-08'], fetchedAt: NOW }),
+    readNormalizedMonth: vi.fn().mockResolvedValue(coverage),
+  });
+  const result = await runIngestion(makeQuery(), { deps, now: () => NOW, cacheOnly: true });
+  expect(result.games).toEqual([]);
+  expect(result.diagnostics).toContainEqual(
+    expect.objectContaining({ code: 'ILLEGAL_PGN', gameId: game.id })
+  );
+  expect(deps.validatePgns).not.toHaveBeenCalled();
+  expect(deps.persistMonth).not.toHaveBeenCalled();
+  // Validation freshness is insufficient to skip a stale monthly fetch.
+  await runIngestion(makeQuery(), { deps, now: () => NOW });
+  expect(deps.fetchMonthlyGames).toHaveBeenCalledTimes(1);
 });

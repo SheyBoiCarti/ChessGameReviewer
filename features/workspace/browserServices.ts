@@ -24,6 +24,7 @@ import { parseGamePgn } from '@/lib/chess/pgnParser';
 import { clearAllData, deleteUserData } from '@/lib/db/deleteLocalData';
 import { closeDatabase, initializeDatabaseMetadata, openDatabase } from '@/lib/db/openDatabase';
 import {
+  readNormalizedMonth,
   getArchiveListMeta,
   getArchiveSyncsForUser,
   getDistinctUsernames,
@@ -134,10 +135,18 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
         return months.get(JSON.stringify([username, month]))?.games ?? [];
       }
     },
-    validatePgns: (games, options) => getPgnValidator().validate(games, options.signal),
-    persistMonth: async (games, marker, signal) => {
+    readNormalizedMonth: async (username, month) => {
       try {
-        await saveSyncBatch(await db(), games, marker, signal);
+        return await readNormalizedMonth(await db(), username, month);
+      } catch {
+        storageMisses++;
+        return null;
+      }
+    },
+    validatePgns: (games, options) => getPgnValidator().validate(games, options.signal),
+    persistMonth: async (games, marker, signal, normalized) => {
+      try {
+        await saveSyncBatch(await db(), games, marker, signal, normalized);
       } catch {
         storageMisses++;
         if (signal?.aborted) return;

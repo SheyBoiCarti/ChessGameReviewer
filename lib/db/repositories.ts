@@ -196,7 +196,8 @@ export async function saveSyncBatch(
   db: IDBDatabase,
   games: GameRecord[],
   syncRecord: ArchiveSyncRecord,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  normalized?: NormalizedMonthRecord
 ): Promise<void> {
   throwIfAborted(signal);
   // Pre-validate inputs before initiating transaction
@@ -209,8 +210,28 @@ export async function saveSyncBatch(
     }
   }
 
+  if (
+    normalized &&
+    (!isValidNormalizedMonthRecord(normalized) ||
+      normalized.username !== syncRecord.username ||
+      normalized.month !== syncRecord.month ||
+      games.some(
+        (game) =>
+          !normalized.candidates.some(
+            (candidate) =>
+              candidate.game.id === game.id &&
+              candidate.game.pgn === game.pgn &&
+              candidate.validation.state === 'valid'
+          )
+      ))
+  ) {
+    throw new TypeError('Invalid validation coverage in saveSyncBatch');
+  }
   try {
-    const tx = db.transaction([STORES.GAMES, STORES.ARCHIVE_SYNC], 'readwrite');
+    const tx = db.transaction(
+      [STORES.GAMES, STORES.ARCHIVE_SYNC, ...(normalized ? [STORES.NORMALIZED_MONTHS] : [])],
+      'readwrite'
+    );
     const gamesStore = tx.objectStore(STORES.GAMES);
     const syncStore = tx.objectStore(STORES.ARCHIVE_SYNC);
 
@@ -218,13 +239,19 @@ export async function saveSyncBatch(
       gamesStore.put(game);
     }
     syncStore.put(syncRecord);
+    if (normalized) {
+      tx.objectStore(STORES.NORMALIZED_MONTHS).put(normalized);
+      for (const candidate of normalized.candidates) {
+        if (candidate.validation.state === 'invalid') gamesStore.delete(candidate.game.id);
+      }
+    }
 
     const abortHandler = () => tx.abort();
     if (signal) {
       signal.addEventListener('abort', abortHandler, { once: true });
     }
 
-    await new Promise<void>((resolve, reject) => {
+    const done = new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => {
         if (signal) signal.removeEventListener('abort', abortHandler);
         resolve();
@@ -238,6 +265,7 @@ export async function saveSyncBatch(
         reject(wrapIDBError(tx.error));
       };
     });
+    await Promise.all([done, ...(normalized ? [retainNormalizedMonths(tx)] : [])]);
   } catch (err) {
     throw wrapIDBError(err);
   }

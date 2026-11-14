@@ -2,7 +2,7 @@ import type { Diagnostic, GameQuery, UpstreamError } from '../../lib/api/contrac
 import type { FetchOptions } from '../../lib/api/chesscomClient';
 import type { RawChesscomGame } from '../../lib/api/chesscomSchemas';
 import type { ArchiveListMeta } from '../../lib/db/repositories';
-import type { ArchiveSyncRecord, GameRecord } from '../../lib/db/schema';
+import type { ArchiveSyncRecord, GameRecord, NormalizedMonthRecord } from '../../lib/db/schema';
 
 export type IngestionPhase = 'planning' | 'loading-cache' | 'fetching' | 'filtering';
 export type IngestionTerminalStatus = 'complete' | 'partial' | 'cancelled' | 'failed';
@@ -64,11 +64,17 @@ export interface IngestionDependencies {
   writeArchiveList(record: ArchiveListMeta): Promise<void>;
   readArchiveSyncs(username: string): Promise<ArchiveSyncRecord[]>;
   readMonthGames(username: string, month: string): Promise<GameRecord[]>;
+  readNormalizedMonth(username: string, month: string): Promise<NormalizedMonthRecord | null>;
   validatePgns(
     games: readonly GameRecord[],
     options: { signal: AbortSignal }
   ): Promise<PgnValidationResult>;
-  persistMonth(games: GameRecord[], marker: ArchiveSyncRecord, signal?: AbortSignal): Promise<void>;
+  persistMonth(
+    games: GameRecord[],
+    marker: ArchiveSyncRecord,
+    signal?: AbortSignal,
+    normalized?: NormalizedMonthRecord
+  ): Promise<void>;
 }
 
 export interface RunIngestionOptions {

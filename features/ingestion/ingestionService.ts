@@ -1,3 +1,10 @@
+import { computePgnDigest } from '../stockfish-analysis/reviewIdentity';
+import { PGN_PARSER_VERSION, POSITION_KEY_VERSION } from '../../lib/chess/graph/types';
+import {
+  isValidValidationEnvelope,
+  type NormalizedMonthCandidate,
+  type NormalizedMonthRecord,
+} from '../../lib/db/schema';
 import type {
   Diagnostic,
   GameQuery,
@@ -393,14 +400,150 @@ async function executeIngestion(
       diagnostics: diagnostics.map((diagnostic) => ({ ...diagnostic })),
     });
   };
-  const validateGames = async (monthGames: readonly GameRecord[]): Promise<GameRecord[]> => {
-    const validation = await runtime.deps.validatePgns(monthGames, { signal: runtime.signal });
+  const validateGames = async (
+    monthGames: readonly GameRecord[],
+    month: string,
+    fetchedAt: number,
+    completeFetch: boolean,
+    priorMonth?: NormalizedMonthRecord | null
+  ): Promise<{ validGames: GameRecord[]; normalized: NormalizedMonthRecord }> => {
+    const cached =
+      priorMonth === undefined
+        ? await runtime.deps.readNormalizedMonth(query.username, month)
+        : priorMonth;
     throwIfAborted(runtime.signal);
-    const validIds = new Set(validation.validGameIds);
-    recordsExcluded += validation.totalInvalid;
-    recordsFailed += validation.totalInvalid;
-    for (const diagnostic of validation.diagnostics) appendDiagnostic(diagnostics, diagnostic);
-    return monthGames.filter(({ id }) => validIds.has(id));
+    const cachedById = new Map(
+      cached?.candidates.map((candidate) => [candidate.game.id, candidate.validation])
+    );
+    const candidates: NormalizedMonthCandidate[] = await Promise.all(
+      monthGames.map(async (game) => {
+        const pgnDigest = await computePgnDigest(game.pgn);
+        const prior = cachedById.get(game.id);
+        const reusable =
+          isValidValidationEnvelope(prior) &&
+          prior.state !== 'unknown' &&
+          prior.pgnDigest === pgnDigest &&
+          prior.parserVersion === PGN_PARSER_VERSION &&
+          prior.positionVersion === POSITION_KEY_VERSION &&
+          prior.normalizerVersion === NORMALIZER_VERSION;
+        return {
+          game,
+          validation: reusable
+            ? prior
+            : {
+                state: 'unknown',
+                pgnDigest,
+                parserVersion: PGN_PARSER_VERSION,
+                positionVersion: POSITION_KEY_VERSION,
+                normalizerVersion: NORMALIZER_VERSION,
+                diagnosticCodes: [],
+              },
+        };
+      })
+    );
+    throwIfAborted(runtime.signal);
+    const unknown = candidates.filter((candidate) => candidate.validation.state === 'unknown');
+    if (unknown.length > 0) {
+      const result = await runtime.deps.validatePgns(
+        unknown.map((candidate) => candidate.game),
+        { signal: runtime.signal }
+      );
+      throwIfAborted(runtime.signal);
+      const validIds = new Set(result.validGameIds);
+      for (const diagnostic of result.diagnostics) appendDiagnostic(diagnostics, diagnostic);
+      for (const candidate of unknown) {
+        const valid = validIds.has(candidate.game.id);
+        candidate.validation = {
+          ...candidate.validation,
+          state: valid ? 'valid' : 'invalid',
+          diagnosticCodes: valid
+            ? []
+            : [
+                ...new Set(
+                  result.diagnostics
+                    .filter((diagnostic) => diagnostic.gameId === candidate.game.id)
+                    .map((diagnostic) => diagnostic.code)
+                    .concat(result.diagnosticCodes)
+                ),
+              ].slice(0, 20),
+        };
+      }
+    }
+    for (const candidate of candidates) {
+      if (candidate.validation.state !== 'invalid') continue;
+      recordsExcluded += 1;
+      recordsFailed += 1;
+      if (!diagnostics.some((diagnostic) => diagnostic.gameId === candidate.game.id)) {
+        appendDiagnostic(diagnostics, {
+          code: candidate.validation.diagnosticCodes[0] ?? 'ILLEGAL_PGN',
+          severity: 'warning',
+          gameId: candidate.game.id,
+          message: 'This game could not be replayed and was excluded.',
+        });
+      }
+    }
+    return {
+      validGames: candidates
+        .filter((candidate) => candidate.validation.state === 'valid')
+        .map((candidate) => candidate.game),
+      normalized: {
+        username: query.username,
+        month,
+        fetchedAt,
+        completeFetch,
+        lastUsedAt: runtime.now(),
+        candidates,
+      },
+    };
+  };
+  const validateCachedGames = async (
+    monthGames: readonly GameRecord[],
+    month: string,
+    sync: ArchiveSyncRecord | undefined
+  ) => {
+    const coverage = await runtime.deps.readNormalizedMonth(query.username, month);
+    const acceptedIds = new Set(monthGames.map((game) => game.id));
+    const knownInvalid =
+      coverage?.candidates
+        .filter(
+          (candidate) =>
+            candidate.validation.state === 'invalid' && !acceptedIds.has(candidate.game.id)
+        )
+        .map((candidate) => candidate.game) ?? [];
+    const { validGames, normalized } = await validateGames(
+      [...monthGames, ...knownInvalid],
+      month,
+      coverage?.fetchedAt ?? sync?.lastSuccessfulFetchAt ?? 0,
+      coverage?.completeFetch ?? false,
+      coverage
+    );
+    throwIfAborted(runtime.signal);
+    // Keep candidates outside the accepted set intact; a later query may need them.
+    const updatedIds = new Set(normalized.candidates.map((candidate) => candidate.game.id));
+    normalized.candidates.push(
+      ...(coverage?.candidates.filter((candidate) => !updatedIds.has(candidate.game.id)) ?? [])
+    );
+    if (JSON.stringify(normalized.candidates) !== JSON.stringify(coverage?.candidates)) {
+      await runtime.deps.persistMonth(
+        validGames,
+        {
+          ...(sync ?? {
+            key: `${query.username}:${month}`,
+            username: query.username,
+            month,
+            lastSuccessfulFetchAt: coverage?.fetchedAt ?? 0,
+            status: 'partial',
+            normalizerVersion: NORMALIZER_VERSION,
+          }),
+          observedGameIds: validGames.map((game) => game.id),
+          observedGameCount: validGames.length,
+        },
+        runtime.signal,
+        normalized
+      );
+    }
+    throwIfAborted(runtime.signal);
+    return validGames;
   };
 
   try {
@@ -426,7 +569,7 @@ async function executeIngestion(
       if (!runtime.manualRefresh && sync && isSyncFresh(sync, runtime.now())) {
         const cachedGames = await runtime.deps.readMonthGames(query.username, month);
         recordsFetched += cachedGames.length;
-        const validCachedGames = await validateGames(cachedGames);
+        const validCachedGames = await validateCachedGames(cachedGames, month, sync);
         for (const game of [...validCachedGames].sort(newestFirst)) {
           if (matchesQuery(game, query) && !seen.has(game.id)) {
             seen.add(game.id);
@@ -444,7 +587,7 @@ async function executeIngestion(
       if (runtime.cacheOnly || planning.offlineCacheOnly) {
         const cachedGames = await runtime.deps.readMonthGames(query.username, month);
         recordsFetched += cachedGames.length;
-        const validCachedGames = await validateGames(cachedGames);
+        const validCachedGames = await validateCachedGames(cachedGames, month, sync);
         for (const game of [...validCachedGames].sort(newestFirst)) {
           if (matchesQuery(game, query) && !seen.has(game.id)) {
             seen.add(game.id);
@@ -494,7 +637,18 @@ async function executeIngestion(
           }
           normalizedMonthGames.push(normalized.game);
         }
-        const validMonthGames = await validateGames(normalizedMonthGames);
+        // Stable IDs can be repeated within an upstream payload; retain one candidate per ID.
+        const uniqueMonthGames = [
+          ...new Map(normalizedMonthGames.map((game) => [game.id, game])).values(),
+        ];
+        const { validGames: uniqueValidGames, normalized } = await validateGames(
+          uniqueMonthGames,
+          month,
+          runtime.now(),
+          true
+        );
+        const acceptedIds = new Set(uniqueValidGames.map((game) => game.id));
+        const validMonthGames = normalizedMonthGames.filter((game) => acceptedIds.has(game.id));
         const stagedMatches: GameRecord[] = [];
         const stagedIds = new Set<string>();
         for (const game of [...validMonthGames].sort(newestFirst)) {
@@ -521,8 +675,10 @@ async function executeIngestion(
             observedGameCount: validMonthGames.length,
             normalizerVersion: NORMALIZER_VERSION,
           },
-          runtime.signal
+          runtime.signal,
+          normalized
         );
+        throwIfAborted(runtime.signal);
         for (const game of stagedMatches) {
           seen.add(game.id);
           games.push(game);

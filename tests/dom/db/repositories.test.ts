@@ -501,3 +501,68 @@ describe('Repositories & Atomic Transactions', () => {
     });
   });
 });
+
+it('keeps normalized unknown/invalid candidates separate from accepted games and treats corrupt data as a miss', async () => {
+  const { makeNormalizedMonth } = await import('../../helpers/normalizedMonthFixture');
+  const { putNormalizedMonth, readNormalizedMonth } = await import('@/lib/db/repositories');
+  const db = await openDatabase({ name: `${DB_NAME}-normalized` });
+  try {
+    await putNormalizedMonth(db, makeNormalizedMonth());
+    expect(await getGamesForUser(db, 'janedoe')).toEqual([]);
+    const month = await readNormalizedMonth(db, 'JaneDoe', '2026-08');
+    expect(month?.candidates[0]?.validation.state).toBe('unknown');
+    const tx = db.transaction(STORES.NORMALIZED_MONTHS, 'readwrite');
+    tx.objectStore(STORES.NORMALIZED_MONTHS).put({
+      ...month,
+      candidates: [{ game: month!.candidates[0]!.game, validation: { state: 'valid' } }],
+    });
+    await transactionDone(tx);
+    expect(await readNormalizedMonth(db, 'janedoe', '2026-08')).toBeNull();
+    const abort = new AbortController();
+    abort.abort();
+    await expect(putNormalizedMonth(db, makeNormalizedMonth(), abort.signal)).rejects.toThrow();
+  } finally {
+    db.close();
+  }
+});
+
+it('commits accepted records, validation and fetch coverage together and removes known invalid accepted records', async () => {
+  const { makeNormalizedMonth } = await import('../../helpers/normalizedMonthFixture');
+  const { makeArchiveSync } = await import('../../helpers/phase1Fixtures');
+  const { readNormalizedMonth } = await import('@/lib/db/repositories');
+  const db = await openDatabase({ name: `${DB_NAME}-validation-atomic` });
+  try {
+    const month = makeNormalizedMonth();
+    const game = month.candidates[0]!.game;
+    await expect(saveSyncBatch(db, [game], makeArchiveSync(), undefined, month)).rejects.toThrow(
+      'Invalid validation coverage'
+    );
+    expect(await getGamesForUser(db, 'janedoe')).toEqual([]);
+    expect(await getArchiveSync(db, 'janedoe', '2026-08')).toBeNull();
+    month.candidates[0]!.validation.state = 'valid';
+    await saveSyncBatch(db, [game], makeArchiveSync(), undefined, month);
+    expect(await getGamesForUser(db, 'janedoe')).toHaveLength(1);
+    expect(
+      (await readNormalizedMonth(db, 'janedoe', '2026-08'))?.candidates[0]?.validation.state
+    ).toBe('valid');
+    month.candidates[0]!.validation.state = 'invalid';
+    await saveSyncBatch(
+      db,
+      [],
+      makeArchiveSync({ observedGameIds: [], observedGameCount: 0 }),
+      undefined,
+      month
+    );
+    expect(await getGamesForUser(db, 'janedoe')).toEqual([]);
+    expect(
+      (await readNormalizedMonth(db, 'janedoe', '2026-08'))?.candidates[0]?.validation.state
+    ).toBe('invalid');
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      saveSyncBatch(db, [], makeArchiveSync(), controller.signal, month)
+    ).rejects.toThrow();
+  } finally {
+    db.close();
+  }
+});
