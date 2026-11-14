@@ -137,3 +137,15 @@ describe('Stockfish analysis presentation', () => {
     });
   });
 });
+
+it('keeps signed White-perspective score labels and bound uncertainty', () => {
+  expect(toGraphPoints([{ ply: 1, evaluation: { kind: 'mate', value: -3 } }])[0]!.label).toBe(
+    'Black mate in 3'
+  );
+  expect(toGraphPoints([{ ply: 1, evaluation: { kind: 'cp', value: -125 } }])[0]!.label).toBe(
+    'Black -1.25'
+  );
+  expect(
+    toGraphPoints([{ ply: 1, evaluation: { kind: 'cp', value: 125, bound: 'lower' } }])[0]!.label
+  ).toBe('lower bound · White +1.25');
+});

@@ -67,3 +67,25 @@ describe('evaluation graph selection', () => {
     expect(container.querySelector('.accuracy-graph__cursor')).toHaveAttribute('x1', '3');
   });
 });
+
+it('keeps invalid scores as gaps, skips them with keys and has a cursor for a pending selection', () => {
+  const result = createLongGameAnalysisResult(4);
+  result.annotations[1]!.after.score = { kind: 'cp', value: NaN };
+  const { container } = render(
+    <MoveAccuracyGraph
+      annotations={result.annotations}
+      selectedPly={9}
+      totalPlies={100}
+      onSelectPly={vi.fn()}
+    />
+  );
+  const points = screen.getAllByRole('button');
+  expect(points).toHaveLength(3);
+  expect(container.querySelectorAll('polyline')).toHaveLength(1);
+  expect(container.querySelector('.accuracy-graph__cursor')).toHaveAttribute('x1', '9');
+  expect(screen.getByText('Move 9: evaluation unavailable')).toBeVisible();
+  points[0]!.focus();
+  fireEvent.keyDown(points[0]!, { key: 'ArrowRight' });
+  expect(points[1]).toHaveAccessibleName(/point 3:/);
+  expect(points[1]).toHaveFocus();
+});

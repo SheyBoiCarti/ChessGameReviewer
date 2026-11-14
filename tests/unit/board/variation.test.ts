@@ -133,3 +133,26 @@ it('starts 14…e4’s Bf5 alternative before e4 and a reply after e4', () => {
   expect(reply.baseFen).toBe(after);
   expect(reply.moves[0]!.san).toBe('Kb1');
 });
+
+it('replays the recorded 49-ply game without changing its PGN or selected original position', async () => {
+  const observed = (await import('../../fixtures/recordedPublicGame.json')).default;
+  const { parseGamePgn } = await import('@/lib/chess/pgnParser');
+  const { makeGameRecord } = await import('../../helpers/phase1Fixtures');
+  const parsed = parseGamePgn({
+    game: { ...makeGameRecord({ pgn: observed.pgn }), usernameKey: 'hikaru' },
+  });
+  if (!parsed.ok) throw new Error('Recorded public game must replay');
+  expect(parsed.game.plies).toHaveLength(49);
+  const originalPgn = observed.pgn;
+  const selected = parsed.game.plies[27]!;
+  expect(selected.san).toBe('e4');
+  const alternative = createVariationFromUciSequence(selected.ply, selected.fenBefore, ['c8f5'])!;
+  expect(alternative.moves[0]!.san).toBe('Bf5');
+  expect(alternative.cursor).toBe(1);
+  expect(createVariationFromUciSequence(selected.ply, selected.fenAfter, ['c8f5'])).toBeNull();
+  const reply = createVariationFromUciSequence(selected.ply, selected.fenAfter, ['d5f4'])!;
+  expect(reply.moves[0]!.san).toBe('Nxf4');
+  expect(reply.moves[0]!.fenBefore).toBe(selected.fenAfter);
+  expect(parsed.game.plies[27]).toBe(selected);
+  expect(observed.pgn).toBe(originalPgn);
+});

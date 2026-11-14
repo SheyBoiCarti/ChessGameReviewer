@@ -322,7 +322,7 @@ describe('AnalyzerWorkspace', () => {
     expect(onResume).toHaveBeenCalledTimes(1);
 
     // Select ply 1 from the move list
-    const plyButton = screen.getByRole('button', { name: /ply 1|1\.\s*e4/i });
+    const plyButton = screen.getByRole('button', { name: /^Select ply 1:/i });
     await user.click(plyButton);
     expect(onSelectPly).toHaveBeenCalledWith(1);
     expect(screen.getByText('e4 e5')).toBeInTheDocument();

@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { installEngineFixtures } from './helpers/engineFixtures';
 
-import { installWorkspaceFixtures, loadFixtureGames } from './helpers/workspaceFixtures';
+import {
+  installWorkspaceFixtures,
+  installLongGameWorkspaceFixtures,
+  loadFixtureGames,
+} from './helpers/workspaceFixtures';
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -143,22 +147,34 @@ test('explores alternatives and replies from Review and restores the selected or
   await feedback.locator('summary').click();
   const board = page.getByRole('grid', { name: 'Chess board' });
   const original = await board
-    .locator('[data-square] svg[aria-label]')
+    .locator('[data-square] img[aria-label]')
     .evaluateAll((pieces) => pieces.map((piece) => piece.getAttribute('aria-label')));
+  expect(original).toHaveLength(32);
   await feedback.getByRole('button', { name: 'Explore alternative' }).click();
   await expect(page.getByRole('tab', { name: 'Analysis', exact: true })).toHaveAttribute(
     'aria-selected',
     'true'
   );
   const banner = page.getByRole('complementary', { name: 'Analysis variation sandbox' });
-  await expect(banner.locator('[aria-current="step"]')).toHaveCount(1);
+  await expect(banner.getByRole('button', { name: 'a3', exact: true })).toHaveAttribute(
+    'aria-current',
+    'step'
+  );
+  await expect(board.getByLabel('white pawn on a3', { exact: true })).toBeVisible();
   await expect(banner.getByRole('button', { name: 'Next variation move' })).toBeEnabled();
   await banner.getByRole('button', { name: 'Next variation move' }).click();
+  await banner.getByRole('button', { name: 'Previous variation move' }).click();
+  await page.locator('[data-square="a7"]').click();
+  await page.locator('[data-square="a5"]').click();
+  await expect(banner.getByRole('button', { name: 'a5', exact: true })).toHaveAttribute(
+    'aria-current',
+    'step'
+  );
   await banner.getByRole('button', { name: /Return to game/ }).click();
   await expect(page.getByLabel('Position 1 of 8')).toBeVisible();
   expect(
     await board
-      .locator('[data-square] svg[aria-label]')
+      .locator('[data-square] img[aria-label]')
       .evaluateAll((pieces) => pieces.map((piece) => piece.getAttribute('aria-label')))
   ).toEqual(original);
   await expect(page.getByRole('tab', { name: 'Review', exact: true })).toHaveAttribute(
@@ -170,9 +186,31 @@ test('explores alternatives and replies from Review and restores the selected or
   await banner.getByRole('button', { name: 'Start', exact: true }).click();
   expect(
     await board
-      .locator('[data-square] svg[aria-label]')
+      .locator('[data-square] img[aria-label]')
       .evaluateAll((pieces) => pieces.map((piece) => piece.getAttribute('aria-label')))
   ).toEqual(original);
   await banner.getByRole('button', { name: /Return to game/ }).click();
   await expect(page.getByLabel('Position 1 of 8')).toBeVisible();
+});
+
+test('updates factual capture explanations with the selected original board', async ({ page }) => {
+  await installLongGameWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page, 1);
+  await page.getByRole('button', { name: /opponent-long/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /select ply 6\b/i }).click();
+  const feedback = page.getByRole('region', { name: 'Selected move feedback' });
+  await feedback.locator('summary').click();
+  await expect(feedback).toContainText('This move captures a pawn.');
+  await expect(page.getByLabel('black pawn on d4', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /select ply 7\b/i }).click();
+  await expect(feedback).toContainText('This move captures a pawn.');
+  await expect(page.getByLabel('white knight on d4', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /select ply 8\b/i }).click();
+  await expect(feedback).not.toContainText('This move captures');
+  await expect(page.getByLabel('black knight on f6', { exact: true })).toBeVisible();
 });
