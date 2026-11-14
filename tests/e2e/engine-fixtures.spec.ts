@@ -39,12 +39,30 @@ test('pauses after one completed move, cancels, and ignores a stale evaluation',
   );
   await expect(nextMove).toBeFocused();
   expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforeProgress);
+  await expect(page.getByRole('region', { name: 'Selected move feedback' })).not.toContainText(
+    'not been analysed'
+  );
+  await expect(page.getByRole('region', { name: 'Selected move feedback' })).toContainText('d4');
+  await engine.releaseEvaluations(1);
+  await expect(page.getByRole('progressbar', { name: 'Review progress' })).toHaveAttribute(
+    'aria-valuenow',
+    '2'
+  );
+  await nextMove.click();
+  await expect(page.getByLabel('Position 2 of 8')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Selected move feedback' })).not.toContainText(
+    'not been analysed'
+  );
+  await expect(page.getByRole('region', { name: 'Selected move feedback' })).toContainText('Nf6');
+  await nextMove.click();
+  await expect(page.getByLabel('Position 3 of 8')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Selected move feedback' })).toContainText(
+    'not been analysed'
+  );
   const pending = (await engine.requests())
     .filter((r): r is Extract<EngineWorkerRequest, { type: 'EVALUATE' }> => r.type === 'EVALUATE')
     .at(-1)!;
   await page.getByRole('button', { name: 'Cancel analysis', exact: true }).click();
-  // Current scheduler does not forward the parent abort into an active evaluation.
-  // Settle that held request explicitly; later lifecycle tasks own this behavior.
   await engine.deliver({
     protocolVersion: 1,
     jobId: pending.jobId,
@@ -52,11 +70,12 @@ test('pauses after one completed move, cancels, and ignores a stale evaluation',
     code: 'ABORTED',
     message: 'Analysis aborted.',
   });
+  await expect(page.getByRole('button', { name: 'Resume analysis' })).toBeVisible();
   await page.locator('.review-summary > summary').click();
   await expect(
     page
       .getByRole('region', { name: 'Game Review Summary', exact: true })
-      .getByText('Coverage: 1 of 8 eligible plies', { exact: true })
+      .getByText('Coverage: 2 of 8 eligible plies', { exact: true })
   ).toBeVisible();
   await engine.deliver({
     protocolVersion: 1,
@@ -67,14 +86,14 @@ test('pauses after one completed move, cancels, and ignores a stale evaluation',
   await expect(
     page
       .getByRole('region', { name: 'Game Review Summary', exact: true })
-      .getByText('Coverage: 1 of 8 eligible plies', { exact: true })
+      .getByText('Coverage: 2 of 8 eligible plies', { exact: true })
   ).toBeVisible();
   await page.getByRole('button', { name: 'Games', exact: true }).click();
   await page.getByRole('button', { name: /opponent-one/i }).click();
   await expect(
     page
       .getByRole('region', { name: 'Game Review Summary', exact: true })
-      .getByText('Coverage: 1 of 8 eligible plies', { exact: true })
+      .getByText('Coverage: 2 of 8 eligible plies', { exact: true })
   ).toHaveCount(0);
   await engine.reset();
   expect(await engine.requests()).toEqual([]);
@@ -187,6 +206,7 @@ for (const scenario of ['mate', 'indeterminate'] as const) {
     await page.getByRole('button', { name: 'Run review (Start analysis)', exact: true }).click();
     await page.locator('.review-summary > summary').click();
     await expect(page.getByRole('heading', { name: 'Game Review Summary' })).toBeVisible();
+    await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
     expect((await engine.requests()).filter((r) => r.type === 'EVALUATE').length).toBe(9);
   });
 }
