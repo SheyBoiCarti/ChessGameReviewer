@@ -63,13 +63,6 @@ test('pauses after one completed move, cancels, and ignores a stale evaluation',
     .filter((r): r is Extract<EngineWorkerRequest, { type: 'EVALUATE' }> => r.type === 'EVALUATE')
     .at(-1)!;
   await page.getByRole('button', { name: 'Cancel analysis', exact: true }).click();
-  await engine.deliver({
-    protocolVersion: 1,
-    jobId: pending.jobId,
-    type: 'FAILED',
-    code: 'ABORTED',
-    message: 'Analysis aborted.',
-  });
   await expect(page.getByRole('button', { name: 'Resume analysis' })).toBeVisible();
   await page.locator('.review-summary > summary').click();
   await expect(
