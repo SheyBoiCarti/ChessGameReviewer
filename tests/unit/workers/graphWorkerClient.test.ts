@@ -42,7 +42,7 @@ describe('GraphWorkerClient', () => {
       protocolVersion: 2,
       jobId: request.jobId,
       type: 'COMPLETE',
-      snapshot: { formatVersion: 1 },
+      snapshot: { formatVersion: 2 },
     });
     await expect(build).resolves.toMatchObject({ status: 'complete' });
   });

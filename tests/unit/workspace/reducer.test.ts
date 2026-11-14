@@ -353,7 +353,7 @@ describe('workspace reducer', () => {
       selection: { gameId: 'game-1', positionKey: 'position-1', pathId: 3, ply: 7 },
       graph: {
         status: 'complete' as const,
-        snapshot: { formatVersion: 1 } as never,
+        snapshot: { formatVersion: 2 } as never,
         diagnosticCodes: [],
         error: null,
         scope: 'both' as const,
@@ -465,7 +465,7 @@ describe('workspace reducer', () => {
   });
 
   it('covers graph, selection, preference, and data lifecycle transitions', () => {
-    const snapshot = { rootKey: 'root', formatVersion: 1 } as never;
+    const snapshot = { rootKey: 'root', formatVersion: 2 } as never;
     let state = reduceWorkspace(initialWorkspaceState, { type: 'query/draftChanged', query });
     state = reduceWorkspace(state, { type: 'query/started', query, token: 4 });
     state = reduceWorkspace(state, {
