@@ -111,6 +111,24 @@ test('has no serious or critical axe findings with completed analysis and bounde
   await assertAccessible(page);
 });
 
+test('has no serious or critical axe findings in review under light theme', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await waitForWorkspaceReady(page);
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Evaluation graph' })).toBeVisible();
+  await page.locator('.review-summary > summary').click();
+  await expect(page.getByText('Move breakdown', { exact: true })).toBeVisible();
+  await assertAccessible(page);
+});
+
 async function assertAccessible(page: import('@playwright/test').Page) {
   await page.evaluate(async () => {
     await document.fonts.ready;

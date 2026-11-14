@@ -17,6 +17,10 @@
   --focus-ring: #b9e58b;
   --board-light: #ebecd0;
   --board-dark: #779556;
+  --graph-line: #60a5fa;
+  --graph-point: #60a5fa;
+  --graph-point-active: var(--action-bg);
+  --graph-cursor: var(--action-bg);
 
   /* Legacy aliases for compatibility during phase 1 */
   --accent-gold: var(--action-bg);
@@ -75,6 +79,10 @@
   --focus-ring: #386219;
   --board-light: #ebecd0;
   --board-dark: #779556;
+  --graph-line: #2563eb;
+  --graph-point: #2563eb;
+  --graph-point-active: var(--accent-text);
+  --graph-cursor: var(--accent-text);
 
   /* Legacy aliases for compatibility during phase 1 */
   --accent-gold: var(--action-bg);
@@ -126,6 +134,10 @@
     --focus-ring: #386219;
     --board-light: #ebecd0;
     --board-dark: #779556;
+    --graph-line: #2563eb;
+    --graph-point: #2563eb;
+    --graph-point-active: var(--accent-text);
+    --graph-cursor: var(--accent-text);
 
     /* Legacy aliases for compatibility during phase 1 */
     --accent-gold: var(--action-bg);
@@ -2320,17 +2332,22 @@ li[data-selected='true'] {
 .accuracy-graph {
   width: 100%;
   min-height: 10rem;
-  background: #020617;
-  border: 1px solid var(--border-color);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.accuracy-graph__axis {
+  stroke: var(--border-subtle);
 }
 
 .accuracy-graph polyline {
-  stroke: #60a5fa;
+  stroke: var(--graph-line, #60a5fa);
   stroke-width: 2;
 }
 
 .accuracy-graph__point {
-  fill: #60a5fa;
+  fill: var(--graph-point, #60a5fa);
   pointer-events: none;
 }
 
@@ -2344,15 +2361,20 @@ li[data-selected='true'] {
 }
 
 .accuracy-graph__hit:hover + .accuracy-graph__point,
-.accuracy-graph__hit:focus-visible + .accuracy-graph__point,
 .accuracy-graph__hit[aria-current='step'] + .accuracy-graph__point {
-  fill: var(--accent-gold);
-  stroke: var(--accent-gold);
-  stroke-width: 1px;
+  fill: var(--graph-point-active, var(--accent-gold));
+  stroke: var(--graph-point-active, var(--accent-gold));
+  stroke-width: 1.5px;
+}
+
+.accuracy-graph__hit:focus-visible + .accuracy-graph__point {
+  fill: var(--graph-point-active, var(--accent-gold));
+  stroke: var(--focus-ring);
+  stroke-width: 2px;
 }
 
 .accuracy-graph__cursor {
-  stroke: var(--accent-gold);
+  stroke: var(--graph-cursor, var(--accent-gold));
   stroke-width: 1.5px;
   stroke-dasharray: 4 3;
   pointer-events: none;
@@ -2361,6 +2383,7 @@ li[data-selected='true'] {
 .accuracy-graph__description {
   margin: 0.25rem 0;
   font-size: 0.8rem;
+  color: var(--text-muted);
   overflow-wrap: anywhere;
 }
 
@@ -2844,15 +2867,26 @@ li[data-selected='true'] {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  margin-top: var(--space-3);
-  margin-bottom: var(--space-3);
-  padding: var(--space-4);
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.game-review-summary h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.game-review-summary > .button-secondary {
+  align-self: flex-start;
 }
 
 .game-review-summary__coverage {
   font-size: 0.85rem;
   color: var(--text-muted);
   margin: 0;
+  line-height: 1.4;
 }
 
 .game-review-summary__accuracies {
@@ -2865,17 +2899,24 @@ li[data-selected='true'] {
   display: flex;
   flex-direction: column;
   align-items: center;
+  text-align: center;
   padding: var(--space-3);
   background: var(--surface-raised);
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
+  min-width: 0;
 }
 
 .game-review-summary__player-label {
   font-size: 0.8rem;
+  font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  text-align: center;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
 }
 
 .game-review-summary__player-value {
@@ -2884,19 +2925,37 @@ li[data-selected='true'] {
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
   margin-top: var(--space-1);
+  line-height: 1.2;
 }
 
 .game-review-summary__accuracies--upstream {
-  margin-top: var(--space-2);
+  margin-top: 0;
 }
 
 .game-review-summary__accuracies--upstream .game-review-summary__player-value {
-  font-size: 1.125rem;
+  font-size: 1.25rem;
+}
+
+.game-review-summary__unavailable {
+  color: var(--text-muted);
 }
 
 .game-review-summary__breakdown {
   border-top: 1px solid var(--border-subtle);
   padding-top: var(--space-2);
+}
+
+.game-review-summary__breakdown summary {
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  user-select: none;
+  padding: var(--space-1) 0;
+}
+
+.game-review-summary__breakdown summary:hover {
+  color: var(--text-primary);
 }
 
 .game-review-summary__table-container {
@@ -2933,10 +2992,44 @@ li[data-selected='true'] {
   color: var(--text-primary);
 }
 
+.game-review-summary__quality-label {
+  color: var(--text-primary);
+}
+
 .game-review-summary__count-cell {
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
   font-weight: 600;
+}
+
+.game-review-summary__count-cell button {
+  min-width: 2.25rem;
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: center;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.game-review-summary__count-cell button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.game-review-summary__count-cell button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: transparent;
+}
+
+.game-review-summary__count-cell button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 @media (forced-colors: active) {
@@ -2945,6 +3038,23 @@ li[data-selected='true'] {
   }
   .game-review-summary__accuracy-card {
     border: 1px solid ButtonText;
+  }
+  .accuracy-graph polyline {
+    stroke: CanvasText;
+  }
+  .accuracy-graph__point {
+    fill: CanvasText;
+  }
+  .accuracy-graph__axis {
+    stroke: ButtonBorder;
+  }
+  .accuracy-graph__cursor {
+    stroke: Highlight;
+  }
+  .accuracy-graph__hit:focus-visible + .accuracy-graph__point,
+  .accuracy-graph__hit[aria-current='step'] + .accuracy-graph__point {
+    fill: Highlight;
+    stroke: Highlight;
   }
 }
 

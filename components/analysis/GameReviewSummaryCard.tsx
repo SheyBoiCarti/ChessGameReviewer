@@ -50,7 +50,7 @@ export function GameReviewSummaryCard({
     (typeof upstreamAccuracies.white === 'number' || typeof upstreamAccuracies.black === 'number');
 
   return (
-    <section className="game-review-summary surface-panel" aria-labelledby="game-review-heading">
+    <section className="game-review-summary" aria-labelledby="game-review-heading">
       <h3 id="game-review-heading">Game Review Summary</h3>
       {onStartReview ? (
         <button type="button" className="button-secondary" onClick={onStartReview}>
@@ -155,10 +155,10 @@ export function GameReviewSummaryCard({
 function formatEstimate(value: number | null): React.ReactNode {
   if (value === null) {
     return (
-      <>
+      <span className="game-review-summary__unavailable">
         <span aria-hidden="true">—</span>
         <span className="visually-hidden">Unavailable</span>
-      </>
+      </span>
     );
   }
   return `${value.toFixed(1)}%`;

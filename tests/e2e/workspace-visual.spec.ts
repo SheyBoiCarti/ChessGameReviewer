@@ -75,6 +75,23 @@ test.describe('workspace visual regression', () => {
 
     await expect(page).toHaveScreenshot('mobile-workspace.png', screenshotOptions(page));
   });
+
+  test('review light theme', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'light' });
+    await installWorkspaceFixtures(page);
+    await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+    await page.goto('/?engine=single');
+    await loadFixtureGames(page);
+    await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+    await page.getByRole('button', { name: 'Review', exact: true }).click();
+    await page.getByRole('button', { name: /Run review/ }).click();
+    await expect(page.getByText('Review complete', { exact: true })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByRole('group', { name: 'Evaluation graph' })).toBeVisible();
+    await waitForStableLayout(page, 'light');
+    await expect(page).toHaveScreenshot('review-light.png', screenshotOptions(page));
+  });
 });
 
 function screenshotOptions(page?: Page) {
@@ -90,7 +107,7 @@ function dynamicDateCells(page: Page): Locator[] {
   return [page.locator('.game-card__heading > span')];
 }
 
-async function waitForStableLayout(page: Page) {
+async function waitForStableLayout(page: Page, theme: 'dark' | 'light' = 'dark') {
   await page.waitForFunction(() => {
     if (document.documentElement.dataset.theme === undefined) return false;
     const params = new URL(location.href).searchParams;
@@ -104,7 +121,7 @@ async function waitForStableLayout(page: Page) {
       saved.reviewMode === params.get('mode')
     );
   });
-  await page.locator('html').evaluate((root) => root.setAttribute('data-theme', 'dark'));
+  await page.locator('html').evaluate((root, t) => root.setAttribute('data-theme', t), theme);
   await page.evaluate(async () => {
     window.scrollTo(0, 0);
     await document.fonts.ready;

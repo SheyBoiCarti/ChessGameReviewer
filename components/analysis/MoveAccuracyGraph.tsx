@@ -82,11 +82,11 @@ export function MoveAccuracyGraph({
         }}
       >
         <line
+          className="accuracy-graph__axis"
           x1="0"
           y1="24"
           x2="100"
           y2="24"
-          stroke="rgba(255, 255, 255, 0.15)"
           strokeDasharray="2 2"
           strokeWidth="0.5"
         />
