@@ -760,6 +760,8 @@ export function ChessWorkspace({
                     }
                     onSelectPly={handlePlyChange}
                     hasAnnotations={Boolean(state.analysis.result?.annotations.length)}
+                    showingPrevious={state.analysis.showingPrevious}
+                    previousStrength={state.analysis.previousStrength}
                   />
                 ) : null
               }
@@ -992,6 +994,8 @@ export function ChessWorkspace({
                         capability={state.analysis.capability}
                         status={state.analysis.status}
                         result={state.analysis.result}
+                        showingPrevious={state.analysis.showingPrevious}
+                        previousStrength={state.analysis.previousStrength}
                         progress={state.analysis.progress}
                         strength={state.preferences.analysisStrength}
                         upstreamAccuracies={selectedRecord.accuracies}

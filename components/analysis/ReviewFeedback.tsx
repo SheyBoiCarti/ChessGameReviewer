@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { Chess } from 'chess.js';
 
 import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
+import type { AnalysisStrength } from '@/features/workspace/types';
 import type { GameAnnotation } from '@/features/stockfish-analysis/analyzeGame';
 import { moveQualityDetails } from '@/features/stockfish-analysis/presentation';
 
@@ -14,6 +15,8 @@ export interface ReviewFeedbackProps {
   nextMistake: number | null;
   onSelectPly(ply: number): void;
   hasAnnotations: boolean;
+  showingPrevious?: boolean | undefined;
+  previousStrength?: AnalysisStrength | null | undefined;
 }
 
 function convertUciToSan(fen: string | undefined, uci: string | undefined): string | null {
@@ -40,6 +43,8 @@ export function ReviewFeedback({
   nextMistake,
   onSelectPly,
   hasAnnotations,
+  showingPrevious = false,
+  previousStrength,
 }: ReviewFeedbackProps) {
   const bestSan = useMemo(() => {
     if (!annotation?.before?.bestMove) return null;
@@ -73,6 +78,7 @@ export function ReviewFeedback({
         <summary className="review-feedback__header">
           {quality ? <MoveClassificationBadge quality={quality} size="inline" ariaHidden /> : null}
           <span className="review-feedback__title">
+            {showingPrevious ? `Previous ${previousStrength ?? 'saved'} review · ` : ''}
             {isClassified ? `${annotation.san} — ${qualityLabel}` : 'Move quality unavailable'}
           </span>
         </summary>

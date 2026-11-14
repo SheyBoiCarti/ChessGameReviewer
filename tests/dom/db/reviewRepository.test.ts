@@ -36,6 +36,19 @@ describe('saved game reviews', () => {
     expect(await restoreReviews(db, [{ ...game, pgn: '1. d4 d5' }], 'quick')).toEqual({});
   });
 
+  it('retains the last complete review after a cancelled rerun', async () => {
+    await saveReview(db, game, 'quick', { ...review, status: 'complete' });
+    await saveReview(db, game, 'quick', review);
+    expect((await restoreSelected(db, game, 'quick'))?.status).toBe('complete');
+  });
+
+  it('does not let an invalidated writer overwrite a newer saved review', async () => {
+    const complete = { ...review, status: 'complete' as const };
+    await saveReview(db, game, 'quick', complete);
+    await saveReview(db, game, 'quick', review, () => false);
+    expect(await restoreSelected(db, game, 'quick')).toEqual(complete);
+  });
+
   it('reads only the selected review and preserves content and preset isolation', async () => {
     await saveReview(db, game, 'balanced', review);
     await saveReview(db, { ...game, id: 'other' }, 'balanced', { ...review, status: 'complete' });

@@ -44,6 +44,8 @@ export interface AnalyzerWorkspaceProps {
     | 'failed'
     | 'complete';
   result: GameAnalysisResult | null;
+  showingPrevious?: boolean | undefined;
+  previousStrength?: AnalysisStrength | null | undefined;
   progress: { analyzedPlies: number; totalPlies: number } | null;
   strength: AnalysisStrength;
   onStrengthChange(value: AnalysisStrength): void;
@@ -68,6 +70,8 @@ export function AnalyzerWorkspace({
   capability,
   status,
   result,
+  showingPrevious = false,
+  previousStrength,
   progress,
   strength,
   onStrengthChange,
@@ -81,7 +85,7 @@ export function AnalyzerWorkspace({
   upstreamAccuracies,
   onExplorePv,
 }: AnalyzerWorkspaceProps) {
-  const preset = analysisPreset(strength);
+  const preset = result?.annotations[0]?.settings ?? analysisPreset(strength);
   const limitLabel = preset.limit.depth
     ? `Depth ${preset.limit.depth}`
     : `${preset.limit.movetimeMs ?? 0} ms per position`;
@@ -211,6 +215,9 @@ export function AnalyzerWorkspace({
         </div>
       </div>
 
+      {showingPrevious ? (
+        <p className="analysis-coverage-notice">Previous {previousStrength ?? 'saved'} review.</p>
+      ) : null}
       {unavailable ? (
         <p className="analysis-coverage-notice">Playback and Openings remain available.</p>
       ) : null}
@@ -232,7 +239,7 @@ export function AnalyzerWorkspace({
           </progress>
         ) : null}
       </div>
-      {(status === 'partial' || status === 'cancelled') && result ? (
+      {(status === 'partial' || status === 'cancelled') && result && !showingPrevious ? (
         <p className="analysis-coverage-notice">
           Coverage: {result.analyzedPlies} of {result.totalPlies} eligible plies
         </p>
@@ -255,6 +262,8 @@ export function AnalyzerWorkspace({
               nextMistake={nextMistake}
               onSelectPly={handleSelectPly}
               hasAnnotations={hasResults}
+              showingPrevious={showingPrevious}
+              previousStrength={previousStrength}
             />
           ) : null}
           <AnalysisMoveList

@@ -55,6 +55,22 @@ function createMockAnnotation(
 }
 
 describe('ReviewFeedback', () => {
+  it('labels a retained previous preset next to the move feedback', () => {
+    render(
+      <ReviewFeedback
+        annotation={createMockAnnotation(1, 'e4', 'best')}
+        selectedPly={1}
+        nextMistake={null}
+        onSelectPly={vi.fn()}
+        hasAnnotations
+        showingPrevious
+        previousStrength="balanced"
+      />
+    );
+    expect(screen.getByRole('region', { name: 'Selected move feedback' })).toHaveTextContent(
+      'Previous balanced review · e4'
+    );
+  });
   it('displays "Select a move to review it." at ply 0', () => {
     render(
       <ReviewFeedback
