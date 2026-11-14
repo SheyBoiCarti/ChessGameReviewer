@@ -1,9 +1,26 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { GameRecord } from '@/lib/db/schema';
 import { extractPgnPlayers } from '@/lib/chess/pgnHeaders';
+
+export type GameListSort = 'newest' | 'oldest' | 'rating';
+
+/** List presentation state owned above GameSelector's mount lifetime (T26). */
+export interface GameListState {
+  filter: string;
+  sort: GameListSort;
+  page: number;
+  scrollTop: number;
+}
+
+export const defaultGameListState: GameListState = {
+  filter: '',
+  sort: 'newest',
+  page: 1,
+  scrollTop: 0,
+};
 
 export function GameSelector({
   games,
@@ -13,6 +30,8 @@ export function GameSelector({
   analysisStatus = {},
   hasLoaded = false,
   reviewDisabledReason,
+  listState: controlledListState,
+  onListStateChange,
 }: {
   games: readonly GameRecord[];
   selectedGameId: string | null;
@@ -21,61 +40,90 @@ export function GameSelector({
   analysisStatus?: Readonly<Record<string, string>>;
   hasLoaded?: boolean;
   reviewDisabledReason?: string | undefined;
+  listState?: GameListState | undefined;
+  onListStateChange?: ((next: GameListState) => void) | undefined;
 }) {
-  const [filter, setFilter] = useState('');
-  const [sort, setSort] = useState<'newest' | 'oldest' | 'rating'>('newest');
+  const controlled = controlledListState !== undefined && onListStateChange !== undefined;
+  const [internalListState, setInternalListState] = useState<GameListState>(defaultGameListState);
+  const listState = controlled ? controlledListState! : internalListState;
+  const listStateRef = useRef(listState);
+  listStateRef.current = listState;
+  const onListStateChangeRef = useRef(onListStateChange);
+  onListStateChangeRef.current = onListStateChange;
 
-  const rows = useMemo(() => {
-    const needle = filter.trim().toLowerCase();
-    return games
-      .map((game) => ({ game, opponent: opponentName(game) }))
-      .filter(({ opponent }) => !needle || opponent.toLowerCase().includes(needle))
-      .sort((left, right) => {
-        if (sort === 'oldest') return left.game.endedAt - right.game.endedAt;
-        if (sort === 'rating')
-          return (right.game.opponentRating ?? -1) - (left.game.opponentRating ?? -1);
-        return right.game.endedAt - left.game.endedAt;
-      });
-  }, [filter, games, sort]);
+  const updateListState = (patch: Partial<GameListState>) => {
+    const next = { ...listStateRef.current, ...patch };
+    if (controlled) onListStateChange!(next);
+    else setInternalListState(next);
+  };
+
+  const viewportRef = useRef<HTMLDivElement>(null);
+  // React detaches refs before unmount cleanups, so scroll is tracked on the event
+  // and persisted once when the selector leaves the DOM (T26).
+  const lastScrollRef = useRef(listState.scrollTop);
+  useEffect(() => {
+    return () => {
+      const save = onListStateChangeRef.current;
+      if (save) {
+        save({ ...listStateRef.current, scrollTop: lastScrollRef.current });
+      }
+    };
+  }, []);
+
+  const rows = useMemo(() => rowsOf(games, listState), [games, listState]);
+  const hasRows = rows.length > 0;
+  // Restore the saved scroll once matching rows exist again.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    if (viewport.scrollTop !== listState.scrollTop) {
+      viewport.scrollTop = listState.scrollTop;
+    }
+    lastScrollRef.current = listState.scrollTop;
+  }, [listState.scrollTop, hasRows]);
 
   const selectedGame = useMemo(
     () => (selectedGameId ? (games.find((g) => g.id === selectedGameId) ?? null) : null),
     [games, selectedGameId]
   );
 
+  // The selected game remains selected even when a filter omits it; its preview explains
+  // that it is outside this filter instead of silently replacing the selection (T26).
   const isSelectedInRows = rows.some(({ game }) => game.id === selectedGameId);
-  const visibleSelectedGame = isSelectedInRows ? selectedGame : null;
-
-  useEffect(() => {
-    if (filter.trim() && rows.length > 0) {
-      const isSelected = rows.some(({ game }) => game.id === selectedGameId);
-      if (!isSelected && rows[0]) {
-        onSelect(rows[0].game.id);
-      }
-    }
-  }, [filter, rows, selectedGameId, onSelect]);
 
   return (
     <section className="game-selector surface-panel" aria-labelledby="game-selector-heading">
       <div className="game-selector-header">
         <h3 id="game-selector-heading">
-          Games ({filter.trim() ? `${rows.length} of ${games.length}` : games.length})
+          Games ({listState.filter.trim() ? `${rows.length} of ${games.length}` : games.length})
         </h3>
       </div>
       <div className="game-selector-controls">
         <label>
           Filter games
           <input
-            value={filter}
-            onChange={(event) => setFilter(event.currentTarget.value)}
+            value={listState.filter}
+            onChange={(event) =>
+              updateListState({
+                filter: event.currentTarget.value,
+                page: 1,
+                scrollTop: 0,
+              })
+            }
             placeholder="Opponent name"
           />
         </label>
         <label>
           Sort games
           <select
-            value={sort}
-            onChange={(event) => setSort(event.currentTarget.value as typeof sort)}
+            value={listState.sort}
+            onChange={(event) =>
+              updateListState({
+                sort: event.currentTarget.value as GameListSort,
+                page: 1,
+                scrollTop: 0,
+              })
+            }
           >
             <option value="newest">Newest first</option>
             <option value="oldest">Oldest first</option>
@@ -83,18 +131,21 @@ export function GameSelector({
           </select>
         </label>
       </div>
-      {visibleSelectedGame && onReview ? (
+      {selectedGame && onReview ? (
         <div className="game-selector-selected-bar">
           <div
             className="selected-game-detail"
-            title={`${playerName(visibleSelectedGame, 'white')} (${playerRating(visibleSelectedGame, 'white')}) vs ${playerName(visibleSelectedGame, 'black')} (${playerRating(visibleSelectedGame, 'black')})`}
+            title={`${playerName(selectedGame, 'white')} (${playerRating(selectedGame, 'white')}) vs ${playerName(selectedGame, 'black')} (${playerRating(selectedGame, 'black')})`}
           >
             <span className="selected-game-matchup">
-              {playerName(visibleSelectedGame, 'white')} (
-              {playerRating(visibleSelectedGame, 'white')}) vs{' '}
-              {playerName(visibleSelectedGame, 'black')} (
-              {playerRating(visibleSelectedGame, 'black')})
+              {playerName(selectedGame, 'white')} ({playerRating(selectedGame, 'white')}) vs{' '}
+              {playerName(selectedGame, 'black')} ({playerRating(selectedGame, 'black')})
             </span>
+            {!isSelectedInRows ? (
+              <p className="selected-game-outside-filter" role="status">
+                Selected game is outside this filter.
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
@@ -102,7 +153,7 @@ export function GameSelector({
             disabled={Boolean(reviewDisabledReason)}
             onClick={() => {
               if (!reviewDisabledReason) {
-                onReview(visibleSelectedGame.id);
+                onReview(selectedGame.id);
               }
             }}
           >
@@ -123,10 +174,14 @@ export function GameSelector({
         </p>
       ) : (
         <div
+          ref={viewportRef}
           className="result-viewport game-results"
           role="region"
           aria-label="Game results"
           tabIndex={0}
+          onScroll={(event) => {
+            lastScrollRef.current = event.currentTarget.scrollTop;
+          }}
         >
           <ul className="game-card-list" aria-label="Games">
             {rows.map(({ game, opponent }) => (
@@ -145,6 +200,19 @@ export function GameSelector({
       )}
     </section>
   );
+}
+
+function rowsOf(games: readonly GameRecord[], listState: GameListState) {
+  const needle = listState.filter.trim().toLowerCase();
+  return games
+    .map((game) => ({ game, opponent: opponentName(game) }))
+    .filter(({ opponent }) => !needle || opponent.toLowerCase().includes(needle))
+    .sort((left, right) => {
+      if (listState.sort === 'oldest') return left.game.endedAt - right.game.endedAt;
+      if (listState.sort === 'rating')
+        return (right.game.opponentRating ?? -1) - (left.game.opponentRating ?? -1);
+      return right.game.endedAt - left.game.endedAt;
+    });
 }
 
 function GameButton({

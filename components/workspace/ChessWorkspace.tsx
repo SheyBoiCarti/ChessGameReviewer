@@ -2,10 +2,10 @@
 
 import { selectMovePresentation } from '@/features/stockfish-analysis/presentation';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, type JSX } from 'react';
 import type { Square } from 'chess.js';
 
-import { GameSelector } from '@/components/analysis/GameSelector';
+import { GameSelector, defaultGameListState, type GameListState } from '@/components/analysis/GameSelector';
 import { VariationSandboxBanner } from '@/components/analysis/VariationSandboxBanner';
 import { ChessboardView, type MoveHistoryModel } from '@/components/board/ChessboardView';
 import { GameQueryForm } from '@/components/controls/GameQueryForm';
@@ -87,6 +87,25 @@ export function ChessWorkspace({
     returnPositionKey: string;
     returnPathId: number;
   } | null>(null);
+  // T26: list presentation state is owned above GameSelector's mount lifetime, keyed by
+  // the canonical import query, so Review returns retain filter/sort/page/scroll.
+  const listStateStoreRef = useRef(new Map<string, GameListState>());
+  const listStateKey = canonicalQueryKey(
+    state.query.active ?? recentQuery ?? state.query.draft
+  );
+  const [listState, setListState] = useState<GameListState>(
+    () => listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState }
+  );
+  useEffect(() => {
+    setListState(listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState });
+  }, [listStateKey]);
+  const handleListStateChange = useCallback(
+    (next: GameListState) => {
+      listStateStoreRef.current.set(listStateKey, next);
+      setListState(next);
+    },
+    [listStateKey]
+  );
   useEffect(() => {
     if (recoveredSession) {
       setTab(recoveredSession.tab);
@@ -881,6 +900,8 @@ export function ChessWorkspace({
                         <GameSelector
                           games={state.ingestion.result?.games ?? []}
                           selectedGameId={state.selection.gameId}
+                          listState={listState}
+                          onListStateChange={handleListStateChange}
                           onSelect={(gameId) => {
                             controller.selectGame(gameId);
                             setVariation(null);
@@ -1257,6 +1278,28 @@ function uciArrow(uci: string | undefined): { from: Square; to: Square } | undef
   return uci && /^[a-h][1-8][a-h][1-8]/.test(uci)
     ? { from: uci.slice(0, 2) as Square, to: uci.slice(2, 4) as Square }
     : undefined;
+}
+
+/** Stable list-state owner key per canonical import query (T26). */
+function canonicalQueryKey(query: {
+  username: string;
+  dateFrom?: string | undefined;
+  dateTo?: string | undefined;
+  maxGames?: number | undefined;
+  timeClasses?: readonly string[] | undefined;
+  colors?: readonly string[] | undefined;
+  rated?: boolean | undefined;
+} | null): string {
+  if (!query) return 'no-query';
+  return JSON.stringify([
+    query.username.toLowerCase(),
+    query.dateFrom ?? '',
+    query.dateTo ?? '',
+    query.maxGames ?? null,
+    [...(query.timeClasses ?? [])].sort(),
+    [...(query.colors ?? [])].sort(),
+    query.rated ?? null,
+  ]);
 }
 
 function EmptyWorkspace({ message }: { message: string }) {

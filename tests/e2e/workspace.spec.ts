@@ -75,6 +75,32 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
   await expect(page.getByText('No stored usernames were found.')).toBeVisible();
 });
 
+test('retains the list filter and selection across review navigation (T26)', async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /opponent-one/i }).click();
+  const filter = page.getByLabel('Filter games');
+  await filter.fill('opponent-two');
+  await expect(page.getByRole('heading', { level: 3, name: /games \(1 of 2\)/i })).toBeVisible();
+  // Typing a filter must not silently replace the selected game.
+  await expect(page.getByText('Selected game is outside this filter.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Review game' }).click();
+  await expect(page.getByRole('button', { name: 'Back to games' })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to games' }).click();
+
+  // Returning from Review retains the filter, and the original selection is stable.
+  await expect(filter).toHaveValue('opponent-two');
+  await expect(page.getByRole('heading', { level: 3, name: /games \(1 of 2\)/i })).toBeVisible();
+  await expect(page.getByText('Selected game is outside this filter.')).toBeVisible();
+
+  // Typing another opponent leaves the original selection stable until a card action.
+  await filter.fill('opponent-one');
+  await expect(page.getByRole('heading', { level: 3, name: /games \(1 of 2\)/i })).toBeVisible();
+  await expect(page.getByText('Selected game is outside this filter.')).toHaveCount(0);
+});
+
 test('supports interactive board moves, variation sandbox, and unobserved opening notices', async ({
   page,
 }) => {
