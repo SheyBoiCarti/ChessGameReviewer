@@ -6,8 +6,10 @@ import { Chess } from 'chess.js';
 import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
 import type { AnalysisStrength } from '@/features/workspace/types';
 import type { GameAnnotation } from '@/features/stockfish-analysis/analyzeGame';
+import { explainMove } from '@/features/stockfish-analysis/moveExplanation';
 import { whiteCentipawnDelta } from '@/lib/engine/evaluation';
 import {
+  convertPvToSan,
   moveNotation,
   toGraphPoints,
   moveQualityDetails,
@@ -77,6 +79,8 @@ export function ReviewFeedback({
   const quality =
     annotation.accuracy.status === 'classified' ? annotation.accuracy.quality : undefined;
   const isClassified = Boolean(quality);
+  const explanation = startFen ? explainMove(startFen, annotation.uci) : null;
+  const continuation = startFen ? convertPvToSan(startFen, annotation.before.pv) : null;
   const qualityLabel = quality ? moveQualityDetails(quality).label : 'Move quality unavailable';
 
   return (
@@ -96,7 +100,11 @@ export function ReviewFeedback({
             ? moveQualityDetails(quality).description
             : 'The available scores do not support a reliable move grade.'}
         </p>
+        {explanation ? <p>{explanation}</p> : null}
         <EvaluationComparison annotation={annotation} />
+        {continuation && continuation.moves.length > 0 && !continuation.diagnostic ? (
+          <p>Engine continuation: {continuation.moves.join(' ')}</p>
+        ) : null}
         <p className="review-feedback__best-move">
           Best move: {bestSan ?? 'Best move unavailable'}
         </p>

@@ -2,6 +2,7 @@ import { Chess } from 'chess.js';
 
 import type { ParsedGame } from '@/lib/chess/pgnParser';
 import type { GameAnnotation, GameAnalysisResult } from './analyzeGame';
+import { explainMove } from './moveExplanation';
 import type { AnalysisStrength } from '@/features/workspace/types';
 import type { MoveAccuracy, MoveQuality } from '@/lib/engine/accuracy';
 import {
@@ -215,6 +216,7 @@ export type SelectedMovePresentation =
     })
   | (SelectedMoveBase & {
       state: 'ready';
+      explanation: string | null;
       annotation: GameAnnotation;
       quality: MoveQuality | 'indeterminate';
       beforeScore: EvaluationScore;
@@ -270,6 +272,7 @@ export function selectMovePresentation(
   return {
     ...base,
     state: 'ready',
+    explanation: explainMove(move.fenBefore, move.uci),
     annotation,
     quality:
       annotation.accuracy.status === 'classified' ? annotation.accuracy.quality : 'indeterminate',
