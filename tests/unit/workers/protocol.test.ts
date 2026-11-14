@@ -6,6 +6,10 @@ import { describe, expect, it } from 'vitest';
 import { isWorkerRequest, PROTOCOL_VERSION } from '@/workers/protocol';
 
 describe('analysis worker protocol validation', () => {
+  it('rejects the legacy data protocol', () => {
+    expect(PROTOCOL_VERSION).toBe(2);
+    expect(isWorkerRequest({ protocolVersion: 1, jobId: 'old', type: 'CANCEL_JOB' })).toBe(false);
+  });
   it('accepts a versioned BUILD_GRAPH request and rejects malformed messages', () => {
     expect(
       isWorkerRequest({

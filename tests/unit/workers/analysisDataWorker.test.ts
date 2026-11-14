@@ -33,6 +33,28 @@ function parsed(id: string, pgn: string): ParsedGame {
 }
 
 describe('analysis data worker', () => {
+  it('indexes only successfully included games, including repeated positions and prefixes', async () => {
+    const repeated = parsed('c-repeat', '1. Nf3 Nf6 2. Ng1 Ng8 3. Nf3 Nf6 1-0');
+    const zero = { ...repeated, id: 'a-zero', plies: [] };
+    const inconsistent = {
+      ...repeated,
+      id: 'b-broken',
+      plies: repeated.plies.map((ply, index) =>
+        index === 1 ? { ...ply, fenBefore: 'broken' } : ply
+      ),
+    };
+    const fit = await buildGraphWithinByteBudget(
+      [zero, inconsistent, repeated],
+      { maxOpeningPlies: 6, includeRepeatedPositions: false },
+      { queryFingerprint: 'members', sourceGameCount: 3, excludedGameCount: 0, buildTimestamp: 1 }
+    );
+    expect(fit.snapshot.includedGameIds).toEqual(['c-repeat']);
+    expect(fit.snapshot.excludedGameCount).toBe(2);
+    expect(new Map(fit.snapshot.positionGameIds).get(fit.snapshot.rootKey)).toEqual(['c-repeat']);
+    expect(new Map(fit.snapshot.prefixGameIds).get(4)).toEqual(['c-repeat']);
+    expect(fit.snapshot.formatVersion).toBe(2);
+  });
+
   it('accepts a serialized graph at its exact byte limit', async () => {
     const games = [parsed('one', '1. e4 e5 1-0')];
     const metadata = {
@@ -56,6 +78,7 @@ describe('analysis data worker', () => {
     );
 
     expect(exact.status).toBe('complete');
+    expect(exact.snapshot.includedGameIds).toEqual(['one']);
   });
 
   it('returns a valid zero-game graph when one game exceeds the byte budget', async () => {
@@ -90,6 +113,11 @@ describe('analysis data worker', () => {
       remainingGameCount: 1,
     });
     expect(result.snapshot.positions.some(({ key }) => key === result.snapshot.rootKey)).toBe(true);
+    expect(result.snapshot.includedGameIds).toHaveLength(result.includedGameCount);
+    expect(new Set(result.snapshot.includedGameIds).size).toBe(result.includedGameCount);
+    expect(result.snapshot.sourceGameCount).toBe(
+      result.includedGameCount + result.remainingGameCount + result.snapshot.excludedGameCount
+    );
     expect(serializedGraphByteSize(result.snapshot)).toBeLessThanOrEqual(maxBytes);
   });
 
@@ -133,6 +161,11 @@ describe('analysis data worker', () => {
       includedGameCount: 2,
       remainingGameCount: 1,
     });
+    expect(result.snapshot.includedGameIds).toHaveLength(result.includedGameCount);
+    expect(new Set(result.snapshot.includedGameIds).size).toBe(result.includedGameCount);
+    expect(result.snapshot.sourceGameCount).toBe(
+      result.includedGameCount + result.remainingGameCount + result.snapshot.excludedGameCount
+    );
     expect(serializedGraphByteSize(result.snapshot)).toBeLessThanOrEqual(maxBytes);
     expect(serializedGraphByteSize(threeSnapshot)).toBeGreaterThan(maxBytes);
   });
@@ -187,7 +220,7 @@ describe('analysis data worker', () => {
     const responses: Array<Record<string, unknown>> = [];
     await handleRequest(
       {
-        protocolVersion: 1,
+        protocolVersion: 2,
         jobId: 'validate-pgns',
         type: 'VALIDATE_PGNS',
         games: [
@@ -215,7 +248,7 @@ describe('analysis data worker', () => {
     const responses: Array<Record<string, unknown>> = [];
     await handleRequest(
       {
-        protocolVersion: 1,
+        protocolVersion: 2,
         jobId: 'bounded-validation',
         type: 'VALIDATE_PGNS',
         games: Array.from({ length: 105 }, (_, index) =>
@@ -237,7 +270,7 @@ describe('analysis data worker', () => {
     const responses: Array<{ type: string }> = [];
     const validation = handleRequest(
       {
-        protocolVersion: 1,
+        protocolVersion: 2,
         jobId: 'cancel-validation',
         type: 'VALIDATE_PGNS',
         games: Array.from({ length: 100 }, (_, index) => game({ id: `validation-${index}` })),
@@ -246,7 +279,7 @@ describe('analysis data worker', () => {
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
     await handleRequest(
-      { protocolVersion: 1, jobId: 'cancel-validation', type: 'CANCEL_JOB' },
+      { protocolVersion: 2, jobId: 'cancel-validation', type: 'CANCEL_JOB' },
       () => undefined
     );
     await validation;
@@ -259,7 +292,7 @@ describe('analysis data worker', () => {
     const responses: Array<{ type: string; builtCount?: number }> = [];
     await handleRequest(
       {
-        protocolVersion: 1,
+        protocolVersion: 2,
         jobId: 'job',
         type: 'BUILD_GRAPH',
         games: [],
@@ -278,7 +311,7 @@ describe('analysis data worker', () => {
     const responses: Array<{ type: string }> = [];
     const build = handleRequest(
       {
-        protocolVersion: 1,
+        protocolVersion: 2,
         jobId: 'cancel-me',
         type: 'BUILD_GRAPH',
         games: Array.from({ length: 100 }, (_, index) => game({ id: `fixture-${index}` })),
@@ -289,7 +322,7 @@ describe('analysis data worker', () => {
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
     await handleRequest(
-      { protocolVersion: 1, jobId: 'cancel-me', type: 'CANCEL_JOB' },
+      { protocolVersion: 2, jobId: 'cancel-me', type: 'CANCEL_JOB' },
       () => undefined
     );
     await build;
@@ -301,12 +334,12 @@ describe('analysis data worker', () => {
   it('cancels a job that was cancelled before it starts', async () => {
     const responses: Array<{ type: string }> = [];
     await handleRequest(
-      { protocolVersion: 1, jobId: 'cancel-before-start', type: 'CANCEL_JOB' },
+      { protocolVersion: 2, jobId: 'cancel-before-start', type: 'CANCEL_JOB' },
       () => undefined
     );
     await handleRequest(
       {
-        protocolVersion: 1,
+        protocolVersion: 2,
         jobId: 'cancel-before-start',
         type: 'BUILD_GRAPH',
         games: [game()],
@@ -323,7 +356,7 @@ describe('analysis data worker', () => {
     const responses: Array<Record<string, unknown>> = [];
     await handleRequest(
       {
-        protocolVersion: 1,
+        protocolVersion: 2,
         jobId: 'invalid-horizon',
         type: 'BUILD_GRAPH',
         games: [game()],
@@ -334,7 +367,7 @@ describe('analysis data worker', () => {
     );
 
     expect(responses.at(-1)).toEqual({
-      protocolVersion: 1,
+      protocolVersion: 2,
       jobId: 'invalid-horizon',
       type: 'FAILED',
       code: 'GRAPH_BUILD_FAILED',
@@ -352,7 +385,7 @@ describe('analysis data worker', () => {
     try {
       await handleRequest(
         {
-          protocolVersion: 1,
+          protocolVersion: 2,
           jobId: 'throttle-progress',
           type: 'BUILD_GRAPH',
           games: Array.from({ length: 100 }, (_, index) => game({ id: `throttle-${index}` })),
@@ -391,7 +424,7 @@ describe('analysis data worker', () => {
     const responses: Array<Record<string, unknown>> = [];
     await handleRequest(
       {
-        protocolVersion: 1,
+        protocolVersion: 2,
         jobId: 'parse-in-worker',
         type: 'BUILD_GRAPH',
         games: [game({ id: 'bad-pgn', pgn: '1. e4 e5 2. NotAMove' }), game()],

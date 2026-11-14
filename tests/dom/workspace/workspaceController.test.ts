@@ -152,7 +152,11 @@ describe('workspace controller', () => {
     slowWhite.resolve({
       status: 'complete',
       snapshot: {
-        formatVersion: 1,
+        formatVersion: 2,
+        rootFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        includedGameIds: [],
+        positionGameIds: [],
+        prefixGameIds: [],
         queryFingerprint: 'fp-1',
         sourceGameCount: 1,
         excludedGameCount: 0,
@@ -895,7 +899,11 @@ function createServices(
       build: async (_games, options, fingerprint) => ({
         status: 'complete',
         snapshot: {
-          formatVersion: 1,
+          formatVersion: 2,
+          rootFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          includedGameIds: [],
+          positionGameIds: [],
+          prefixGameIds: [],
           queryFingerprint: fingerprint,
           sourceGameCount: 1,
           excludedGameCount: 0,

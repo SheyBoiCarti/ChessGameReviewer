@@ -19,9 +19,13 @@ export interface OpeningGraphSnapshot {
   paths: PathStore;
   openingHorizon: number;
   includedGameCount: number;
+  includedGameIds: string[];
+  positionGameIds: Map<string, string[]>;
+  prefixGameIds: Map<number, string[]>;
+  excludedGameCount: number;
   remainingGameCount: number;
   /** Full six-field FEN of the root from the first canonical included source game. */
-  rootFen?: string;
+  rootFen: string;
   reachedLimit?: keyof GraphStructuralLimits | 'maxSnapshotBytes';
 }
 
@@ -38,6 +42,10 @@ interface BuildState {
   rootFen: string | undefined;
   edgeCount: number;
   includedGameCount: number;
+  includedGameIds: string[];
+  positionGameIds: Map<string, string[]>;
+  prefixGameIds: Map<number, string[]>;
+  excludedGameCount: number;
 }
 
 export class OpeningGraphBuilder {
@@ -119,12 +127,22 @@ export class OpeningGraphBuilder {
     state: BuildState,
     game: ParsedGame | undefined
   ): keyof GraphStructuralLimits | undefined {
-    if (!game || game.plies.length === 0 || !isContinuous(game)) return undefined;
+    const skip = () => {
+      state.excludedGameCount += 1;
+      return undefined;
+    };
+    if (
+      !game ||
+      game.plies.length === 0 ||
+      !isContinuous(game) ||
+      state.includedGameIds.includes(game.id)
+    )
+      return skip();
     const firstPly = game.plies[0];
-    if (!firstPly) return undefined;
+    if (!firstPly) return skip();
     const rootKey = state.root?.key ?? firstPly.positionBefore;
-    if (state.root && firstPly.positionBefore !== state.root.key) return undefined;
-    if (!hasConsistentExistingEdges(game, state.positions)) return undefined;
+    if (state.root && firstPly.positionBefore !== state.root.key) return skip();
+    if (!hasConsistentExistingEdges(game, state.positions)) return skip();
 
     const plies = game.plies.slice(0, this.options.maxOpeningPlies);
     const additions = countAdditions(plies, state.positions, state.paths, rootKey);
@@ -154,6 +172,7 @@ export class OpeningGraphBuilder {
     const visitedEdges = new Set<string>();
     let source = state.root;
     let pathId = 0;
+    const playedPrefixes = [0];
     for (const ply of plies) {
       const target =
         state.positions.get(ply.positionAfter) ??
@@ -167,6 +186,7 @@ export class OpeningGraphBuilder {
       if (edge.targetKey !== target.key || edge.san !== ply.san)
         throw new Error('INCONSISTENT_EDGE');
       pathId = state.paths.intern(pathId, ply.uci, ply.san);
+      playedPrefixes.push(pathId);
       const edgeKey = `${source.key}\u0000${ply.uci}`;
       if (!visitedEdges.has(edgeKey)) {
         addVisit(edge.aggregate, visit);
@@ -175,8 +195,8 @@ export class OpeningGraphBuilder {
       const firstVisit = !visitedPositions.has(target.key);
       if (this.options.includeRepeatedPositions || firstVisit) {
         addVisit(target.aggregate, visit);
-        visitedPositions.add(target.key);
       }
+      visitedPositions.add(target.key);
       // Every played prefix is observed evidence, including a return to a
       // previously counted position. The repetition policy only affects the
       // position aggregate; it must not hide exact-line membership.
@@ -185,6 +205,17 @@ export class OpeningGraphBuilder {
       target.arrivalsByPath.set(pathId, arrival);
       source = target;
     }
+    for (const key of visitedPositions) {
+      const ids = state.positionGameIds.get(key) ?? [];
+      ids.push(game.id);
+      state.positionGameIds.set(key, ids);
+    }
+    for (const id of playedPrefixes) {
+      const ids = state.prefixGameIds.get(id) ?? [];
+      ids.push(game.id);
+      state.prefixGameIds.set(id, ids);
+    }
+    state.includedGameIds.push(game.id);
     state.includedGameCount += 1;
     return undefined;
   }
@@ -210,6 +241,10 @@ function createBuildState(): BuildState {
     rootFen: undefined,
     edgeCount: 0,
     includedGameCount: 0,
+    includedGameIds: [],
+    positionGameIds: new Map(),
+    prefixGameIds: new Map(),
+    excludedGameCount: 0,
   };
 }
 
@@ -236,8 +271,12 @@ function snapshotFor(
     paths: state.paths,
     openingHorizon,
     includedGameCount: state.includedGameCount,
+    includedGameIds: state.includedGameIds,
+    positionGameIds: state.positionGameIds,
+    prefixGameIds: state.prefixGameIds,
+    excludedGameCount: state.excludedGameCount,
     remainingGameCount,
-    ...(state.rootFen ? { rootFen: state.rootFen } : {}),
+    rootFen: state.rootFen!,
     ...(reachedLimit ? { reachedLimit } : {}),
   };
 }

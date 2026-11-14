@@ -14,7 +14,7 @@ import { normalizePositionKey } from '@/lib/chess/fen';
 describe('opening graph serialization', () => {
   it('uses an inclusive exact UTF-8 byte boundary', () => {
     const snapshot = {
-      formatVersion: 1,
+      formatVersion: 2,
       queryFingerprint: 'query',
       sourceGameCount: 0,
       excludedGameCount: 0,
@@ -22,6 +22,10 @@ describe('opening graph serialization', () => {
       buildTimestamp: 0,
       status: 'complete' as const,
       rootKey: 'root',
+      rootFen: DEFAULT_POSITION,
+      includedGameIds: [],
+      positionGameIds: [],
+      prefixGameIds: [],
       includedGameCount: 0,
       remainingGameCount: 0,
       positions: [],
@@ -53,7 +57,7 @@ describe('opening graph serialization', () => {
       buildTimestamp: 0,
     });
     const missing = { ...snapshot };
-    delete missing.rootFen;
+    Reflect.deleteProperty(missing, 'rootFen');
     expect(() => deserializeOpeningGraph(missing)).toThrow('INVALID_GRAPH_ROOT_FEN');
     for (const rootFen of ['invalid', snapshot.rootKey, '8/7k/8/8/8/8/P6K/8 b - - 17 42']) {
       expect(() => deserializeOpeningGraph({ ...snapshot, rootFen })).toThrow(
@@ -92,6 +96,18 @@ describe('opening graph serialization', () => {
     expect(dto.positions.map((position) => position.key)).toEqual(
       [...dto.positions.map((position) => position.key)].sort()
     );
+    expect(dto.includedGameIds).toEqual(['game']);
+    expect(restored.positionGameIds).toEqual(graph.positionGameIds);
+    expect(restored.prefixGameIds).toEqual(graph.prefixGameIds);
+    expect(() => deserializeOpeningGraph({ ...dto, formatVersion: 1 })).toThrow(
+      'UNSUPPORTED_GRAPH_FORMAT'
+    );
+    expect(() => deserializeOpeningGraph({ ...dto, includedGameIds: ['game', 'game'] })).toThrow(
+      'INVALID_GRAPH_MEMBERSHIP'
+    );
+    expect(() => deserializeOpeningGraph({ ...dto, prefixGameIds: [[0, ['invented']]] })).toThrow(
+      'INVALID_GRAPH_MEMBERSHIP'
+    );
     expect(restored.root.aggregate).toEqual(graph.root.aggregate);
     expect(dto.excludedGameCount).toBe(0);
     expect(dto.openingHorizon).toBe(4);
@@ -105,7 +121,7 @@ describe('opening graph serialization', () => {
     );
     expect(() =>
       deserializeOpeningGraph({
-        formatVersion: 1,
+        formatVersion: 2,
         openingHorizon: 1,
         paths: [],
         positions: [],
@@ -114,7 +130,7 @@ describe('opening graph serialization', () => {
     ).toThrow('INVALID_OPENING_HORIZON');
     expect(() =>
       deserializeOpeningGraph({
-        formatVersion: 1,
+        formatVersion: 2,
         openingHorizon: 30,
         paths: [{ id: 0, parentId: null, uci: null, san: null, ply: 0 }],
         positions: [

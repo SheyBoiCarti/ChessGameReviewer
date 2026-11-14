@@ -33,13 +33,13 @@ describe('GraphWorkerClient', () => {
     );
     const request = (worker as unknown as FakeWorker).messages[0] as { jobId: string };
     (worker as unknown as FakeWorker).emit({
-      protocolVersion: 1,
+      protocolVersion: 2,
       jobId: 'stale',
       type: 'COMPLETE',
       snapshot: {},
     });
     (worker as unknown as FakeWorker).emit({
-      protocolVersion: 1,
+      protocolVersion: 2,
       jobId: request.jobId,
       type: 'COMPLETE',
       snapshot: { formatVersion: 1 },
@@ -57,7 +57,7 @@ describe('GraphWorkerClient', () => {
     );
     const limitedRequest = (worker as unknown as FakeWorker).messages.at(-1) as { jobId: string };
     (worker as unknown as FakeWorker).emit({
-      protocolVersion: 1,
+      protocolVersion: 2,
       jobId: limitedRequest.jobId,
       type: 'LIMITED',
       snapshot: {},
@@ -102,7 +102,7 @@ describe('GraphWorkerClient', () => {
     );
     const request = (worker as unknown as FakeWorker).messages.at(-1) as { jobId: string };
     (worker as unknown as FakeWorker).emit({
-      protocolVersion: 1,
+      protocolVersion: 2,
       jobId: request.jobId,
       type: 'PARTIAL',
       snapshot: {},

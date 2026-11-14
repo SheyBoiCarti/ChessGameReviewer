@@ -102,7 +102,7 @@ export async function handleRequest(
       post({ protocolVersion: PROTOCOL_VERSION, jobId: request.jobId, type: 'CANCELLED' });
       return;
     }
-    const excludedGameCount = request.games.length - parsedGames.length;
+    let excludedGameCount = request.games.length - parsedGames.length;
     const graph = await buildGraphWithinByteBudget(
       parsedGames,
       request.options,
@@ -122,6 +122,10 @@ export async function handleRequest(
       return;
     }
     const snapshot = graph.snapshot;
+    excludedGameCount = snapshot.excludedGameCount;
+    if (excludedGameCount > request.games.length - parsedGames.length) {
+      diagnosticCodes = [...diagnosticCodes, 'GRAPH_GAME_SKIPPED'].slice(0, MAX_DIAGNOSTIC_CODES);
+    }
     if (graph.status === 'limited')
       post({
         protocolVersion: PROTOCOL_VERSION,
@@ -221,7 +225,7 @@ export async function buildGraphWithinByteBudget(
         status: 'limited',
         reachedLimit: 'maxSnapshotBytes',
         includedGameCount: graph.includedGameCount,
-        remainingGameCount: orderedGames.length - graph.includedGameCount,
+        remainingGameCount: orderedGames.length - graph.includedGameCount - graph.excludedGameCount,
       };
     }
     return {

@@ -197,7 +197,7 @@ describe('opening graph navigation', () => {
   it('requires an actual full root FEN instead of inventing counters', () => {
     const graph = legalGraph();
     const missingRoot = { ...graph };
-    delete missingRoot.rootFen;
+    Reflect.deleteProperty(missingRoot, 'rootFen');
     expect(() => createGraphNavigation(missingRoot)).toThrow('INVALID_GRAPH_ROOT_FEN');
   });
 

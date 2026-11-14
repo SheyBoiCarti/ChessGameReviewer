@@ -99,7 +99,7 @@ describe('opening graph recorded benchmark', () => {
     const startedAt = performance.now();
     await handleRequest(
       {
-        protocolVersion: 1,
+        protocolVersion: 2,
         jobId: 'worker-benchmark',
         type: 'BUILD_GRAPH',
         games: rawGames,

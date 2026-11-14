@@ -5,7 +5,7 @@ import { PathStore } from './pathStore';
 import type { OpeningGraphSnapshot } from './openingGraph';
 import type { MoveEdge, OutcomeAggregate, PathNode, PositionNode } from './types';
 
-export const GRAPH_FORMAT_VERSION = 1;
+export const GRAPH_FORMAT_VERSION = 2;
 export const MAX_SERIALIZED_GRAPH_BYTES = 64 * 1024 * 1024;
 export interface SerializedOpeningGraph {
   formatVersion: number;
@@ -17,8 +17,11 @@ export interface SerializedOpeningGraph {
   status: OpeningGraphSnapshot['status'];
   rootKey: string;
   includedGameCount: number;
+  includedGameIds: string[];
+  positionGameIds: Array<[string, string[]]>;
+  prefixGameIds: Array<[number, string[]]>;
   remainingGameCount: number;
-  rootFen?: string;
+  rootFen: string;
   reachedLimit?: string;
   positions: Array<{
     key: string;
@@ -51,13 +54,16 @@ export function serializeOpeningGraph(
   return {
     formatVersion: GRAPH_FORMAT_VERSION,
     ...metadata,
-    excludedGameCount: metadata.excludedGameCount ?? 0,
+    excludedGameCount: (metadata.excludedGameCount ?? 0) + graph.excludedGameCount,
     openingHorizon: graph.openingHorizon,
     status: graph.status,
     rootKey: graph.root.key,
     includedGameCount: graph.includedGameCount,
+    includedGameIds: [...graph.includedGameIds],
+    positionGameIds: [...graph.positionGameIds].sort(([a], [b]) => a.localeCompare(b)),
+    prefixGameIds: [...graph.prefixGameIds].sort(([a], [b]) => a - b),
     remainingGameCount: graph.remainingGameCount,
-    ...(graph.rootFen ? { rootFen: graph.rootFen } : {}),
+    rootFen: graph.rootFen,
     ...(graph.reachedLimit ? { reachedLimit: graph.reachedLimit } : {}),
     positions: [...graph.positions.values()]
       .sort((a, b) => a.key.localeCompare(b.key))
@@ -114,6 +120,30 @@ export function deserializeOpeningGraph(dto: SerializedOpeningGraph): OpeningGra
   } catch {
     throw new Error('INVALID_GRAPH_ROOT_FEN');
   }
+  const included = new Set(dto.includedGameIds);
+  const validIds = (ids: unknown): ids is string[] =>
+    Array.isArray(ids) &&
+    ids.every((id) => typeof id === 'string' && included.has(id)) &&
+    new Set(ids).size === ids.length;
+  if (
+    !Array.isArray(dto.includedGameIds) ||
+    included.size !== dto.includedGameCount ||
+    dto.includedGameIds.length !== dto.includedGameCount ||
+    dto.includedGameIds.some((id) => typeof id !== 'string') ||
+    !Array.isArray(dto.positionGameIds) ||
+    !Array.isArray(dto.prefixGameIds) ||
+    dto.positionGameIds.some(([key, ids]) => !positions.has(key) || !validIds(ids)) ||
+    dto.prefixGameIds.some(
+      ([id, ids]) => !dto.paths.some((path) => path.id === id) || !validIds(ids)
+    ) ||
+    new Map(dto.positionGameIds).size !== dto.positionGameIds.length ||
+    new Map(dto.prefixGameIds).size !== dto.prefixGameIds.length ||
+    (dto.includedGameCount > 0 &&
+      (new Map(dto.positionGameIds).get(dto.rootKey)?.length !== dto.includedGameCount ||
+        new Map(dto.prefixGameIds).get(0)?.length !== dto.includedGameCount))
+  ) {
+    throw new Error('INVALID_GRAPH_MEMBERSHIP');
+  }
   return {
     status: dto.status,
     root,
@@ -121,6 +151,10 @@ export function deserializeOpeningGraph(dto: SerializedOpeningGraph): OpeningGra
     paths,
     openingHorizon: dto.openingHorizon,
     includedGameCount: dto.includedGameCount,
+    includedGameIds: [...dto.includedGameIds],
+    positionGameIds: new Map(dto.positionGameIds),
+    prefixGameIds: new Map(dto.prefixGameIds),
+    excludedGameCount: dto.excludedGameCount,
     remainingGameCount: dto.remainingGameCount,
     rootFen,
     ...(reachedLimit ? { reachedLimit } : {}),

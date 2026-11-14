@@ -21,7 +21,11 @@ describe('bookMoves and repertoire', () => {
   };
 
   const snapshot: SerializedOpeningGraph = {
-    formatVersion: 1,
+    formatVersion: 2,
+    rootFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    includedGameIds: [],
+    positionGameIds: [],
+    prefixGameIds: [],
     queryFingerprint: 'fp1',
     sourceGameCount: 5,
     excludedGameCount: 0,

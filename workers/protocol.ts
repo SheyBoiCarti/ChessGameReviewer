@@ -2,7 +2,7 @@ import type { Diagnostic, NormalizedGameSummary } from '../lib/api/contracts';
 import type { GraphBuildOptions } from '../lib/chess/graph/types';
 import type { SerializedOpeningGraph } from '../lib/chess/graph/serialization';
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export type WorkerRequest =
   | {
