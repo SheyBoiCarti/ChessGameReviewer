@@ -227,7 +227,7 @@ describe('Bug fixes exploratory verification', () => {
     await user.click(screen.getByRole('button', { name: /load games/i }));
 
     // Verify game is loaded in the list
-    expect(screen.getByRole('button', { name: /opponent/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Preview .*opponent/i })).toBeInTheDocument();
 
     // Now open Import games utility drawer
     const importBtn = screen.getByRole('button', { name: /import games/i });
@@ -245,7 +245,7 @@ describe('Bug fixes exploratory verification', () => {
     fireEvent.click(closeBtn);
 
     // User should still see their previously loaded game in the list!
-    expect(screen.getByRole('button', { name: /opponent/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Preview .*opponent/i })).toBeInTheDocument();
 
     // An alert banner informing them of the failure is shown with "Keep current games"
     expect(screen.getByRole('alert')).toBeInTheDocument();
@@ -256,7 +256,7 @@ describe('Bug fixes exploratory verification', () => {
     // Clicking "Keep current games" dismisses the failure banner
     await user.click(keepGamesBtn);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /opponent/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Preview .*opponent/i })).toBeInTheDocument();
   });
 
   it('draws the legal reply on the selected after-position', async () => {

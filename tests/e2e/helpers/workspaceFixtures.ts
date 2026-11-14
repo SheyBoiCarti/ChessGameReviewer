@@ -226,3 +226,15 @@ export async function installOldestFirstWorkspaceFixtures(page: Page) {
     })
   );
 }
+
+export async function installPaginatedWorkspaceFixtures(page: Page) {
+  await installRoutes(
+    page,
+    Array.from({ length: 500 }, (_, index) => ({
+      ...games[index % games.length]!,
+      uuid: `pagination-${index}`,
+      url: `https://www.chess.com/game/live/${430000000 + index}`,
+      end_time: 1705406400 + index * 60,
+    }))
+  );
+}

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { installPaginatedWorkspaceFixtures } from './helpers/workspaceFixtures';
 import { installEngineFixtures } from './helpers/engineFixtures';
 
 import {
@@ -19,10 +20,10 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
   test.setTimeout(90_000);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await expect(page.locator('#game-query-rail')).toHaveCount(0);
 
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   const board = page.getByRole('grid', { name: 'Chess board' });
   await expect(board).toBeVisible();
   const boardHandle = await board.elementHandle();
@@ -79,7 +80,7 @@ test('retains the list filter and selection across review navigation (T26)', asy
   test.setTimeout(60_000);
   await page.goto('/?engine=unavailable');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-one/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-one/i }).click();
   const filter = page.getByLabel('Filter games');
   await filter.fill('opponent-two');
   await expect(page.getByRole('heading', { level: 3, name: /games \(1 of 2\)/i })).toBeVisible();
@@ -107,7 +108,7 @@ test('supports interactive board moves, variation sandbox, and unobserved openin
   test.setTimeout(60_000);
   await page.goto('/?engine=unavailable');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
 
   // Switch to Opening Tree tab and play an unobserved novelty directly on board
   await page.getByRole('button', { name: 'Openings' }).click();
@@ -148,7 +149,7 @@ test('keeps opening data usable when Stockfish is unavailable', async ({ page })
   await page.goto('/?engine=unavailable');
   await loadFixtureGames(page);
   await expect(page.locator('#game-query-rail')).toHaveCount(0);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByText(/Analysis is unavailable on this device/i)).toBeVisible({
@@ -164,7 +165,7 @@ test('explores alternatives and replies from Review and restores the selected or
   await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('button', { name: /Run review/ }).click();
   await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
@@ -224,7 +225,7 @@ test('updates factual capture explanations with the selected original board', as
   await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
   await page.goto('/?engine=single');
   await loadFixtureGames(page, 1);
-  await page.getByRole('button', { name: /opponent-long/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-long/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('button', { name: /Run review/ }).click();
   await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
@@ -245,7 +246,7 @@ test('retains views and the selected game across Back and Forward (T28)', async 
   test.setTimeout(60_000);
   await page.goto('/?engine=unavailable');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-one/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-one/i }).click();
   // Selecting a game encodes view/mode/game/ply and preserves engine test params.
   await expect(page).toHaveURL(
     /engine=unavailable&view=games&mode=review&game=fixture-game-1&ply=0/
@@ -269,7 +270,7 @@ test('restores locally available content from a direct URL (T28)', async ({ page
   test.setTimeout(60_000);
   await page.goto('/?engine=unavailable');
   await loadFixtureGames(page);
-  await expect(page.getByRole('button', { name: /opponent-one/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-one/i })).toBeVisible();
   await page.goto('/?engine=unavailable&view=analysis&mode=review&game=fixture-game-1&ply=2');
   const board = page.getByRole('grid', { name: 'Chess board' });
   await expect(board).toBeVisible({ timeout: 30_000 });
@@ -283,7 +284,7 @@ test('does not create a Back step per position advance (T28)', async ({ page }) 
   await installLongGameWorkspaceFixtures(page);
   await page.goto('/?engine=unavailable');
   await loadFixtureGames(page, 1);
-  await page.getByRole('button', { name: /opponent-long/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-long/i }).click();
   const board = page.getByRole('grid', { name: 'Chess board' });
   await expect(board).toBeVisible();
   const before = await page.evaluate(() => window.history.length);
@@ -311,14 +312,14 @@ test('recovers from invalid urls and absent games without external fetches (T28)
   // Manual import and selection still work from the recovery state.
   await page.getByRole('button', { name: 'Games', exact: true }).click();
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-one/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-one/i }).click();
   await expect(page).toHaveURL(/game=fixture-game-1&ply=0/);
 });
 
 test('keeps missing URL games separate from an existing selected game (T28)', async ({ page }) => {
   await page.goto('/?engine=unavailable');
   await loadFixtureGames(page);
-  await expect(page.getByRole('button', { name: /opponent-one/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-one/i })).toBeVisible();
   let archiveRequests = 0;
   page.on('request', (request) => {
     if (request.url().includes('api.chess.com')) archiveRequests++;
@@ -329,4 +330,29 @@ test('keeps missing URL games separate from an existing selected game (T28)', as
   expect(archiveRequests).toBe(0);
   await page.getByRole('button', { name: 'Choose a game', exact: true }).click();
   await expect(page.getByRole('list', { name: 'Games', exact: true })).toBeVisible();
+});
+
+test('paginates 500 games and retains page and viewport through review (T29)', async ({ page }) => {
+  await installPaginatedWorkspaceFixtures(page);
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page, 500);
+  await expect(page.getByRole('heading', { name: 'Games (500)', exact: true })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Games' }).locator(':scope > li')).toHaveCount(20);
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(page.getByText('Page 2 of 25')).toBeVisible();
+  const viewport = page.getByRole('region', { name: 'Game results' });
+  await viewport.evaluate((el) => {
+    el.scrollTop = 250;
+    el.dispatchEvent(new Event('scroll'));
+  });
+  const scroll = await viewport.evaluate((el) => el.scrollTop);
+  const first = page.getByRole('list', { name: 'Games' }).locator('li').first();
+  await first.getByRole('button', { name: /^Review/ }).click();
+  await expect(page.getByRole('button', { name: 'Back to games' })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to games' }).click();
+  await expect(page.getByText('Page 2 of 25')).toBeVisible();
+  await expect.poll(() => viewport.evaluate((el) => el.scrollTop)).toBe(scroll);
+  await page.getByLabel('Filter games').fill('opponent-one');
+  await expect(page.getByText('Page 1 of 13')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Games (250 of 500)' })).toBeVisible();
 });

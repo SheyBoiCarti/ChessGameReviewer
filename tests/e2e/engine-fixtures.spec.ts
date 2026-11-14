@@ -16,7 +16,7 @@ test('pauses after one completed move, cancels, and ignores a stale evaluation',
   await installWorkspaceFixtures(page);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Openings', exact: true }).click();
   await expect(page.getByRole('table', { name: 'Opening candidates' })).toBeVisible();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
@@ -82,7 +82,7 @@ test('pauses after one completed move, cancels, and ignores a stale evaluation',
       .getByText('Coverage: 2 of 8 eligible plies', { exact: true })
   ).toBeVisible();
   await page.getByRole('button', { name: 'Games', exact: true }).click();
-  await page.getByRole('button', { name: /opponent-one/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-one/i }).click();
   await expect(
     page
       .getByRole('region', { name: 'Game Review Summary', exact: true })
@@ -194,7 +194,7 @@ for (const scenario of ['mate', 'indeterminate'] as const) {
     await installWorkspaceFixtures(page);
     await page.goto('/?engine=single');
     await loadFixtureGames(page);
-    await page.getByRole('button', { name: /opponent-two/i }).click();
+    await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
     await page.getByRole('button', { name: 'Review', exact: true }).click();
     await page.getByRole('button', { name: 'Run review (Start analysis)', exact: true }).click();
     await page.locator('.review-summary > summary').click();
@@ -230,7 +230,9 @@ test('routes copied scope records, oldest-first archives and long names determin
   await installLongNameWorkspaceFixtures(page);
   await loadFixtureGames(page, 1);
   await expect(
-    page.getByRole('button', { name: /opponent-with-a-very-long-name-for-layout-regressions/ })
+    page.getByRole('button', {
+      name: /^Preview .*opponent-with-a-very-long-name-for-layout-regressions/,
+    })
   ).toBeVisible();
 });
 
@@ -244,7 +246,7 @@ test('retries failed initialization while preserving playback and Openings', asy
   await installWorkspaceFixtures(page);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Retry engine' })).toBeEnabled();
   await page.getByRole('button', { name: /select ply 1\b/i }).click();
@@ -284,7 +286,7 @@ test('one explicit Review game action starts once, then reopens its saved review
   await installWorkspaceFixtures(page);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review game', exact: true }).click();
   await expect(page.getByText('Checking analysis engine…')).toBeVisible();
   await engine.releaseReady();
@@ -305,7 +307,7 @@ test('one explicit Review game action starts once, then reopens its saved review
   );
   await page.getByRole('button', { name: 'Games', exact: true }).click();
   await page.reload();
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await page.getByRole('button', { name: 'Review game', exact: true }).click();
   await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
   expect(
@@ -320,14 +322,14 @@ test('switching game or view during readiness cancels the pending automatic star
   await installWorkspaceFixtures(page);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review game', exact: true }).click();
   await expect(page.getByText('Checking analysis engine…')).toBeVisible();
   await expect
     .poll(async () => (await engine.requests()).filter((r) => r.type === 'INITIALIZE').length)
     .toBe(1);
   await page.getByRole('button', { name: 'Games', exact: true }).click();
-  await page.getByRole('button', { name: /opponent-one/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-one/i }).click();
   await engine.releaseReady();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await expect(page.getByText('Ready to review')).toBeVisible();
@@ -340,7 +342,7 @@ test('keeps Summary open and focused when review progress arrives', async ({ pag
   await installWorkspaceFixtures(page);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('button', { name: 'Run review (Start analysis)', exact: true }).click();
   const summary = page.locator('.review-summary > summary');
@@ -364,7 +366,7 @@ test('keeps the review position and move list stable through completion and disc
   await installWorkspaceFixtures(page);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('button', { name: 'Run review (Start analysis)', exact: true }).click();
   await page.getByRole('button', { name: 'Next move', exact: true }).click();
@@ -399,7 +401,7 @@ test('imports and analyses in memory when IndexedDB cannot open', async ({ page 
   });
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review game', exact: true }).click();
   await expect(page.getByRole('progressbar', { name: 'Review progress' })).toBeVisible();
   await engine.releaseEvaluations(100);

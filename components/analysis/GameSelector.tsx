@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { GameRecord } from '@/lib/db/schema';
-import { extractPgnPlayers } from '@/lib/chess/pgnHeaders';
+import { extractPgnPlayers, parsePgnHeaders } from '@/lib/chess/pgnHeaders';
 
 export type GameListSort = 'newest' | 'oldest' | 'rating';
 
@@ -70,7 +70,34 @@ export function GameSelector({
     };
   }, []);
 
-  const rows = useMemo(() => rowsOf(games, listState), [games, listState]);
+  const metadata = useMemo(
+    () =>
+      games.map((game) => {
+        const headers = parsePgnHeaders(game.pgn);
+        return {
+          game,
+          opponent: opponentName(game),
+          date: formatDate(game.endedAt),
+          timeControl: game.timeControl || headers.TimeControl || 'Unknown time control',
+          opening: [headers.ECO, headers.Opening, headers.Variation].filter(Boolean).join(' · '),
+        };
+      }),
+    [games]
+  );
+  const rows = useMemo(
+    () => rowsOf(metadata, listState.filter, listState.sort),
+    [metadata, listState.filter, listState.sort]
+  );
+  const pageCount = Math.max(1, Math.ceil(rows.length / 20));
+  const page = Math.max(1, Math.min(listState.page, pageCount));
+  const visibleRows = rows.slice((page - 1) * 20, page * 20);
+  useEffect(() => {
+    if (listState.page !== page) {
+      const next = { ...listStateRef.current, page, scrollTop: 0 };
+      if (controlled) onListStateChangeRef.current?.(next);
+      else setInternalListState(next);
+    }
+  }, [page, listState.page, controlled]);
   const hasRows = rows.length > 0;
   // Restore the saved scroll once matching rows exist again.
   useEffect(() => {
@@ -184,7 +211,7 @@ export function GameSelector({
           }}
         >
           <ul className="game-card-list" aria-label="Games">
-            {rows.map(({ game, opponent }) => (
+            {visibleRows.map(({ game, opponent, date, timeControl, opening }) => (
               <li key={game.id} data-selected={game.id === selectedGameId}>
                 <GameButton
                   game={game}
@@ -192,24 +219,56 @@ export function GameSelector({
                   selected={game.id === selectedGameId}
                   status={analysisStatus[game.id]}
                   onSelect={onSelect}
+                  onReview={onReview}
+                  date={date}
+                  timeControl={timeControl}
+                  opening={opening}
                 />
               </li>
             ))}
           </ul>
         </div>
       )}
+      {rows.length > 0 ? (
+        <nav className="game-pagination" aria-label="Game pages">
+          <button
+            type="button"
+            disabled={page === 1}
+            onClick={() => updateListState({ page: page - 1, scrollTop: 0 })}
+          >
+            Previous page
+          </button>
+          <span role="status">
+            Page {page} of {pageCount}
+          </span>
+          <button
+            type="button"
+            disabled={page === pageCount}
+            onClick={() => updateListState({ page: page + 1, scrollTop: 0 })}
+          >
+            Next page
+          </button>
+        </nav>
+      ) : null}
     </section>
   );
 }
 
-function rowsOf(games: readonly GameRecord[], listState: GameListState) {
-  const needle = listState.filter.trim().toLowerCase();
-  return games
-    .map((game) => ({ game, opponent: opponentName(game) }))
+interface GameRowMetadata {
+  game: GameRecord;
+  opponent: string;
+  date: string;
+  timeControl: string;
+  opening: string;
+}
+
+function rowsOf(metadata: GameRowMetadata[], filter: string, sort: GameListSort) {
+  const needle = filter.trim().toLowerCase();
+  return metadata
     .filter(({ opponent }) => !needle || opponent.toLowerCase().includes(needle))
     .sort((left, right) => {
-      if (listState.sort === 'oldest') return left.game.endedAt - right.game.endedAt;
-      if (listState.sort === 'rating')
+      if (sort === 'oldest') return left.game.endedAt - right.game.endedAt;
+      if (sort === 'rating')
         return (right.game.opponentRating ?? -1) - (left.game.opponentRating ?? -1);
       return right.game.endedAt - left.game.endedAt;
     });
@@ -221,12 +280,20 @@ function GameButton({
   selected,
   status,
   onSelect,
+  onReview,
+  date,
+  timeControl,
+  opening,
 }: {
   game: GameRecord;
   opponent: string;
   selected: boolean;
   status: string | undefined;
   onSelect(gameId: string): void;
+  onReview?: ((gameId: string) => void) | undefined;
+  date: string;
+  timeControl: string;
+  opening: string;
 }) {
   const resultText = game.result === 'win' ? 'Win' : game.result === 'loss' ? 'Loss' : 'Draw';
   const resultClass = `game-result-badge game-result-badge--${game.result}`;
@@ -236,39 +303,56 @@ function GameButton({
       ? `(${game.opponentRating})`
       : '';
 
-  const accessibleLabel = `${opponent}${oppRating ? ` ${oppRating}` : ''}, ${resultText}, ${titleCase(game.timeClass)}, ${game.rated ? 'Rated' : 'Unrated'}, played as ${game.userColor}, user rating ${game.userRating ?? '—'}, opponent rating ${game.opponentRating ?? '—'}`;
+  const accessibleLabel = `${opponent}${oppRating ? ` ${oppRating}` : ''}, ${resultText}, ${titleCase(game.timeClass)}, ${game.rated ? 'Rated' : 'Unrated'}, played as ${game.userColor}, user rating ${game.userRating ?? '—'}, opponent rating ${game.opponentRating ?? '—'}, ${date}, ${timeControl}${opening ? `, ${opening}` : ''}`;
 
   return (
-    <button
-      type="button"
-      className="game-card game-row-button"
-      aria-pressed={selected}
-      aria-label={accessibleLabel}
-      onClick={() => onSelect(game.id)}
-    >
-      <span className="game-row-top">
-        <span className="game-row-opponent">
-          <strong className="opponent-name">{opponent}</strong>
-          {oppRating ? <span className="opponent-rating">{oppRating}</span> : null}
+    <div className="game-card-actions">
+      <button
+        type="button"
+        className="game-card game-row-button"
+        aria-pressed={selected}
+        aria-label={`Preview ${accessibleLabel}`}
+        onClick={() => onSelect(game.id)}
+      >
+        <span className="game-row-top">
+          <span className="game-row-opponent">
+            <strong className="opponent-name">{opponent}</strong>
+            {oppRating ? <span className="opponent-rating">{oppRating}</span> : null}
+          </span>
+          <span className={resultClass}>{resultText}</span>
         </span>
-        <span className={resultClass}>{resultText}</span>
-      </span>
-      <span className="game-row-bottom">
-        <span className="game-row-time-class">{titleCase(game.timeClass)}</span>
-        <span className="game-row-divider" aria-hidden="true">
-          •
+        <span className="game-row-bottom">
+          <span className="game-row-time-class">{titleCase(game.timeClass)}</span>
+          <span className="game-row-divider" aria-hidden="true">
+            •
+          </span>
+          <span className="game-card__date game-card-date">{date}</span>
+          <span className="game-row-divider" aria-hidden="true">
+            •
+          </span>
+          <span className="game-row-status">{reviewStatus}</span>
         </span>
-        <span className="game-card__date game-card-date">{formatDate(game.endedAt)}</span>
-        <span className="game-row-divider" aria-hidden="true">
-          •
+        <span className="game-row-metadata">
+          You played {titleCase(game.userColor)} · {timeControl}
+          {opening ? ` · ${opening}` : ''}
         </span>
-        <span className="game-row-status">{reviewStatus}</span>
-      </span>
-      <span className="sr-only">
-        {game.rated ? 'Rated' : 'Unrated'}, played as {game.userColor}, user rating{' '}
-        {game.userRating ?? '—'}, opponent rating {game.opponentRating ?? '—'}
-      </span>
-    </button>
+        <span className="game-row-preview">Preview</span>
+        <span className="sr-only">
+          {game.rated ? 'Rated' : 'Unrated'}, played as {game.userColor}, user rating{' '}
+          {game.userRating ?? '—'}, opponent rating {game.opponentRating ?? '—'}
+        </span>
+      </button>
+      {onReview ? (
+        <button
+          type="button"
+          className="button-secondary"
+          aria-label={`Review ${accessibleLabel}`}
+          onClick={() => onReview(game.id)}
+        >
+          Review
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -316,11 +400,19 @@ function playerRating(game: GameRecord, color: 'white' | 'black'): string {
 }
 
 function formatDate(endedAt: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(endedAt * 1000));
+  if (!Number.isFinite(endedAt) || Number.isNaN(new Date(endedAt * 1000).getTime()))
+    return 'Unknown date';
+  return (
+    new Intl.DateTimeFormat('en-GB', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZone: 'UTC',
+    }).format(new Date(endedAt * 1000)) + ' UTC'
+  );
 }
 
 function titleCase(value: string): string {

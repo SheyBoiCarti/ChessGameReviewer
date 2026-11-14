@@ -19,7 +19,7 @@ test.describe('workspace visual regression', () => {
   test('loaded board', async ({ page }) => {
     await page.goto('/');
     await loadFixtureGames(page);
-    await page.getByRole('button', { name: /opponent-two/i }).click();
+    await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
     await expect(page.getByRole('grid', { name: 'Chess board' })).toBeVisible();
     await waitForStableLayout(page);
 
@@ -29,7 +29,7 @@ test.describe('workspace visual regression', () => {
   test('opening tree', async ({ page }) => {
     await page.goto('/');
     await loadFixtureGames(page);
-    await page.getByRole('button', { name: /opponent-two/i }).click();
+    await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
     await page.getByRole('button', { name: 'Openings' }).click();
     await expect(page.getByRole('heading', { name: 'Openings', level: 3 })).toBeVisible();
     await waitForStableLayout(page);
@@ -40,7 +40,7 @@ test.describe('workspace visual regression', () => {
   test('analyzer unavailable', async ({ page }) => {
     await page.goto('/?engine=unavailable');
     await loadFixtureGames(page);
-    await page.getByRole('button', { name: /opponent-two/i }).click();
+    await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
     await page.getByRole('button', { name: 'Review', exact: true }).click();
     await page.getByRole('tab', { name: 'Analysis' }).click();
     await expect(page.getByText(/Analysis is unavailable on this device/i)).toBeVisible();
@@ -53,7 +53,7 @@ test.describe('workspace visual regression', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
     await loadFixtureGames(page);
-    await page.getByRole('button', { name: /opponent-two/i }).click();
+    await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
     await expect(page.getByRole('grid', { name: 'Chess board' })).toBeVisible();
     await waitForStableLayout(page);
 

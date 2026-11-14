@@ -54,7 +54,7 @@ test('keeps the board and its move controls visible without document overflow ac
     }
 
     await loadFixtureGames(page);
-    await page.getByRole('button', { name: /opponent-two/i }).click();
+    await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
     await page.getByRole('grid', { name: 'Chess board' }).scrollIntoViewIfNeeded();
 
     await expect(page.getByRole('grid', { name: 'Chess board' })).toBeInViewport();
@@ -72,10 +72,10 @@ test('uses the compact workspace before a three-column desktop layout crowds the
 
   await loadFixtureGames(page);
 
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await expect(page.getByRole('list', { name: 'Games' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Games' })).toHaveCount(0);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
 
   const board = await page.getByRole('grid', { name: 'Chess board' }).boundingBox();
@@ -128,7 +128,7 @@ test('uses a visually separated, classic board grid without obscuring move highl
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
 
   const board = page.getByRole('grid', { name: 'Chess board' });
   await expect(board).toBeVisible();
@@ -147,7 +147,7 @@ test('keeps every board square equal before and after piece occupancy changes', 
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
 
   await expectUniformBoardSquares(page);
   await page.getByRole('button', { name: 'Next move' }).click();
@@ -162,7 +162,7 @@ test('aligns the evaluation meter to the framed board and uses its full track', 
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Run review (Start analysis)' })).toBeEnabled({
@@ -322,7 +322,7 @@ test('desktop analyzer layout stays bounded within usable viewport height for lo
   await installLongGameWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page, 1);
-  await page.getByRole('button', { name: /opponent-long/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-long/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Run review (Start analysis)' })).toBeEnabled({
@@ -366,7 +366,7 @@ test('mobile analyzer layout uses natural document flow with bounded move list',
 
   await loadFixtureGames(page, 1);
 
-  await page.getByRole('button', { name: /opponent-long/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-long/i }).click();
   await page.getByRole('button', { name: /open menu/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
@@ -505,7 +505,7 @@ test('keeps review feedback and playback together without navigation scroll jump
     await page.setViewportSize(size);
     await page.goto('/?engine=unavailable');
     await loadFixtureGames(page);
-    await page.getByRole('button', { name: /opponent-two/i }).click();
+    await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
     if (size.width < 960) await page.getByRole('button', { name: /open menu/i }).click();
     await page.getByRole('button', { name: 'Review', exact: true }).click();
     const board = page.getByRole('grid', { name: 'Chess board' });
@@ -536,7 +536,9 @@ test('review accommodates long names and expandable feedback on a narrow phone',
   await page.goto('/?engine=unavailable');
   await loadFixtureGames(page, 1);
   await page
-    .getByRole('button', { name: /opponent-with-a-very-long-name-for-layout-regressions/i })
+    .getByRole('button', {
+      name: /^Preview .*opponent-with-a-very-long-name-for-layout-regressions/i,
+    })
     .click();
   await page.getByRole('button', { name: /open menu/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
@@ -552,7 +554,7 @@ test('expanded review feedback remains usable and keeps its toggle focused', asy
   await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: /open menu/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('button', { name: /Run review/ }).click();

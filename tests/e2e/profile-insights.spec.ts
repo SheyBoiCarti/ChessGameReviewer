@@ -20,7 +20,7 @@ test.describe('Profile Insights Dashboard E2E', () => {
     // 2. Load games from Chess.com
     await page.getByRole('button', { name: 'Go to Games Tab' }).click();
     await loadFixtureGames(page, 2);
-    await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
 
     // 3. Switch back to Insights tab
     await page.getByRole('button', { name: 'Insights' }).click();

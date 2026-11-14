@@ -25,7 +25,7 @@ test('B1: candidate follows an alternate arrival and Back returns to the origina
   await installTranspositionWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await openTab(page, 'Openings');
   for (const move of ['Nf3', 'd5', 'd4', 'Nf6', 'e3']) {
     await page.getByRole('button', { name: `Play ${move}`, exact: false }).click();
@@ -42,7 +42,7 @@ test('B2/B7: cancel retains games with neutral feedback; an empty import clears 
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await page.getByRole('button', { name: 'Import games', exact: true }).click();
   await page.getByLabel('Username').fill('fixture-slow');
   await page.getByLabel('From date').fill('2024-02-01');
@@ -58,7 +58,7 @@ test('B2/B7: cancel retains games with neutral feedback; an empty import clears 
   await expect(page.getByText('Import cancelled.', { exact: false })).toBeVisible();
   await expect(page.getByText('Games could not be loaded', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: /close import games/i }).click();
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await page.getByRole('button', { name: 'Import games', exact: true }).click();
   await page.getByLabel('Username').fill('fixture-user');
   await page.getByLabel('From date').fill('2024-01-01');
@@ -109,7 +109,7 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   await installWorkspaceFixtures(page);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await openTab(page, 'Review');
   await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
@@ -137,8 +137,8 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
       .getByText(/Coverage: [1-7] of 8 eligible plies/)
   ).toBeVisible();
   await openTab(page, 'Games');
-  await page.getByRole('button', { name: /opponent-one/i }).click();
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-one/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await openTab(page, 'Review');
   await expect(page.getByRole('button', { name: 'Resume analysis' })).toBeVisible();
   await page.locator('.review-summary > summary').click();
@@ -156,7 +156,9 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   await page.reload();
   await expect(page.locator('.profile-tactics-moves-meta')).toHaveText(evaluated);
   await openTab(page, 'Games');
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toContainText('Reviewed');
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toContainText(
+    'Reviewed'
+  );
   await openTab(page, 'Review');
   await expect(page.getByText('Review complete', { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByLabel('Position 8 of 8')).toBeVisible();
@@ -186,7 +188,7 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   expect(reviewCount).toBe(0);
   await page.reload();
   await expect(page.getByLabel('Username')).toBeVisible();
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toHaveCount(0);
 });
 
 test('B4/B6/B8/B9: mobile Insights fits, passes contrast and landmarks, and reports refresh failure', async ({
@@ -196,7 +198,7 @@ test('B4/B6/B8/B9: mobile Insights fits, passes contrast and landmarks, and repo
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await openTab(page, 'Settings');
   await page.getByLabel('Theme').selectOption('dark');
   await openTab(page, 'Insights');

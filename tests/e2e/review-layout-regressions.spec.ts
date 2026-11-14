@@ -15,7 +15,7 @@ test('selecting a game does not force the board into view', async ({ page }) => 
   await installWorkspaceFixtures(page);
   await page.goto('/?engine=unavailable');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   expect(
     await page.evaluate(() => (window as unknown as { boardScrolls: number }).boardScrolls)
   ).toBe(0);
@@ -27,7 +27,7 @@ test('desktop completed feedback remains visible with the board', async ({ page 
   await installWorkspaceFixtures(page);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('button', { name: /Run review/ }).click();
   await expect(page.getByText('Review complete', { exact: true })).toBeVisible({ timeout: 60000 });

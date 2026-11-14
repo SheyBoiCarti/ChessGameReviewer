@@ -18,7 +18,7 @@ test('has no serious or critical axe findings after the initial query and loaded
   await waitForWorkspaceReady(page);
   await assertAccessible(page);
   await loadFixtureGames(page);
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await assertAccessible(page);
 });
 
@@ -30,7 +30,7 @@ test('has no serious or critical axe findings in opening-tree, analysis-unavaila
   await waitForWorkspaceReady(page);
   await loadFixtureGames(page);
   await closeUtilityDrawer(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Openings' }).click();
   await assertAccessible(page);
 
@@ -92,7 +92,7 @@ test('has no serious or critical axe findings with completed analysis and bounde
   await waitForWorkspaceReady(page);
   await loadFixtureGames(page);
   await closeUtilityDrawer(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('button', { name: 'Run review (Start analysis)' })).toBeEnabled({
@@ -159,7 +159,7 @@ test('keeps playback available while engine readiness is delayed', async ({ page
   await page.goto('/');
   await loadFixtureGames(page);
   await closeUtilityDrawer(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   if (testInfo.project.name === 'mobile-chromium')
     await page.setViewportSize({ width: 390, height: 844 });
@@ -189,7 +189,7 @@ test('synchronizes graph keyboard selection, count filters and original board', 
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
   await closeUtilityDrawer(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('button', { name: /Run review/ }).click();
   await expect(page.getByText('Review complete', { exact: true })).toBeVisible();

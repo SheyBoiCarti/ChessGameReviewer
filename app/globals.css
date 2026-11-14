@@ -4100,3 +4100,31 @@ li[data-selected='true'] {
 .review-feedback > nav.review-feedback__actions p {
   margin: 0;
 }
+
+.game-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.game-card-actions .game-card {
+  flex: 1;
+  min-width: 0;
+}
+.game-row-metadata {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  white-space: normal;
+}
+.game-row-preview {
+  display: block;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+.game-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+}
