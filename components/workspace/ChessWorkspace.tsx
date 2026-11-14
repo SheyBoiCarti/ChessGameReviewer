@@ -1365,6 +1365,12 @@ export function ChessWorkspace({
                             setNavigation(next);
                             controller.navigateGraph(next.positionKey, next.pathId);
                           }}
+                          onPerspectiveChange={(next) => {
+                            controller.dispatch({
+                              type: 'preferences/changed',
+                              preferences: { resultPerspective: next },
+                            });
+                          }}
                           moveOrdersAction={
                             <button
                               ref={moveOrdersButton}

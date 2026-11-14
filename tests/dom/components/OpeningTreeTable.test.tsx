@@ -12,6 +12,47 @@ import {
 } from '@/features/opening-tree/navigation';
 import { openingGraphFixture, fixtureKeyAfter } from '@/tests/helpers/openingGraphFixture';
 import { normalizePositionKey } from '@/lib/chess/fen';
+import scopeGames from '@/tests/fixtures/openingScopeGames.json';
+import { OpeningGraphBuilder } from '@/lib/chess/graph/openingGraph';
+import { parseGamePgn } from '@/lib/chess/pgnParser';
+
+function buildAuditScopeGraph(color: 'white' | 'black') {
+  const filtered = scopeGames.filter((g) =>
+    color === 'white' ? g.white.username === 'audit-player' : g.black.username === 'audit-player'
+  );
+  const parsed = filtered.map((g) => {
+    const res = parseGamePgn({
+      game: {
+        id: g.uuid,
+        url: g.url,
+        usernameKey: 'audit-player',
+        userColor: color,
+        result:
+          g.white.result === 'win'
+            ? color === 'white'
+              ? 'win'
+              : 'loss'
+            : g.black.result === 'win'
+              ? color === 'black'
+                ? 'win'
+                : 'loss'
+              : 'draw',
+        endedAt: g.end_time,
+        timeClass: g.time_class as import('@/lib/api/contracts').TimeClass,
+        rated: g.rated,
+        userRating: 1800,
+        opponentRating: 1750,
+        whitePlayer: { username: g.white.username, rating: 1800 },
+        blackPlayer: { username: g.black.username, rating: 1750 },
+        rules: 'chess',
+        pgn: g.pgn,
+      },
+    });
+    if (!res.ok) throw new Error('Failed to parse scope game');
+    return res.game;
+  });
+  return new OpeningGraphBuilder({ maxOpeningPlies: 6 }).build(parsed);
+}
 
 function startFenAfter(uci: string): string {
   const chess = new Chess();
@@ -195,5 +236,71 @@ describe('OpeningTreeTable', () => {
     expect(screen.queryByRole('table', { name: 'Opening candidates' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /play e4/i })).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(/no observed games reach this position/i);
+  });
+
+  it('T52: displays continuation share and verifies White (58.3/25.0/16.7%) and Black (50/25/25%) root shares', async () => {
+    const whiteGraph = buildAuditScopeGraph('white');
+    const { rerender } = render(
+      <OpeningTreeTable
+        graph={whiteGraph}
+        navigation={createGraphNavigation(whiteGraph)}
+        perspective="user"
+        onNavigate={vi.fn()}
+      />
+    );
+
+    // White root: e4 (7 / 12 = 58.3%), d4 (3 / 12 = 25.0%), c4 (2 / 12 = 16.7%)
+    const candidateTable = screen.getByRole('table', { name: 'Opening candidates' });
+    expect(candidateTable).toHaveTextContent('58.3%');
+    expect(candidateTable).toHaveTextContent('25.0%');
+    expect(candidateTable).toHaveTextContent('16.7%');
+
+    // Position sample size is labeled
+    const sampleContext = screen.getByLabelText(/position sample context/i);
+    expect(sampleContext).toHaveTextContent(/position sample:\s*12/i);
+
+    // Detailed stats for e4: 3W / 2D / 2L across 7 games -> win rate 42.9%, expected score 57.1%
+    await userEvent.setup().click(screen.getByText('More statistics', { exact: true }));
+    const detailedTable = screen.getByRole('table', { name: 'Detailed opening statistics' });
+    expect(detailedTable).toHaveTextContent('42.9%');
+    expect(detailedTable).toHaveTextContent('57.1%');
+
+    // Black root: d4 (4 / 8 = 50.0%), e4 (2 / 8 = 25.0%), Nf3 (2 / 8 = 25.0%)
+    const blackGraph = buildAuditScopeGraph('black');
+    rerender(
+      <OpeningTreeTable
+        graph={blackGraph}
+        navigation={createGraphNavigation(blackGraph)}
+        perspective="user"
+        onNavigate={vi.fn()}
+      />
+    );
+
+    const blackTable = screen.getByRole('table', { name: 'Opening candidates' });
+    expect(blackTable).toHaveTextContent('50.0%');
+    expect(blackTable).toHaveTextContent('25.0%');
+  });
+
+  it('T52: toggles perspective locally without modifying dataset membership', async () => {
+    const user = userEvent.setup();
+    const whiteGraph = buildAuditScopeGraph('white');
+    const onPerspectiveChange = vi.fn();
+    render(
+      <OpeningTreeTable
+        graph={whiteGraph}
+        navigation={createGraphNavigation(whiteGraph)}
+        perspective="user"
+        onPerspectiveChange={onPerspectiveChange}
+        onNavigate={vi.fn()}
+      />
+    );
+
+    const yourResultsBtn = screen.getByRole('button', { name: 'Your results' });
+    const whiteBlackBtn = screen.getByRole('button', { name: 'White / Black' });
+    expect(yourResultsBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(whiteBlackBtn).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(whiteBlackBtn);
+    expect(onPerspectiveChange).toHaveBeenCalledWith('board');
   });
 });

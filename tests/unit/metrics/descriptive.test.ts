@@ -49,4 +49,19 @@ describe('describeOutcome', () => {
       blackWinRate: null,
     });
   });
+
+  it('correctly calculates userWinRate and userScore for 3W/2D/2L across 7 games', () => {
+    const m = describeOutcome({
+      games: 7,
+      userWins: 3,
+      draws: 2,
+      userLosses: 2,
+      whiteWins: 3,
+      blackWins: 2,
+      opponentRatingSum: 0,
+      opponentRatingCount: 0,
+    });
+    expect(m.userWinRate).toBeCloseTo(3 / 7);
+    expect(m.userScore).toBeCloseTo(4 / 7);
+  });
 });

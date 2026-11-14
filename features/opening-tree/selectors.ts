@@ -10,6 +10,7 @@ export interface CandidateMove {
   san: string;
   targetKey: string;
   metrics: DescriptiveMetrics;
+  continuationShare: number | null;
 }
 
 export type OutcomePerspective = 'user' | 'board';
@@ -90,12 +91,17 @@ export function selectCandidateMoves(
   sort: MoveSort = 'games',
   perspective: OutcomePerspective = 'user'
 ): CandidateMove[] {
+  const continuationTotal = [...node.outgoing.values()].reduce(
+    (n, edge) => n + edge.aggregate.games,
+    0
+  );
   return [...node.outgoing.values()]
     .map((edge) => ({
       uci: edge.uci,
       san: edge.san,
       targetKey: edge.targetKey,
       metrics: describeOutcome(edge.aggregate),
+      continuationShare: continuationTotal === 0 ? null : edge.aggregate.games / continuationTotal,
     }))
     .sort((left, right) => {
       if (sort === 'games') {

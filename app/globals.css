@@ -4489,9 +4489,45 @@ li[data-selected='true'] {
     .opening-tree__empty,
     details,
     .opening-tree-actions,
-    .limited-notice
+    .limited-notice,
+    .opening-position-sample,
+    .opening-tree-controls
   ) {
   grid-column: 1 / -1;
+}
+
+.opening-position-sample {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.opening-position-sample strong {
+  color: var(--text-primary);
+}
+
+.continuation-share {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.opening-tree-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.opening-perspective-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.perspective-toggle-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 .workspace-layout--opening .opening-candidate-table th {
   padding-block: 0.25rem;

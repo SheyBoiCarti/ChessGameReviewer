@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 
 import type { OpeningGraphSnapshot } from '@/lib/chess/graph/openingGraph';
 import { navigateCandidate, type GraphNavigationState } from '@/features/opening-tree/navigation';
@@ -23,6 +23,7 @@ export interface OpeningTreeTableProps {
   diagnosticCodes?: readonly string[];
   onNavigate(value: GraphNavigationState): void;
   moveOrdersAction?: ReactNode;
+  onPerspectiveChange?(value: OutcomePerspective): void;
 }
 
 export function OpeningTreeTable({
@@ -33,8 +34,21 @@ export function OpeningTreeTable({
   diagnosticCodes = [],
   onNavigate,
   moveOrdersAction,
+  onPerspectiveChange,
 }: OpeningTreeTableProps) {
   const [sort, setSort] = useState<MoveSort>('games');
+  const [localPerspective, setLocalPerspective] = useState<OutcomePerspective>(perspective);
+  const effectivePerspective = onPerspectiveChange ? perspective : localPerspective;
+
+  useEffect(() => {
+    setLocalPerspective(perspective);
+  }, [perspective]);
+
+  const handlePerspectiveChange = (next: OutcomePerspective) => {
+    setLocalPerspective(next);
+    onPerspectiveChange?.(next);
+  };
+
   // T38: an unobserved visited entry is the authoritative current position;
   // candidates and memberships are empty there.
   const node = navigation.observed ? graph.positions.get(navigation.positionKey) : undefined;
@@ -52,9 +66,17 @@ export function OpeningTreeTable({
     }
     return <p role="alert">The selected graph position is unavailable. Return to the root.</p>;
   }
-  const candidates = selectCandidateMoves(node, sort, perspective);
-  const scoreLabel = perspective === 'user' ? 'Expected user score' : 'Expected White score';
-  const winRateLabel = perspective === 'user' ? 'Win rate' : 'White win rate';
+  const candidates = selectCandidateMoves(node, sort, effectivePerspective);
+  const scoreLabel =
+    effectivePerspective === 'user' ? 'Expected user score' : 'Expected White score';
+  const winRateLabel = effectivePerspective === 'user' ? 'Win rate' : 'White win rate';
+
+  const continuationTotal = [...node.outgoing.values()].reduce(
+    (n, edge) => n + edge.aggregate.games,
+    0
+  );
+  const positionTotal = node.aggregate.games;
+  const nonContinuingCount = Math.max(0, positionTotal - continuationTotal);
 
   const isHorizonReached = navigation.cursor >= graph.openingHorizon;
 
@@ -88,14 +110,55 @@ export function OpeningTreeTable({
 
       <PathBreadcrumbs graph={graph} navigation={navigation} onNavigate={onNavigate} />
 
-      <label className="sort-candidates-label">
-        Sort candidate moves
-        <select value={sort} onChange={(event) => setSort(event.currentTarget.value as MoveSort)}>
-          <option value="games">Games</option>
-          <option value="score">Expected score</option>
-          <option value="san">Move</option>
-        </select>
-      </label>
+      <div className="opening-position-sample" aria-label="Position sample context">
+        <p>
+          <strong>Position sample:</strong> <span className="tabular-nums">{positionTotal}</span>{' '}
+          {positionTotal === 1 ? 'game' : 'games'}
+          {positionTotal !== continuationTotal ? (
+            <span className="field-help">
+              {' '}
+              (<span className="tabular-nums">{continuationTotal}</span> observed continuations
+              {nonContinuingCount > 0 ? `, ${nonContinuingCount} ended or reached horizon` : ''})
+            </span>
+          ) : (
+            <span className="field-help">
+              {' '}
+              (<span className="tabular-nums">{continuationTotal}</span> continuations)
+            </span>
+          )}
+        </p>
+      </div>
+
+      <div className="opening-tree-controls">
+        <label className="sort-candidates-label">
+          Sort candidate moves
+          <select value={sort} onChange={(event) => setSort(event.currentTarget.value as MoveSort)}>
+            <option value="games">Games</option>
+            <option value="score">Expected score</option>
+            <option value="san">Move</option>
+          </select>
+        </label>
+
+        <div className="opening-perspective-toggle" role="group" aria-label="Result perspective">
+          <span className="perspective-toggle-label">Perspective:</span>
+          <button
+            type="button"
+            className={`button-toggle ${effectivePerspective === 'user' ? 'button-toggle--active' : ''}`}
+            onClick={() => handlePerspectiveChange('user')}
+            aria-pressed={effectivePerspective === 'user'}
+          >
+            Your results
+          </button>
+          <button
+            type="button"
+            className={`button-toggle ${effectivePerspective === 'board' ? 'button-toggle--active' : ''}`}
+            onClick={() => handlePerspectiveChange('board')}
+            aria-pressed={effectivePerspective === 'board'}
+          >
+            White / Black
+          </button>
+        </div>
+      </div>
       <p className="field-help" aria-live="polite">
         Position-wide candidate moves across all observed move orders, sorted by {sort}.
       </p>
@@ -135,7 +198,13 @@ export function OpeningTreeTable({
             <tbody>
               {candidates.map((candidate) => {
                 const edge = node.outgoing.get(candidate.uci);
-                const breakdown = edge ? selectOutcomeBreakdown(edge.aggregate, perspective) : null;
+                const breakdown = edge
+                  ? selectOutcomeBreakdown(edge.aggregate, effectivePerspective)
+                  : null;
+                const shareText =
+                  candidate.continuationShare !== null
+                    ? `${(candidate.continuationShare * 100).toFixed(1)}%`
+                    : null;
                 return (
                   <tr key={candidate.uci} className="opening-candidate-row">
                     <td className="opening-cell--move">
@@ -143,17 +212,26 @@ export function OpeningTreeTable({
                         type="button"
                         className="opening-candidate-btn"
                         onClick={() => onNavigate(navigateCandidate(graph, navigation, edge!))}
-                        aria-label={`Play ${candidate.san}, ${candidate.metrics.sampleSize} games`}
+                        aria-label={`Play ${candidate.san}, ${candidate.metrics.sampleSize} games${shareText ? `, ${shareText}` : ''}`}
                       >
                         {candidate.san}
                       </button>
                     </td>
                     <td className="opening-cell--games">
                       <span className="tabular-nums">{candidate.metrics.sampleSize}</span>
+                      {shareText ? (
+                        <span
+                          className="continuation-share"
+                          title="Share of observed continuations"
+                        >
+                          {' '}
+                          ({shareText})
+                        </span>
+                      ) : null}
                     </td>
                     <td className="opening-cell--results">
                       {breakdown ? (
-                        <OutcomeBar breakdown={breakdown} perspective={perspective} />
+                        <OutcomeBar breakdown={breakdown} perspective={effectivePerspective} />
                       ) : null}
                     </td>
                   </tr>
@@ -187,6 +265,7 @@ export function OpeningTreeTable({
                     <th scope="col">{winRateLabel}</th>
                     <th scope="col">{scoreLabel}</th>
                     <th scope="col">Draw rate</th>
+                    <th scope="col">Share</th>
                     <th scope="col">Average opponent rating</th>
                     <th scope="col">Sample size</th>
                   </tr>
@@ -194,11 +273,11 @@ export function OpeningTreeTable({
                 <tbody>
                   {candidates.map((candidate) => {
                     const score =
-                      perspective === 'user'
+                      effectivePerspective === 'user'
                         ? candidate.metrics.userScore
                         : candidate.metrics.whiteScore;
                     const winRate =
-                      perspective === 'user'
+                      effectivePerspective === 'user'
                         ? candidate.metrics.userWinRate
                         : candidate.metrics.whiteWinRate;
                     return (
@@ -209,6 +288,7 @@ export function OpeningTreeTable({
                         <td>{percent(winRate)}</td>
                         <td>{percent(score)}</td>
                         <td>{percent(candidate.metrics.drawRate)}</td>
+                        <td>{percent(candidate.continuationShare)}</td>
                         <td>{candidate.metrics.averageOpponentRating?.toFixed(0) ?? '—'}</td>
                         <td>{candidate.metrics.sampleSize}</td>
                       </tr>
