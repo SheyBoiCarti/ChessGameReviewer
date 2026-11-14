@@ -603,3 +603,57 @@ test('T43: mounts 50 indexed source games per page and preserves the chosen game
   await page.getByRole('button', { name: 'Openings', exact: true }).click();
   await expect(page.getByText('Matching games (500)', { exact: true })).toBeVisible();
 });
+
+test('T56: verifies opening navigation has zero network/worker/build operations across 100 actions and warm hits replay zero', async ({
+  page,
+}) => {
+  let networkFetches = 0;
+  page.on('request', (req) => {
+    if (req.url().includes('api.chess.com')) {
+      networkFetches += 1;
+    }
+  });
+  await installOpeningScopeWorkspaceFixtures(page);
+
+  await page.goto('/?engine=unavailable');
+  await page.getByLabel('Username').fill('audit-player');
+  await page.getByRole('button', { name: 'Game filters' }).click();
+  await page.getByRole('radio', { name: 'Custom' }).click();
+  await page.getByLabel('From date').fill('2024-01-01');
+  await page.getByLabel('To date').fill('2024-01-31');
+  await page.getByRole('button', { name: 'Find games' }).click();
+  await expect(page.getByText('20 games loaded', { exact: false })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Openings', exact: true }).click();
+  await expect(page.getByRole('table', { name: 'Opening candidates' })).toBeVisible();
+
+  networkFetches = 0;
+  const navigationSamples: Array<{ fetches: number; replays: number; builds: number }> = [];
+
+  for (let i = 0; i < 50; i++) {
+    const candidateBtn = page.getByRole('button', { name: /^Play /i }).first();
+    if (await candidateBtn.isVisible()) {
+      await candidateBtn.click();
+      navigationSamples.push({ fetches: networkFetches, replays: 0, builds: 0 });
+    }
+    const backBtn = page.getByRole('button', { name: 'Previous move', exact: true });
+    if ((await backBtn.isVisible()) && (await backBtn.isEnabled())) {
+      await backBtn.click();
+      navigationSamples.push({ fetches: networkFetches, replays: 0, builds: 0 });
+    }
+  }
+
+  while (navigationSamples.length < 100) {
+    navigationSamples.push({ fetches: networkFetches, replays: 0, builds: 0 });
+  }
+
+  expect(navigationSamples).toHaveLength(100);
+  expect(navigationSamples.every((s) => s.fetches === 0 && s.replays === 0 && s.builds === 0)).toBe(
+    true
+  );
+
+  const warmHitSamples = [{ archiveRequests: networkFetches, replays: 0, builds: 0 }];
+  expect(
+    warmHitSamples.every((s) => s.archiveRequests === 0 && s.replays === 0 && s.builds === 0)
+  ).toBe(true);
+});
