@@ -73,7 +73,13 @@ import {
 import type { PlayerMetadata } from '@/lib/api/contracts';
 import type { ParsedGame } from '@/lib/chess/pgnParser';
 import { parseSelectedGame } from '@/features/workspace/parseSelectedGame';
-import { selectPrefixGameIds, selectPositionGameIds } from '@/features/opening-tree/selectors';
+import {
+  selectPrefixGameIds,
+  selectPositionGameIds,
+  selectCandidateMoves,
+  selectOpeningArrows,
+  type OpeningArrow,
+} from '@/features/opening-tree/selectors';
 import { OpeningView } from '@/components/opening/OpeningView';
 import { ReviewView } from '@/components/analysis/ReviewView';
 import { ReviewFeedback } from '@/components/analysis/ReviewFeedback';
@@ -393,6 +399,30 @@ export function ChessWorkspace({
     state.graph.snapshot && navigation?.observed
       ? selectPrefixGameIds(state.graph.snapshot, navigation.pathId).length
       : 0;
+
+  const [showOpeningArrows, setShowOpeningArrows] = useState(true);
+  const [activeOpeningUci, setActiveOpeningUci] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveOpeningUci(null);
+  }, [navigation?.positionKey, state.graph.scope]);
+
+  const openingArrows = useMemo(() => {
+    if (tab !== 'opening' || !showOpeningArrows || !graph || !navigation || !navigation.observed) {
+      return undefined;
+    }
+    const node = graph.positions.get(navigation.positionKey);
+    if (!node) return undefined;
+    const candidates = selectCandidateMoves(node, 'games', state.preferences.resultPerspective);
+    return selectOpeningArrows(candidates, activeOpeningUci);
+  }, [
+    tab,
+    showOpeningArrows,
+    graph,
+    navigation,
+    state.preferences.resultPerspective,
+    activeOpeningUci,
+  ]);
 
   // Initialize once per committed import. Horizon changes made outside Openings
   // are applied on entry, independently of the import query and Review selection.
@@ -903,6 +933,7 @@ export function ChessWorkspace({
           {...(historyValue !== undefined ? { history: historyValue } : {})}
           {...(selectedAnnotation ? { evaluationScore: selectedAnnotation.after.score } : {})}
           {...(tab === 'analysis' && selectedArrow ? { pvArrow: selectedArrow } : {})}
+          {...(openingArrows !== undefined ? { openingArrows } : {})}
         />
       </div>
     );
@@ -1361,6 +1392,8 @@ export function ChessWorkspace({
                           perspective={state.preferences.resultPerspective}
                           excludedGameCount={state.graph.snapshot?.excludedGameCount ?? 0}
                           diagnosticCodes={state.graph.diagnosticCodes}
+                          showArrows={showOpeningArrows}
+                          onToggleArrows={setShowOpeningArrows}
                           onNavigate={(next) => {
                             setNavigation(next);
                             controller.navigateGraph(next.positionKey, next.pathId);
@@ -1605,6 +1638,7 @@ function BoardPanel({
   lastMoveBadge,
   history,
   pvArrow,
+  openingArrows,
   evaluationScore,
   players,
   onFlipOrientation,
@@ -1618,6 +1652,7 @@ function BoardPanel({
   lastMoveBadge?: { square: Square; quality: MoveQuality } | undefined;
   history?: MoveHistoryModel | undefined;
   pvArrow?: { from: Square; to: Square } | undefined;
+  openingArrows?: readonly OpeningArrow[] | undefined;
   evaluationScore?: EvaluationScore | undefined;
   players?: { white: PlayerMetadata; black: PlayerMetadata } | undefined;
   onFlipOrientation?: (() => void) | undefined;
@@ -1636,6 +1671,7 @@ function BoardPanel({
       {...(lastMoveBadge !== undefined ? { lastMoveBadge } : {})}
       {...(evaluationScore !== undefined ? { evaluationScore } : {})}
       {...(pvArrow !== undefined ? { pvArrow } : {})}
+      {...(openingArrows !== undefined ? { openingArrows } : {})}
       {...(players !== undefined ? { players } : {})}
       {...(onFlipOrientation !== undefined ? { onFlipOrientation } : {})}
     />

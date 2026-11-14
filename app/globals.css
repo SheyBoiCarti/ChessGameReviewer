@@ -2091,6 +2091,62 @@ li[data-selected='true'] {
   fill: rgb(255 170 0 / 78%);
 }
 
+.opening-arrows {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.opening-arrow {
+  stroke-linecap: round;
+  transition:
+    opacity 150ms ease,
+    stroke-width 150ms ease;
+}
+
+.opening-arrow--strong {
+  stroke: var(--arrow-strong, #2563eb);
+  stroke-width: 2.8;
+  opacity: 0.85;
+}
+
+.opening-arrow--medium {
+  stroke: var(--arrow-medium, #3b82f6);
+  stroke-width: 2.2;
+  opacity: 0.75;
+}
+
+.opening-arrow--rare {
+  stroke: var(--arrow-rare, #93c5fd);
+  stroke-width: 1.6;
+  opacity: 0.6;
+}
+
+.opening-arrow--active {
+  stroke: var(--arrow-active, #f59e0b) !important;
+  stroke-width: 3.4 !important;
+  opacity: 1 !important;
+}
+
+.arrow-head--strong {
+  fill: var(--arrow-strong, #2563eb);
+}
+
+.arrow-head--medium {
+  fill: var(--arrow-medium, #3b82f6);
+}
+
+.arrow-head--rare {
+  fill: var(--arrow-rare, #93c5fd);
+}
+
+.arrow-head--active {
+  fill: var(--arrow-active, #f59e0b) !important;
+}
+
 .board-square {
   position: relative;
   display: grid;

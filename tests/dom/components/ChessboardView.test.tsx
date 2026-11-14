@@ -431,5 +431,53 @@ describe('ChessboardView', () => {
       await user.click(flipButton);
       expect(onFlip).toHaveBeenCalledTimes(1);
     });
+
+    it('T53: renders multiple opening candidate arrows with unique marker IDs and pointer-events none', () => {
+      const { container } = render(
+        <ChessboardView
+          fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          orientation="white"
+          openingArrows={[
+            { from: 'e2', to: 'e4', uci: 'e2e4', band: 'strong', active: false },
+            { from: 'd2', to: 'd4', uci: 'd2d4', band: 'medium', active: false },
+            { from: 'g1', to: 'f3', uci: 'g1f3', band: 'rare', active: true },
+          ]}
+        />
+      );
+
+      const openingOverlay = container.querySelector('.opening-arrows');
+      expect(openingOverlay).toBeInTheDocument();
+      expect(openingOverlay).toHaveAttribute('pointer-events', 'none');
+      expect(openingOverlay).toHaveAttribute('aria-hidden', 'true');
+
+      const ids = Array.from(container.querySelectorAll('marker')).map((node) => node.id);
+      expect(ids.length).toBeGreaterThanOrEqual(3);
+      expect(new Set(ids).size).toBe(ids.length);
+
+      // Verify active candidate has active class
+      expect(container.querySelector('.opening-arrow--active')).toBeInTheDocument();
+    });
+
+    it('T53: isolates marker IDs between multiple mounted boards', () => {
+      const { container: container1 } = render(
+        <ChessboardView
+          fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          orientation="white"
+          openingArrows={[{ from: 'e2', to: 'e4', uci: 'e2e4', band: 'strong', active: false }]}
+        />
+      );
+      const { container: container2 } = render(
+        <ChessboardView
+          fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          orientation="black"
+          openingArrows={[{ from: 'e2', to: 'e4', uci: 'e2e4', band: 'strong', active: false }]}
+        />
+      );
+
+      const ids1 = Array.from(container1.querySelectorAll('marker')).map((node) => node.id);
+      const ids2 = Array.from(container2.querySelectorAll('marker')).map((node) => node.id);
+      const combined = [...ids1, ...ids2];
+      expect(new Set(combined).size).toBe(combined.length);
+    });
   });
 });

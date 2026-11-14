@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
 import type { Square } from 'chess.js';
 
 import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
@@ -14,6 +14,7 @@ import {
   type PromotionPiece,
 } from '@/features/board/moves';
 import { boardSquares, InvalidBoardPositionError } from '@/features/board/position';
+import type { OpeningArrow } from '@/features/opening-tree/selectors';
 import type { PlayerMetadata } from '@/lib/api/contracts';
 import type { MoveQuality } from '@/lib/engine/accuracy';
 import {
@@ -42,6 +43,7 @@ export interface ChessboardViewProps {
   lastMove?: { from: Square; to: Square } | undefined;
   lastMoveBadge?: { square: Square; quality: MoveQuality } | undefined;
   pvArrow?: { from: Square; to: Square } | undefined;
+  openingArrows?: readonly OpeningArrow[] | undefined;
   history?: MoveHistoryModel | undefined;
   evaluationScore?: EvaluationScore | undefined;
   currentPly?: number | undefined;
@@ -66,6 +68,7 @@ export function ChessboardView({
   lastMove,
   lastMoveBadge,
   pvArrow,
+  openingArrows,
   history,
   evaluationScore,
   currentPly,
@@ -415,6 +418,9 @@ export function ChessboardView({
                 </div>
               ))}
             </div>
+            {openingArrows && openingArrows.length > 0 ? (
+              <OpeningArrows arrows={openingArrows} orientation={orientation} />
+            ) : null}
             {pvArrow ? <BoardArrow move={pvArrow} orientation={orientation} /> : null}
           </div>
         </div>
@@ -474,9 +480,11 @@ function BoardArrow({
   move: { from: string; to: string };
   orientation: 'white' | 'black';
 }) {
+  const prefix = useId();
   const from = squareCenter(move.from, orientation);
   const to = squareCenter(move.to, orientation);
   if (!from || !to) return null;
+  const markerId = `${prefix}-pv-arrow-head`;
   return (
     <svg
       className="board-arrow"
@@ -485,23 +493,78 @@ function BoardArrow({
       role="img"
     >
       <defs>
-        <marker
-          id="pv-arrow-head"
-          markerWidth="5"
-          markerHeight="5"
-          refX="4"
-          refY="2.5"
-          orient="auto"
-        >
+        <marker id={markerId} markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
           <path d="M0,0 L5,2.5 L0,5 Z" />
         </marker>
       </defs>
-      <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} markerEnd="url(#pv-arrow-head)" />
+      <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} markerEnd={`url(#${markerId})`} />
     </svg>
   );
 }
 
-function squareCenter(square: string, orientation: 'white' | 'black') {
+function OpeningArrows({
+  arrows,
+  orientation,
+}: {
+  arrows: readonly OpeningArrow[];
+  orientation: 'white' | 'black';
+}) {
+  const prefix = useId();
+  if (arrows.length === 0) return null;
+
+  return (
+    <svg className="opening-arrows" viewBox="0 0 100 100" pointerEvents="none" aria-hidden="true">
+      <defs>
+        {arrows.map((arrow) => {
+          const markerId = `${prefix}-${arrow.uci}-arrow`;
+          return (
+            <marker
+              key={arrow.uci}
+              id={markerId}
+              markerWidth="5"
+              markerHeight="5"
+              refX="4"
+              refY="2.5"
+              orient="auto"
+            >
+              <path
+                d="M0,0 L5,2.5 L0,5 Z"
+                className={`arrow-head arrow-head--${arrow.band} ${arrow.active ? 'arrow-head--active' : ''}`}
+              />
+            </marker>
+          );
+        })}
+      </defs>
+      {arrows.map((arrow) => {
+        const from = squareCenter(arrow.from, orientation);
+        const to = squareCenter(arrow.to, orientation);
+        if (!from || !to) return null;
+        const markerId = `${prefix}-${arrow.uci}-arrow`;
+
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const dist = Math.hypot(dx, dy);
+        const shorten = dist > 0 ? Math.min(2.0, dist * 0.15) : 0;
+        const x2 = to.x - (dx / dist) * shorten;
+        const y2 = to.y - (dy / dist) * shorten;
+
+        return (
+          <line
+            key={arrow.uci}
+            x1={from.x}
+            y1={from.y}
+            x2={x2}
+            y2={y2}
+            markerEnd={`url(#${markerId})`}
+            className={`opening-arrow opening-arrow--${arrow.band} ${arrow.active ? 'opening-arrow--active' : ''}`}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+export function squareCenter(square: string, orientation: 'white' | 'black') {
   if (!/^[a-h][1-8]$/.test(square)) return null;
   const file = square.charCodeAt(0) - 97;
   const rank = Number(square[1]) - 1;

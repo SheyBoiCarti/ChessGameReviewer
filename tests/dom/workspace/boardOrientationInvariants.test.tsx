@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChessWorkspace } from '@/components/workspace/ChessWorkspace';
+import { ChessboardView } from '@/components/board/ChessboardView';
 import * as parser from '@/features/workspace/parseSelectedGame';
 import type { WorkspaceServices } from '@/features/workspace/createWorkspaceController';
 import type { GameRecord } from '@/lib/db/schema';
@@ -201,5 +202,33 @@ describe('Board orientation and player metadata invariants', () => {
     // But chess position (e5 pawn) remains at e5
     const pawnE5After = screen.getByLabelText(/black pawn on e5/i);
     expect(pawnE5After).toBeInTheDocument();
+  });
+
+  it('T53: preserves candidate arrow orientation mappings across board flip', () => {
+    const { container, rerender } = render(
+      <ChessboardView
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        orientation="white"
+        openingArrows={[{ from: 'e2', to: 'e4', uci: 'e2e4', band: 'strong', active: false }]}
+      />
+    );
+
+    const lineWhite = container.querySelector('.opening-arrow');
+    expect(lineWhite).toBeInTheDocument();
+    expect(Number(lineWhite?.getAttribute('x1'))).toBeCloseTo(56.25);
+    expect(Number(lineWhite?.getAttribute('y1'))).toBeCloseTo(81.25);
+
+    rerender(
+      <ChessboardView
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        orientation="black"
+        openingArrows={[{ from: 'e2', to: 'e4', uci: 'e2e4', band: 'strong', active: false }]}
+      />
+    );
+
+    const lineBlack = container.querySelector('.opening-arrow');
+    expect(lineBlack).toBeInTheDocument();
+    expect(Number(lineBlack?.getAttribute('x1'))).toBeCloseTo(43.75);
+    expect(Number(lineBlack?.getAttribute('y1'))).toBeCloseTo(18.75);
   });
 });

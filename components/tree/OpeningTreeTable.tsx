@@ -24,6 +24,8 @@ export interface OpeningTreeTableProps {
   onNavigate(value: GraphNavigationState): void;
   moveOrdersAction?: ReactNode;
   onPerspectiveChange?(value: OutcomePerspective): void;
+  showArrows?: boolean | undefined;
+  onToggleArrows?(value: boolean): void;
 }
 
 export function OpeningTreeTable({
@@ -35,6 +37,8 @@ export function OpeningTreeTable({
   onNavigate,
   moveOrdersAction,
   onPerspectiveChange,
+  showArrows = true,
+  onToggleArrows,
 }: OpeningTreeTableProps) {
   const [sort, setSort] = useState<MoveSort>('games');
   const [localPerspective, setLocalPerspective] = useState<OutcomePerspective>(perspective);
@@ -158,6 +162,17 @@ export function OpeningTreeTable({
             White / Black
           </button>
         </div>
+
+        {onToggleArrows ? (
+          <label className="opening-arrows-toggle-label">
+            <input
+              type="checkbox"
+              checked={showArrows}
+              onChange={(e) => onToggleArrows(e.target.checked)}
+            />
+            Arrows
+          </label>
+        ) : null}
       </div>
       <p className="field-help" aria-live="polite">
         Position-wide candidate moves across all observed move orders, sorted by {sort}.
@@ -212,7 +227,7 @@ export function OpeningTreeTable({
                         type="button"
                         className="opening-candidate-btn"
                         onClick={() => onNavigate(navigateCandidate(graph, navigation, edge!))}
-                        aria-label={`Play ${candidate.san}, ${candidate.metrics.sampleSize} games${shareText ? `, ${shareText}` : ''}`}
+                        aria-label={`Play ${candidate.san}, ${candidate.metrics.sampleSize} games`}
                       >
                         {candidate.san}
                       </button>
