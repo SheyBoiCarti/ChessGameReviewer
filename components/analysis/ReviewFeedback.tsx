@@ -6,7 +6,12 @@ import { Chess } from 'chess.js';
 import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
 import type { AnalysisStrength } from '@/features/workspace/types';
 import type { GameAnnotation } from '@/features/stockfish-analysis/analyzeGame';
-import { moveQualityDetails } from '@/features/stockfish-analysis/presentation';
+import { whiteCentipawnDelta } from '@/lib/engine/evaluation';
+import {
+  moveNotation,
+  toGraphPoints,
+  moveQualityDetails,
+} from '@/features/stockfish-analysis/presentation';
 
 export interface ReviewFeedbackProps {
   annotation: GameAnnotation | null;
@@ -79,10 +84,17 @@ export function ReviewFeedback({
           {quality ? <MoveClassificationBadge quality={quality} size="inline" ariaHidden /> : null}
           <span className="review-feedback__title">
             {showingPrevious ? `Previous ${previousStrength ?? 'saved'} review · ` : ''}
-            {isClassified ? `${annotation.san} — ${qualityLabel}` : 'Move quality unavailable'}
+            {moveNotation(annotation.ply, annotation.san, annotation.mover)} —{' '}
+            <span>{isClassified ? qualityLabel : 'Move quality unavailable'}</span>
           </span>
         </summary>
 
+        <p>
+          {quality
+            ? moveQualityDetails(quality).description
+            : 'The available scores do not support a reliable move grade.'}
+        </p>
+        <EvaluationComparison annotation={annotation} />
         <p className="review-feedback__best-move">
           Best move: {bestSan ?? 'Best move unavailable'}
         </p>
@@ -109,6 +121,27 @@ export function ReviewFeedback({
           </div>
         ) : null}
       </details>
+    </div>
+  );
+}
+
+export function EvaluationComparison({ annotation }: { annotation: GameAnnotation }) {
+  const [before, after] = toGraphPoints([
+    { ply: annotation.ply, evaluation: annotation.before.score },
+    { ply: annotation.ply, evaluation: annotation.after.score },
+  ]);
+  const delta = whiteCentipawnDelta(annotation.before.score, annotation.after.score);
+  return (
+    <div className="review-evaluation">
+      <p>Evaluation from White’s perspective</p>
+      <p>Before: {before!.label}</p>
+      <p>After: {after!.label}</p>
+      {delta !== null ? (
+        <p>
+          Change for White: {delta >= 0 ? '+' : ''}
+          {(delta / 100).toFixed(2)} pawns
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -80,3 +80,13 @@ export function isFiniteScore(score: EvaluationScore): boolean {
 export function isExactScore(score: EvaluationScore): boolean {
   return isFiniteScore(score) && score.bound === undefined;
 }
+
+/** Signed change for White; mate, bounds and invalid scores have no pawn delta. */
+export function whiteCentipawnDelta(
+  before: EvaluationScore,
+  after: EvaluationScore
+): number | null {
+  return isExactScore(before) && isExactScore(after) && before.kind === 'cp' && after.kind === 'cp'
+    ? after.value - before.value
+    : null;
+}

@@ -23,13 +23,13 @@ const QUALITY_METADATA: Record<MoveQuality, MoveQualityDetails> = {
     label: 'Brilliant',
     symbol: '!!',
     colorClass: 'badge-brilliant',
-    description: 'Best move that sacrifices material to gain an advantage',
+    description: 'A top engine choice meeting the local brilliant-move criteria',
   },
   great: {
     label: 'Great',
     symbol: '!',
     colorClass: 'badge-great',
-    description: 'Finds the only winning move or defends against a major threat',
+    description: 'A strong engine choice meeting the local great-move criteria',
   },
   best: {
     label: 'Best',
@@ -65,13 +65,13 @@ const QUALITY_METADATA: Record<MoveQuality, MoveQualityDetails> = {
     label: 'Blunder',
     symbol: '??',
     colorClass: 'badge-blunder',
-    description: 'A catastrophic mistake that loses material or the game',
+    description: 'A move with a large drop in the local evaluation',
   },
   miss: {
     label: 'Miss',
     symbol: '✕',
     colorClass: 'badge-miss',
-    description: 'Missed an opportunity to win material or mate',
+    description: 'A missed improvement according to the local engine',
   },
   forced: {
     label: 'Forced',
@@ -141,14 +141,14 @@ export function toGraphPoints(values: readonly EvaluationGraphInput[]): Evaluati
       return {
         ply,
         value: evaluation.value >= 0 ? 12 : -12,
-        label: `${side} mate in ${Math.abs(evaluation.value)}`,
+        label: `${evaluation.bound ? `${evaluation.bound} bound · ` : ''}${side} mate in ${Math.abs(evaluation.value)}`,
       };
     }
     const pawns = evaluation.value / 100;
     return {
       ply,
       value: pawns,
-      label: `${pawns >= 0 ? 'White' : 'Black'} ${pawns >= 0 ? '+' : ''}${pawns.toFixed(2)}`,
+      label: `${evaluation.bound ? `${evaluation.bound} bound · ` : ''}${pawns >= 0 ? 'White' : 'Black'} ${pawns >= 0 ? '+' : ''}${pawns.toFixed(2)}`,
     };
   });
 }
@@ -276,4 +276,8 @@ export function selectMovePresentation(
     beforeScore: annotation.before.score,
     afterScore: annotation.after.score,
   };
+}
+
+export function moveNotation(ply: number, san: string, mover?: PlayerColor): string {
+  return `${Math.ceil(ply / 2)}${(mover ?? (ply % 2 ? 'white' : 'black')) === 'white' ? '.' : '…'} ${san}`;
 }

@@ -68,7 +68,7 @@ describe('ReviewFeedback', () => {
       />
     );
     expect(screen.getByRole('region', { name: 'Selected move feedback' })).toHaveTextContent(
-      'Previous balanced review · e4'
+      'Previous balanced review · 1. e4'
     );
   });
   it('displays "Select a move to review it." at ply 0', () => {
@@ -113,7 +113,7 @@ describe('ReviewFeedback', () => {
       />
     );
 
-    expect(screen.getByText(/e4 — Best/)).toBeInTheDocument();
+    expect(screen.getByText(/1\. e4/)).toBeInTheDocument();
     expect(screen.getByText(/Best move:\s*e4/)).toBeInTheDocument();
   });
 
@@ -166,7 +166,7 @@ describe('ReviewFeedback', () => {
       />
     );
 
-    const summary = screen.getByText(/e4 — Best/).closest('summary')!;
+    const summary = screen.getByText(/1\. e4/).closest('summary')!;
     expect(summary.closest('details')).not.toHaveAttribute('open');
     await user.click(summary);
     expect(summary.closest('details')).toHaveAttribute('open');
@@ -209,4 +209,48 @@ describe('ReviewFeedback', () => {
 
     expect(screen.queryByRole('button', { name: /Next mistake/i })).not.toBeInTheDocument();
   });
+});
+
+it('shows numbered notation, grade meaning and exact White evaluation change', async () => {
+  render(
+    <ReviewFeedback
+      annotation={createMockAnnotation(1, 'e4', 'best')}
+      selectedPly={1}
+      nextMistake={null}
+      onSelectPly={vi.fn()}
+      hasAnnotations
+    />
+  );
+  expect(screen.getByText(/1\. e4/)).toBeVisible();
+  await userEvent.click(screen.getByText(/1\. e4/));
+  expect(screen.getByText(/Before: White \+0.20/)).toBeVisible();
+  expect(screen.getByText(/After: White \+0.15/)).toBeVisible();
+  expect(screen.getByText(/Change for White: -0.05/)).toBeVisible();
+  expect(screen.getByText('The best move according to the engine')).toBeVisible();
+});
+
+it.each(['mate', 'bound', 'invalid'] as const)('avoids arithmetic on %s scores', async (kind) => {
+  const annotation = createMockAnnotation(2, 'e5', 'indeterminate');
+  annotation.mover = 'black';
+  annotation.after.score =
+    kind === 'mate'
+      ? { kind: 'mate', value: -3 }
+      : {
+          kind: 'cp',
+          value: kind === 'invalid' ? NaN : -125,
+          ...(kind === 'bound' ? { bound: 'lower' as const } : {}),
+        };
+  render(
+    <ReviewFeedback
+      annotation={annotation}
+      selectedPly={2}
+      nextMistake={null}
+      onSelectPly={vi.fn()}
+      hasAnnotations
+    />
+  );
+  await userEvent.click(screen.getByText(/1… e5/));
+  expect(screen.getByText(/1… e5/)).toBeVisible();
+  expect(screen.queryByText(/Change for White:/)).not.toBeInTheDocument();
+  if (kind === 'mate') expect(screen.getByText(/After: Black mate in 3/)).toBeVisible();
 });
