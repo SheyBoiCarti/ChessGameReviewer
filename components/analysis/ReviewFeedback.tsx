@@ -22,6 +22,7 @@ export interface ReviewFeedbackProps {
   nextMistake: number | null;
   previousMoment?: number | null | undefined;
   firstMoment?: number | null | undefined;
+  navigationKind?: 'mistake' | 'moment' | undefined;
   onSelectPly(ply: number): void;
   hasAnnotations: boolean;
   showingPrevious?: boolean | undefined;
@@ -53,6 +54,7 @@ export function ReviewFeedback({
   nextMistake,
   previousMoment = null,
   firstMoment = null,
+  navigationKind = 'mistake',
   onSelectPly,
   hasAnnotations,
   showingPrevious = false,
@@ -94,11 +96,12 @@ export function ReviewFeedback({
             disabled={nextMistake === null}
             onClick={() => nextMistake !== null && onSelectPly(nextMistake)}
           >
-            Next mistake
+            Next {navigationKind}
           </button>
           {nextMistake === null ? (
             <span className="review-feedback__no-mistakes">
-              No later mistakes in the analysed moves.
+              No later {navigationKind === 'mistake' ? 'mistakes' : 'moments'} in the analysed
+              moves.
             </span>
           ) : null}
           {nextMistake === null && firstMoment !== null && firstMoment < selectedPly ? (

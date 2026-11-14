@@ -44,7 +44,10 @@ import { parseSelectedGame } from '@/features/workspace/parseSelectedGame';
 import { OpeningView } from '@/components/opening/OpeningView';
 import { ReviewView } from '@/components/analysis/ReviewView';
 import { ReviewFeedback } from '@/components/analysis/ReviewFeedback';
-import { nextMistakePly, previousMistakePly } from '@/features/stockfish-analysis/reviewNavigation';
+import {
+  reviewMomentNavigation,
+  type ReviewFilter,
+} from '@/features/stockfish-analysis/reviewNavigation';
 import { deserializeOpeningGraph } from '@/lib/chess/graph/serialization';
 import type { MoveQuality } from '@/lib/engine/accuracy';
 import type { EvaluationScore } from '@/lib/engine/evaluation';
@@ -64,6 +67,7 @@ export function ChessWorkspace({
 } = {}): JSX.Element {
   const { controller, state, recentQuery, recoveredSession } = useWorkspace(createServices);
   const [tab, setTab] = useState<WorkspaceTab>('games');
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>({});
   const [reviewMode, setReviewMode] = useState<ReviewMode>('review');
   const [menuOpen, setMenuOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -164,8 +168,15 @@ export function ChessWorkspace({
 
   useEffect(() => {
     setVariation(null);
+    setVariationOrigin(null);
+    setReviewFilter({});
   }, [state.selection.gameId]);
 
+  const reviewMoments = reviewMomentNavigation(
+    state.analysis.result?.annotations ?? [],
+    state.selection.ply,
+    reviewFilter
+  );
   const selectedPresentation = parsedGame
     ? selectMovePresentation(parsedGame, state.analysis.result, state.selection.ply)
     : null;
@@ -791,21 +802,10 @@ export function ChessWorkspace({
                     annotation={selectedAnnotation ?? null}
                     selectedPly={state.selection.ply}
                     startFen={fenByPly[state.selection.ply]}
-                    firstMoment={
-                      state.analysis.result
-                        ? nextMistakePly(state.analysis.result.annotations, 0)
-                        : null
-                    }
-                    previousMoment={
-                      state.analysis.result
-                        ? previousMistakePly(state.analysis.result.annotations, state.selection.ply)
-                        : null
-                    }
-                    nextMistake={
-                      state.analysis.result
-                        ? nextMistakePly(state.analysis.result.annotations, state.selection.ply)
-                        : null
-                    }
+                    firstMoment={reviewMoments.first}
+                    previousMoment={reviewMoments.previous}
+                    nextMistake={reviewMoments.next}
+                    navigationKind="moment"
                     onSelectPly={handlePlyChange}
                     hasAnnotations={Boolean(state.analysis.result?.annotations.length)}
                     showingPrevious={state.analysis.showingPrevious}
@@ -1031,6 +1031,9 @@ export function ChessWorkspace({
                     selectedRecord && parsedGame ? (
                       <ReviewView
                         feedbackInLayout
+                        userColor={selectedRecord.userColor}
+                        reviewFilter={reviewFilter}
+                        onReviewFilterChange={setReviewFilter}
                         mode={reviewMode}
                         game={parsedGame}
                         players={{

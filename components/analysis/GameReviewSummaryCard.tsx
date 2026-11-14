@@ -4,11 +4,14 @@ import { MoveClassificationBadge } from '@/components/board/MoveClassificationBa
 import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGame';
 import { moveQualityDetails } from '@/features/stockfish-analysis/presentation';
 import type { PlayerMetadata, SideAccuracy } from '@/lib/api/contracts';
+import type { ReviewFilter } from '@/features/stockfish-analysis/reviewNavigation';
+import { filterReviewPlies } from '@/features/stockfish-analysis/reviewNavigation';
 import { REVIEW_MOVE_QUALITIES } from '@/lib/engine/accuracy';
 
 export interface GameReviewSummaryCardProps {
   result: GameAnalysisResult;
   onStartReview?: (() => void) | undefined;
+  onFilter?: ((filter: ReviewFilter) => void) | undefined;
   upstreamAccuracies?: SideAccuracy | undefined;
   players?:
     | {
@@ -21,6 +24,7 @@ export interface GameReviewSummaryCardProps {
 export function GameReviewSummaryCard({
   result,
   onStartReview,
+  onFilter,
   upstreamAccuracies,
   players,
 }: GameReviewSummaryCardProps): React.JSX.Element {
@@ -117,8 +121,26 @@ export function GameReviewSummaryCard({
                       <MoveClassificationBadge quality={quality} size="summary" />
                       <span className="game-review-summary__quality-label">{details.label}</span>
                     </th>
-                    <td className="game-review-summary__count-cell">{whiteCount}</td>
-                    <td className="game-review-summary__count-cell">{blackCount}</td>
+                    {(['white', 'black'] as const).map((mover) => {
+                      const count = mover === 'white' ? whiteCount : blackCount;
+                      return (
+                        <td key={mover} className="game-review-summary__count-cell">
+                          <button
+                            type="button"
+                            className="button-secondary"
+                            aria-label={`${mover === 'white' ? 'White' : 'Black'} ${details.label}: ${count} moves`}
+                            disabled={
+                              count === 0 ||
+                              !onFilter ||
+                              !filterReviewPlies(result.annotations, { mover, quality }).length
+                            }
+                            onClick={() => onFilter?.({ mover, quality })}
+                          >
+                            {count}
+                          </button>
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })}

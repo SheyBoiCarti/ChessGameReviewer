@@ -1,10 +1,15 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useState } from 'react';
 
 import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGame';
 import { analysisPreset, selectMovePresentation } from '@/features/stockfish-analysis/presentation';
-import { nextMistakePly, previousMistakePly } from '@/features/stockfish-analysis/reviewNavigation';
+import {
+  reviewMomentNavigation,
+  filterReviewPlies,
+  type ReviewFilter,
+} from '@/features/stockfish-analysis/reviewNavigation';
+import type { PlayerColor } from '@/lib/engine/evaluation';
 import type { AnalysisStrength } from '@/features/workspace/types';
 import type { PlayerMetadata, SideAccuracy } from '@/lib/api/contracts';
 import type { ParsedGame } from '@/lib/chess/pgnParser';
@@ -22,6 +27,9 @@ import { ReviewFeedback } from './ReviewFeedback';
 
 export interface AnalyzerWorkspaceProps {
   mode?: ReviewMode | undefined;
+  userColor?: PlayerColor | undefined;
+  reviewFilter?: ReviewFilter | undefined;
+  onReviewFilterChange?: ((filter: ReviewFilter) => void) | undefined;
   feedbackInLayout?: boolean | undefined;
   game?: ParsedGame | undefined;
   players?:
@@ -62,6 +70,9 @@ export interface AnalyzerWorkspaceProps {
 
 export function AnalyzerWorkspace({
   mode = 'review',
+  userColor,
+  reviewFilter,
+  onReviewFilterChange,
   feedbackInLayout = false,
   game,
   players,
@@ -101,10 +112,10 @@ export function AnalyzerWorkspace({
 
   const hasResults = Boolean(result && result.annotations.length > 0);
 
-  const nextMistake = useMemo(() => {
-    if (!result || result.annotations.length === 0) return null;
-    return nextMistakePly(result.annotations, selectedPly);
-  }, [result, selectedPly]);
+  const [localFilter, setLocalFilter] = useState<ReviewFilter>({});
+  const filter = reviewFilter ?? localFilter;
+  const changeFilter = onReviewFilterChange ?? setLocalFilter;
+  const moments = reviewMomentNavigation(result?.annotations ?? [], selectedPly, filter);
 
   const handleSelectPly = (ply: number) => {
     if (isVariationActive && onReturnToGame) {
@@ -259,9 +270,10 @@ export function AnalyzerWorkspace({
               annotation={selectedAnnotation}
               selectedPly={selectedPly}
               startFen={fenByPly[selectedPly]}
-              nextMistake={nextMistake}
-              firstMoment={result ? nextMistakePly(result.annotations, 0) : null}
-              previousMoment={result ? previousMistakePly(result.annotations, selectedPly) : null}
+              nextMistake={moments.next}
+              firstMoment={moments.first}
+              previousMoment={moments.previous}
+              navigationKind="moment"
               onSelectPly={handleSelectPly}
               hasAnnotations={hasResults}
               showingPrevious={showingPrevious}
@@ -269,7 +281,47 @@ export function AnalyzerWorkspace({
               onExplorePv={onExplorePv}
             />
           ) : null}
+          <div className="review-filters">
+            <label>
+              Review players{' '}
+              <select
+                aria-label="Review players"
+                value={filter.mover ?? 'both'}
+                onChange={(event) =>
+                  changeFilter({
+                    ...filter,
+                    mover:
+                      event.target.value === 'both'
+                        ? undefined
+                        : (event.target.value as PlayerColor),
+                  })
+                }
+              >
+                <option value="both">Both players</option>
+                <option value="white">
+                  {userColor === 'white' ? 'My moves (White)' : 'White moves'}
+                </option>
+                <option value="black">
+                  {userColor === 'black' ? 'My moves (Black)' : 'Black moves'}
+                </option>
+              </select>
+            </label>
+            {filter.quality ? (
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => changeFilter({ ...filter, quality: undefined })}
+              >
+                Clear {filter.quality} filter
+              </button>
+            ) : null}
+            <p>
+              {moments.plies.length} key moments in analysed moves
+              {filter.quality ? ` · ${filter.quality}` : ''}
+            </p>
+          </div>
           <AnalysisMoveList
+            reviewPlies={moments.plies}
             id="analysis-move-list"
             moves={game?.plies}
             annotations={result?.annotations}
@@ -291,10 +343,13 @@ export function AnalyzerWorkspace({
             {result ? (
               <GameReviewSummaryCard
                 result={result}
+                onFilter={(nextFilter) => {
+                  changeFilter(nextFilter);
+                  const first = filterReviewPlies(result.annotations, nextFilter)[0];
+                  if (first !== undefined) handleSelectPly(first);
+                }}
                 onStartReview={
-                  nextMistakePly(result.annotations, 0) !== null
-                    ? () => handleSelectPly(nextMistakePly(result.annotations, 0)!)
-                    : undefined
+                  moments.first !== null ? () => handleSelectPly(moments.first!) : undefined
                 }
                 upstreamAccuracies={upstreamAccuracies}
                 players={players}

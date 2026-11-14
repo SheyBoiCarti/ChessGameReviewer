@@ -125,3 +125,38 @@ it('starts at five and stops without wrapping in a partial or full game', async 
   expect(previousMistakePly(result.annotations, 0)).toBeNull();
   expect(previousMistakePly(result.annotations, 15)).toBe(14);
 });
+
+it('filters only completed classifications by player and quality in original order', async () => {
+  const { filterReviewPlies } = await import('@/features/stockfish-analysis/reviewNavigation');
+  const { createLongGameAnalysisResult } = await import('../../fixtures/longAnalysisFixture');
+  const result = createLongGameAnalysisResult(15);
+  expect(filterReviewPlies(result.annotations, { mover: 'white', quality: 'mistake' })).toEqual([
+    5, 15,
+  ]);
+  expect(filterReviewPlies([createMockAnnotation(3, 'indeterminate')], {})).toEqual([]);
+  expect(filterReviewPlies([...result.annotations].reverse(), { quality: 'mistake' })).toEqual([
+    5, 10, 15,
+  ]);
+});
+
+it('includes a restrained set of notable existing grades and keeps navigation in the filter', async () => {
+  const { reviewMomentNavigation } = await import('@/features/stockfish-analysis/reviewNavigation');
+  const annotations = [1, 2, 3, 4, 5].map((ply) => ({
+    ...createMockAnnotation(ply, 'good'),
+    accuracy: {
+      ...createMockAnnotation(ply, 'good').accuracy,
+      status: 'classified' as const,
+      quality: 'best' as const,
+      probabilityLoss: 0,
+      accuracyEstimate: 100,
+      heuristicVersion: 'analyzer-accuracy-v3' as const,
+    },
+  }));
+  expect(reviewMomentNavigation(annotations, 0, {}).plies).toEqual([1, 2, 3]);
+  expect(reviewMomentNavigation(annotations, 1, { mover: 'white', quality: 'best' })).toMatchObject(
+    { next: 3, previous: null, plies: [1, 3, 5] }
+  );
+  expect(
+    reviewMomentNavigation(annotations, 5, { mover: 'white', quality: 'best' }).next
+  ).toBeNull();
+});

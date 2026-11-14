@@ -381,7 +381,7 @@ describe('AnalyzerWorkspace', () => {
     // Exactly one detailed EngineAnnotationPanel (role="article")
     const panels = screen.getAllByRole('article');
     expect(panels).toHaveLength(1);
-    expect(screen.getByRole('heading', { level: 4, name: /ply 1:\s*e4/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 4, name: /1\.\s*e4/i })).toBeInTheDocument();
 
     // Rerender with selectedPly = 15
     rerender(
@@ -404,7 +404,7 @@ describe('AnalyzerWorkspace', () => {
 
     const updatedPanels = screen.getAllByRole('article');
     expect(updatedPanels).toHaveLength(1);
-    expect(screen.getByRole('heading', { level: 4, name: /ply 15:/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 4, name: /8\.\s*f3/i })).toBeInTheDocument();
   });
 
   it('renders empty/instruction state when selectedPly is 0 and does not render any EngineAnnotationPanel', () => {

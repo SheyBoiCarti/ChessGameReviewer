@@ -12,6 +12,7 @@ export interface AnalysisMoveListProps {
   moves?: readonly MovePly[] | undefined;
   annotations?: readonly GameAnnotation[] | undefined;
   selectedPly: number;
+  reviewPlies?: readonly number[] | undefined;
   onSelectPly(ply: number): void;
   id?: string | undefined;
   tableLabel?: string | undefined;
@@ -35,6 +36,7 @@ export function AnalysisMoveList({
   moves,
   annotations = [],
   selectedPly,
+  reviewPlies,
   onSelectPly,
   id,
   tableLabel = 'Move list',
@@ -172,6 +174,9 @@ export function AnalysisMoveList({
         title={titleText}
       >
         <span className="visually-hidden">{movePrefix} </span>
+        {reviewPlies?.includes(move.ply) ? (
+          <span className="visually-hidden">Key moment · </span>
+        ) : null}
         <span className="analysis-move-cell__san">{move.san}</span>
         {quality ? (
           <span className="analysis-move-cell__badge">
