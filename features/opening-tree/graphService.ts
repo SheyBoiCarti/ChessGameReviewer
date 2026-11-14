@@ -3,9 +3,14 @@ import type { GraphBuildWorkerResult } from './graphWorkerClient';
 import type { NormalizedGameSummary } from '@/lib/api/contracts';
 import {
   serializedGraphByteSize,
+  deserializeOpeningGraph,
+  type SerializedOpeningGraph,
   MAX_SERIALIZED_GRAPH_BYTES,
 } from '@/lib/chess/graph/serialization';
 import type { GraphBuildOptions } from '@/lib/chess/graph/types';
+import { getGraphSnapshot, putGraphSnapshot } from '@/lib/db/repositories';
+import { evictGraphSnapshots } from '@/lib/db/retention';
+import { deleteUserData } from '@/lib/db/deleteLocalData';
 
 export interface GraphServiceDependencies {
   workerClient?: {
@@ -22,6 +27,7 @@ export interface GraphServiceDependencies {
     options: GraphBuildOptions,
     queryFingerprint: string
   ) => Promise<GraphBuildWorkerResult>;
+  getDb?: () => Promise<IDBDatabase | null>;
   maxMemoryEntries?: number;
   maxMemoryBytes?: number;
 }
@@ -46,6 +52,31 @@ export class GraphService {
     this.maxMemoryBytes = deps.maxMemoryBytes ?? MAX_SERIALIZED_GRAPH_BYTES;
   }
 
+  private putMemory(
+    key: string,
+    result: GraphBuildWorkerResult,
+    byteSize: number,
+    username: string
+  ): void {
+    while (
+      this.cache.size >= this.maxMemoryEntries ||
+      (this.cache.size > 0 && this.totalBytes + byteSize > this.maxMemoryBytes)
+    ) {
+      const oldestKey = this.cache.keys().next().value;
+      if (!oldestKey) break;
+      const entry = this.cache.get(oldestKey);
+      if (entry) this.totalBytes -= entry.byteSize;
+      this.cache.delete(oldestKey);
+    }
+
+    this.cache.set(key, {
+      result,
+      byteSize,
+      username: username.trim().toLowerCase(),
+    });
+    this.totalBytes += byteSize;
+  }
+
   async load(
     identity: GraphCacheIdentity,
     games: readonly NormalizedGameSummary[]
@@ -63,6 +94,45 @@ export class GraphService {
     if (pending) return pending;
 
     const buildPromise = (async () => {
+      const db = this.deps.getDb ? await this.deps.getDb().catch(() => null) : null;
+      if (db) {
+        try {
+          const record = await getGraphSnapshot(db, key);
+          if (record && record.snapshotData) {
+            const snapshot = record.snapshotData as SerializedOpeningGraph;
+            deserializeOpeningGraph(snapshot);
+            if (
+              !snapshot.datasetRevision ||
+              snapshot.datasetRevision === identity.datasetRevision
+            ) {
+              void putGraphSnapshot(db, {
+                ...record,
+                lastUsedAt: Date.now(),
+              }).catch(() => {});
+              const result: GraphBuildWorkerResult =
+                snapshot.status === 'limited'
+                  ? {
+                      status: 'limited',
+                      snapshot,
+                      reachedLimit: snapshot.reachedLimit ?? 'maxPositions',
+                      includedGameCount: snapshot.includedGameCount,
+                      remainingGameCount: snapshot.remainingGameCount,
+                      excludedGameCount: snapshot.excludedGameCount,
+                      diagnosticCodes: [],
+                    }
+                  : {
+                      status: 'complete',
+                      snapshot,
+                    };
+              this.putMemory(key, result, record.byteSize, identity.username);
+              return result;
+            }
+          }
+        } catch {
+          // Corrupt/quota/version mismatch is treated as safe cache miss
+        }
+      }
+
       const options: GraphBuildOptions = {
         maxOpeningPlies: identity.horizon,
         includeRepeatedPositions: identity.repetitionPolicy === 'include-repeats',
@@ -75,24 +145,27 @@ export class GraphService {
 
       const byteSize = serializedGraphByteSize(result.snapshot);
 
-      // Enforce LRU limits before adding new entry
-      while (
-        this.cache.size >= this.maxMemoryEntries ||
-        (this.cache.size > 0 && this.totalBytes + byteSize > this.maxMemoryBytes)
-      ) {
-        const oldestKey = this.cache.keys().next().value;
-        if (!oldestKey) break;
-        const entry = this.cache.get(oldestKey);
-        if (entry) this.totalBytes -= entry.byteSize;
-        this.cache.delete(oldestKey);
-      }
+      this.putMemory(key, result, byteSize, identity.username);
 
-      this.cache.set(key, {
-        result,
-        byteSize,
-        username: identity.username.trim().toLowerCase(),
-      });
-      this.totalBytes += byteSize;
+      if (db) {
+        try {
+          const snapshotWithRevision: SerializedOpeningGraph = {
+            ...result.snapshot,
+            datasetRevision: identity.datasetRevision,
+          };
+          await putGraphSnapshot(db, {
+            key,
+            username: identity.username.trim().toLowerCase(),
+            createdAt: Date.now(),
+            lastUsedAt: Date.now(),
+            byteSize,
+            snapshotData: snapshotWithRevision,
+          });
+          await evictGraphSnapshots(db, { maxCount: 50, maxTotalBytes: 128 * 1024 * 1024 });
+        } catch {
+          // Persistence errors do not fail the build
+        }
+      }
 
       return result;
     })();
@@ -131,6 +204,15 @@ export class GraphService {
       if (entry.username === normalized) {
         this.totalBytes -= entry.byteSize;
         this.cache.delete(key);
+      }
+    }
+
+    const db = this.deps.getDb ? await this.deps.getDb().catch(() => null) : null;
+    if (db) {
+      try {
+        await deleteUserData(db, normalized);
+      } catch {
+        // Safe deletion
       }
     }
   }

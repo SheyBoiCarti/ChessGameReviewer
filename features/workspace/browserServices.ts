@@ -189,7 +189,7 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     },
   };
   const graphWorkerClient = new GraphWorkerClient(sharedDataWorker);
-  const graph = new GraphService({ workerClient: graphWorkerClient });
+  const graph = new GraphService({ workerClient: graphWorkerClient, getDb: db });
   const engineMode = new URLSearchParams(window.location.search).get('engine');
   const engine =
     engineMode === 'unavailable'

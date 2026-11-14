@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import { describe, expect, it, vi } from 'vitest';
 import { GraphService } from '@/features/opening-tree/graphService';
 import {
@@ -10,8 +11,11 @@ import { makeGameRecord } from '../../helpers/phase1Fixtures';
 import { toNormalizedSummary } from '@/features/workspace/createWorkspaceController';
 import { serializeOpeningGraph } from '@/lib/chess/graph/serialization';
 import { OpeningGraphBuilder } from '@/lib/chess/graph/openingGraph';
-
 import { parseGamePgn } from '@/lib/chess/pgnParser';
+import { openDatabase, closeDatabase } from '@/lib/db/openDatabase';
+import { DB_NAME } from '@/lib/db/schema';
+import { readNormalizedMonth, putNormalizedMonth } from '@/lib/db/repositories';
+import { makeNormalizedMonth } from '../../helpers/normalizedMonthFixture';
 
 function makeMockResult(userColor: 'white' | 'black'): GraphBuildWorkerResult {
   const game = makeGameRecord({ id: `g-${userColor}`, userColor, pgn: '1. e4 e5 1/2-1/2' });
@@ -134,5 +138,30 @@ describe('GraphService', () => {
     await service.deleteUser('janedoe');
     await service.load(whiteIdentity, whiteGames);
     expect(build).toHaveBeenCalledTimes(3);
+  });
+
+  it('persists opening snapshots to IndexedDB and reuses them after clearMemory()', async () => {
+    indexedDB.deleteDatabase(DB_NAME);
+    const db = await openDatabase();
+    try {
+      const month = '2026-08';
+      await putNormalizedMonth(
+        db,
+        makeNormalizedMonth({ username: whiteIdentity.username, month })
+      );
+
+      const build = vi.fn(async () => makeMockResult('white'));
+      const service = new GraphService({ build, getDb: async () => db });
+
+      await service.load(whiteIdentity, whiteGames);
+      service.clearMemory();
+      await service.load(whiteIdentity, whiteGames);
+      expect(build).toHaveBeenCalledTimes(1);
+
+      await service.deleteUser(whiteIdentity.username);
+      await expect(readNormalizedMonth(db, whiteIdentity.username, month)).resolves.toBeNull();
+    } finally {
+      closeDatabase(db);
+    }
   });
 });
