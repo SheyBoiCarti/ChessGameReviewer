@@ -115,3 +115,13 @@ describe('nextMistakePly', () => {
     expect(annotations).toEqual(clone);
   });
 });
+
+it('starts at five and stops without wrapping in a partial or full game', async () => {
+  const { createLongGameAnalysisResult } = await import('../../fixtures/longAnalysisFixture');
+  const { previousMistakePly } = await import('@/features/stockfish-analysis/reviewNavigation');
+  const result = createLongGameAnalysisResult(15);
+  expect(nextMistakePly(result.annotations, 0)).toBe(5);
+  expect(nextMistakePly(result.annotations, 15)).toBeNull();
+  expect(previousMistakePly(result.annotations, 0)).toBeNull();
+  expect(previousMistakePly(result.annotations, 15)).toBe(14);
+});

@@ -44,7 +44,7 @@ import { parseSelectedGame } from '@/features/workspace/parseSelectedGame';
 import { OpeningView } from '@/components/opening/OpeningView';
 import { ReviewView } from '@/components/analysis/ReviewView';
 import { ReviewFeedback } from '@/components/analysis/ReviewFeedback';
-import { nextMistakePly } from '@/features/stockfish-analysis/reviewNavigation';
+import { nextMistakePly, previousMistakePly } from '@/features/stockfish-analysis/reviewNavigation';
 import { deserializeOpeningGraph } from '@/lib/chess/graph/serialization';
 import type { MoveQuality } from '@/lib/engine/accuracy';
 import type { EvaluationScore } from '@/lib/engine/evaluation';
@@ -791,6 +791,16 @@ export function ChessWorkspace({
                     annotation={selectedAnnotation ?? null}
                     selectedPly={state.selection.ply}
                     startFen={fenByPly[state.selection.ply]}
+                    firstMoment={
+                      state.analysis.result
+                        ? nextMistakePly(state.analysis.result.annotations, 0)
+                        : null
+                    }
+                    previousMoment={
+                      state.analysis.result
+                        ? previousMistakePly(state.analysis.result.annotations, state.selection.ply)
+                        : null
+                    }
                     nextMistake={
                       state.analysis.result
                         ? nextMistakePly(state.analysis.result.annotations, state.selection.ply)

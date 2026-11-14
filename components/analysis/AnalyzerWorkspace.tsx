@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 
 import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGame';
 import { analysisPreset, selectMovePresentation } from '@/features/stockfish-analysis/presentation';
-import { nextMistakePly } from '@/features/stockfish-analysis/reviewNavigation';
+import { nextMistakePly, previousMistakePly } from '@/features/stockfish-analysis/reviewNavigation';
 import type { AnalysisStrength } from '@/features/workspace/types';
 import type { PlayerMetadata, SideAccuracy } from '@/lib/api/contracts';
 import type { ParsedGame } from '@/lib/chess/pgnParser';
@@ -260,6 +260,8 @@ export function AnalyzerWorkspace({
               selectedPly={selectedPly}
               startFen={fenByPly[selectedPly]}
               nextMistake={nextMistake}
+              firstMoment={result ? nextMistakePly(result.annotations, 0) : null}
+              previousMoment={result ? previousMistakePly(result.annotations, selectedPly) : null}
               onSelectPly={handleSelectPly}
               hasAnnotations={hasResults}
               showingPrevious={showingPrevious}
@@ -289,6 +291,11 @@ export function AnalyzerWorkspace({
             {result ? (
               <GameReviewSummaryCard
                 result={result}
+                onStartReview={
+                  nextMistakePly(result.annotations, 0) !== null
+                    ? () => handleSelectPly(nextMistakePly(result.annotations, 0)!)
+                    : undefined
+                }
                 upstreamAccuracies={upstreamAccuracies}
                 players={players}
               />

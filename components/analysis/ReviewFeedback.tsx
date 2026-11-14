@@ -20,6 +20,8 @@ export interface ReviewFeedbackProps {
   selectedPly: number;
   startFen?: string | undefined;
   nextMistake: number | null;
+  previousMoment?: number | null | undefined;
+  firstMoment?: number | null | undefined;
   onSelectPly(ply: number): void;
   hasAnnotations: boolean;
   showingPrevious?: boolean | undefined;
@@ -49,6 +51,8 @@ export function ReviewFeedback({
   selectedPly,
   startFen,
   nextMistake,
+  previousMoment = null,
+  firstMoment = null,
   onSelectPly,
   hasAnnotations,
   showingPrevious = false,
@@ -60,10 +64,64 @@ export function ReviewFeedback({
     return convertUciToSan(startFen, annotation.before.bestMove);
   }, [annotation?.before?.bestMove, startFen]);
 
+  const navigation = hasAnnotations ? (
+    <nav className="review-feedback__actions" aria-label="Key moments">
+      {selectedPly === 0 ? (
+        nextMistake !== null ? (
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => onSelectPly(nextMistake)}
+          >
+            First important moment
+          </button>
+        ) : (
+          <p>No important moments in the analysed moves.</p>
+        )
+      ) : (
+        <>
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={previousMoment === null}
+            onClick={() => previousMoment !== null && onSelectPly(previousMoment)}
+          >
+            Previous moment
+          </button>
+          <button
+            type="button"
+            className="button-secondary review-feedback__next-btn"
+            disabled={nextMistake === null}
+            onClick={() => nextMistake !== null && onSelectPly(nextMistake)}
+          >
+            Next mistake
+          </button>
+          {nextMistake === null ? (
+            <span className="review-feedback__no-mistakes">
+              No later mistakes in the analysed moves.
+            </span>
+          ) : null}
+          {nextMistake === null && firstMoment !== null && firstMoment < selectedPly ? (
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => onSelectPly(firstMoment)}
+            >
+              Restart key moments
+            </button>
+          ) : null}
+        </>
+      )}
+    </nav>
+  ) : (
+    <p>No analysed moments yet.</p>
+  );
+
   if (selectedPly === 0) {
     return (
       <div className="review-feedback" role="region" aria-label="Selected move feedback">
         <p className="review-feedback__empty">Select a move to review it.</p>
+        {navigation}
       </div>
     );
   }
@@ -72,6 +130,7 @@ export function ReviewFeedback({
     return (
       <div className="review-feedback" role="region" aria-label="Selected move feedback">
         <p className="review-feedback__empty">This move has not been analysed yet.</p>
+        {navigation}
       </div>
     );
   }
@@ -152,28 +211,8 @@ export function ReviewFeedback({
             })()}
           </div>
         ) : null}
-        {hasAnnotations ? (
-          <div className="review-feedback__actions">
-            <button
-              type="button"
-              className="button-secondary review-feedback__next-btn"
-              onClick={() => {
-                if (nextMistake !== null) {
-                  onSelectPly(nextMistake);
-                }
-              }}
-              disabled={nextMistake === null}
-            >
-              Next mistake
-            </button>
-            {nextMistake === null ? (
-              <span className="review-feedback__no-mistakes">
-                No later mistakes in the analysed moves.
-              </span>
-            ) : null}
-          </div>
-        ) : null}
       </details>
+      {navigation}
     </div>
   );
 }

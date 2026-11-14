@@ -254,3 +254,38 @@ it.each(['mate', 'bound', 'invalid'] as const)('avoids arithmetic on %s scores',
   expect(screen.queryByText(/Change for White:/)).not.toBeInTheDocument();
   if (kind === 'mate') expect(screen.getByText(/After: Black mate in 3/)).toBeVisible();
 });
+
+it('starts at an important moment from ply zero', async () => {
+  const select = vi.fn();
+  render(
+    <ReviewFeedback
+      annotation={null}
+      selectedPly={0}
+      nextMistake={5}
+      onSelectPly={select}
+      hasAnnotations
+    />
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'First important moment' }));
+  expect(select).toHaveBeenCalledWith(5);
+});
+
+it('offers an explicit restart after the last moment, including a pending selection', async () => {
+  const select = vi.fn();
+  render(
+    <ReviewFeedback
+      annotation={null}
+      selectedPly={15}
+      nextMistake={null}
+      previousMoment={10}
+      firstMoment={5}
+      onSelectPly={select}
+      hasAnnotations
+    />
+  );
+  expect(screen.getByRole('button', { name: 'Next mistake' })).toBeDisabled();
+  await userEvent.click(screen.getByRole('button', { name: 'Previous moment' }));
+  expect(select).toHaveBeenLastCalledWith(10);
+  await userEvent.click(screen.getByRole('button', { name: 'Restart key moments' }));
+  expect(select).toHaveBeenLastCalledWith(5);
+});

@@ -8,6 +8,7 @@ import { REVIEW_MOVE_QUALITIES } from '@/lib/engine/accuracy';
 
 export interface GameReviewSummaryCardProps {
   result: GameAnalysisResult;
+  onStartReview?: (() => void) | undefined;
   upstreamAccuracies?: SideAccuracy | undefined;
   players?:
     | {
@@ -19,6 +20,7 @@ export interface GameReviewSummaryCardProps {
 
 export function GameReviewSummaryCard({
   result,
+  onStartReview,
   upstreamAccuracies,
   players,
 }: GameReviewSummaryCardProps): React.JSX.Element {
@@ -46,6 +48,11 @@ export function GameReviewSummaryCard({
   return (
     <section className="game-review-summary surface-panel" aria-labelledby="game-review-heading">
       <h3 id="game-review-heading">Game Review Summary</h3>
+      {onStartReview ? (
+        <button type="button" className="button-secondary" onClick={onStartReview}>
+          Start review at first important moment
+        </button>
+      ) : null}
       {result.status !== 'complete' ? (
         <p className="game-review-summary__coverage" role="status">
           Partial review: {result.analyzedPlies}/{result.totalPlies} positions analysed
