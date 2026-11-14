@@ -6,7 +6,7 @@ import type { ClearAllResult, DeletionResult } from '@/lib/db/deleteLocalData';
 import type { GameRecord } from '@/lib/db/schema';
 
 import { collectPersonalBookMoveKeys } from '../stockfish-analysis/bookMoves';
-import type { GameAnalysisResult } from '../stockfish-analysis/analyzeGame';
+import type { AnalysisUpdate, GameAnalysisResult } from '../stockfish-analysis/analyzeGame';
 import type { AnalysisStrength } from './types';
 import type { GraphBuildWorkerResult } from '../opening-tree/graphWorkerClient';
 import type { IngestionProgress, IngestionResult } from '../ingestion/types';
@@ -59,7 +59,8 @@ export interface WorkspaceServices {
       capability: EngineCapability,
       context: { bookMoveKeys: readonly string[] },
       signal: AbortSignal,
-      onProgress: (progress: { analyzedPlies: number; totalPlies: number }) => void
+      onProgress: (progress: { analyzedPlies: number; totalPlies: number }) => void,
+      onUpdate?: (update: AnalysisUpdate) => void
     ): Promise<GameAnalysisResult>;
   };
 }

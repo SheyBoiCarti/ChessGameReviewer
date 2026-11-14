@@ -137,7 +137,7 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     analysis: {
       restoreSelected: async (game, strength) => restoreSelected(await db(), game, strength),
       restore: async (games, strength) => restoreReviews(await db(), games, strength),
-      async analyze(game, strength, capability, context, signal, onProgress) {
+      async analyze(game, strength, capability, context, signal, onProgress, onUpdate) {
         const parsed = parseGamePgn({
           game: {
             id: game.id,
@@ -192,6 +192,7 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
           bookMoveKeys: new Set(context.bookMoveKeys),
           signal,
           onProgress,
+          ...(onUpdate ? { onUpdate } : {}),
         });
         try {
           await saveReview(await db(), game, strength, result);
