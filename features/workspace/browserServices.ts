@@ -4,6 +4,7 @@ import { IngestionManager } from '@/features/ingestion/ingestionService';
 import { PgnValidationWorkerClient } from '@/features/ingestion/pgnValidationWorkerClient';
 import type { IngestionDependencies } from '@/features/ingestion/types';
 import { GraphWorkerClient } from '@/features/opening-tree/graphWorkerClient';
+import { GraphService } from '@/features/opening-tree/graphService';
 import { OpeningDataWorkerClient } from '@/features/opening-tree/openingDataWorkerClient';
 import type { WorkspaceServices } from './createWorkspaceController';
 import { analyzeGame } from '@/features/stockfish-analysis/analyzeGame';
@@ -187,7 +188,8 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
       sharedDataWorker.dispose();
     },
   };
-  const graph = new GraphWorkerClient(sharedDataWorker);
+  const graphWorkerClient = new GraphWorkerClient(sharedDataWorker);
+  const graph = new GraphService({ workerClient: graphWorkerClient });
   const engineMode = new URLSearchParams(window.location.search).get('engine');
   const engine =
     engineMode === 'unavailable'

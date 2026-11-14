@@ -9,6 +9,7 @@ import {
   createWorkspaceController,
   type WorkspaceServices,
 } from '@/features/workspace/createWorkspaceController';
+import { GraphService } from '@/features/opening-tree/graphService';
 
 const firstQuery: GameQuery = {
   username: 'first-player',
@@ -200,6 +201,31 @@ describe('workspace controller', () => {
     rejectOld(new Error('late worker failure'));
     await old;
     expect(controller.getState().graph).toBe(latest);
+    controller.dispose();
+  });
+
+  it('T49: White -> Black -> White reuses memory snapshot with zero worker build calls', async () => {
+    const services = createServices(async () =>
+      result(secondQuery, [game, { ...game, id: 'black', userColor: 'black' }])
+    );
+    const originalBuild = services.graph.build;
+    const workerBuildSpy = vi.fn(originalBuild);
+    const graphService = new GraphService({ build: workerBuildSpy });
+    services.graph = graphService;
+
+    const controller = createWorkspaceController(services);
+    await controller.submitQuery(secondQuery);
+    expect(workerBuildSpy).toHaveBeenCalledTimes(1);
+
+    await controller.requestOpeningGraph('white');
+    expect(workerBuildSpy).toHaveBeenCalledTimes(2);
+
+    await controller.requestOpeningGraph('black');
+    expect(workerBuildSpy).toHaveBeenCalledTimes(3);
+
+    await controller.requestOpeningGraph('white');
+    expect(workerBuildSpy).toHaveBeenCalledTimes(3);
+
     controller.dispose();
   });
 

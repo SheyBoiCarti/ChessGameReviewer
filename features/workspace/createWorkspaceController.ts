@@ -13,7 +13,11 @@ import type { GraphBuildWorkerResult } from '../opening-tree/graphWorkerClient';
 import type { IngestionProgress, IngestionResult } from '../ingestion/types';
 import { initialWorkspaceState, reduceWorkspace } from './reducer';
 import type { OpeningScope, WorkspaceAction, WorkspacePreferences, WorkspaceState } from './types';
-import { computeDatasetRevision } from '../opening-tree/graphIdentity';
+import {
+  computeDatasetRevision,
+  createGraphCacheIdentity,
+  type GraphCacheIdentity,
+} from '../opening-tree/graphIdentity';
 import { collectPersonalRepertoireMoveKeys } from '../stockfish-analysis/bookMoves';
 
 /** T27: at most 500 retained last-reviewed cursors per user, least-recently-used eviction. */
@@ -32,6 +36,10 @@ export interface WorkspaceServices {
     dispose(): void;
   };
   graph: {
+    load?(
+      identity: GraphCacheIdentity,
+      games: readonly NormalizedGameSummary[]
+    ): Promise<GraphBuildWorkerResult>;
     build(
       games: readonly NormalizedGameSummary[],
       options: GraphBuildOptions,
@@ -39,6 +47,8 @@ export interface WorkspaceServices {
     ): Promise<GraphBuildWorkerResult>;
     cancel(): void;
     dispose(): void;
+    clearMemory?(): void;
+    deleteUser?(username: string): Promise<void>;
   };
   engine: {
     initialize(): Promise<EngineCapability>;
@@ -308,15 +318,28 @@ export function createWorkspaceController(
     token: number
   ): Promise<void> {
     const scopedGames = scope === 'both' ? games : games.filter((game) => game.userColor === scope);
-    return services.graph
-      .build(
-        scopedGames.map(toNormalizedSummary),
-        {
-          maxOpeningPlies: horizon,
-          includeRepeatedPositions: false,
-        },
-        queryFingerprint
-      )
+    const summaries = scopedGames.map(toNormalizedSummary);
+    const options: GraphBuildOptions = {
+      maxOpeningPlies: horizon,
+      includeRepeatedPositions: false,
+    };
+    const identity = createGraphCacheIdentity({
+      username: state.query.active?.username ?? games[0]?.username ?? '',
+      query: state.query.active ?? {
+        username: games[0]?.username ?? '',
+        timeClasses: ['blitz', 'rapid', 'bullet', 'daily'],
+        colors: ['white', 'black'],
+        maxGames: games.length,
+      },
+      scope,
+      horizon,
+      datasetRevision,
+      includeRepeatedPositions: false,
+    });
+    const buildPromise = services.graph.load
+      ? services.graph.load(identity, summaries)
+      : services.graph.build(summaries, options, queryFingerprint);
+    return buildPromise
       .then((graph) => {
         if (disposed || token !== state.query.token || graphRequestId !== graphSequence) return;
         dispatch({
@@ -810,11 +833,26 @@ export function createWorkspaceController(
       )
         return;
       try {
-        const context = await services.graph.build(
-          dataset.games.map(toNormalizedSummary),
-          { maxOpeningPlies: horizon, includeRepeatedPositions: false },
-          dataset.fingerprint
-        );
+        const repertoireIdentity = createGraphCacheIdentity({
+          username: state.query.active?.username ?? dataset.games[0]?.username ?? '',
+          query: state.query.active ?? {
+            username: dataset.games[0]?.username ?? '',
+            timeClasses: ['blitz', 'rapid', 'bullet', 'daily'],
+            colors: ['white', 'black'],
+            maxGames: dataset.games.length,
+          },
+          scope: 'both',
+          horizon,
+          datasetRevision,
+          includeRepeatedPositions: false,
+        });
+        const context = services.graph.load
+          ? await services.graph.load(repertoireIdentity, dataset.games.map(toNormalizedSummary))
+          : await services.graph.build(
+              dataset.games.map(toNormalizedSummary),
+              { maxOpeningPlies: horizon, includeRepeatedPositions: false },
+              dataset.fingerprint
+            );
         if (disposed || token !== state.query.token || graphRequestId !== graphSequence) return;
         dispatch({
           type: 'repertoire/installed',
@@ -853,14 +891,20 @@ export function createWorkspaceController(
       const normalized = username.toLowerCase();
       return runDeletion(
         'user',
-        () => services.data.deleteUsername(normalized),
+        async () => {
+          await services.graph.deleteUser?.(normalized);
+          return services.data.deleteUsername(normalized);
+        },
         () => ({ type: 'data/userDeleted', username: normalized })
       );
     },
     clearAllData() {
       return runDeletion(
         'all',
-        () => services.data.clearAll(),
+        async () => {
+          services.graph.clearMemory?.();
+          return services.data.clearAll();
+        },
         () => ({ type: 'data/allCleared' })
       );
     },
@@ -886,7 +930,7 @@ export function createWorkspaceController(
   };
 }
 
-function toNormalizedSummary(game: IngestionResult['games'][number]): NormalizedGameSummary {
+export function toNormalizedSummary(game: IngestionResult['games'][number]): NormalizedGameSummary {
   return {
     id: game.id,
     url: game.url,
