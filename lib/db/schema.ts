@@ -34,6 +34,8 @@ export interface ArchiveSyncRecord {
 }
 
 export interface GameRecord {
+  /** Compatible validated moves carried with an accepted record, independent of worker LRU. */
+  openingProjection?: OpeningGameProjection;
   id: string; // stable identifier
   username: string; // lowercase normalized username
   url: string;

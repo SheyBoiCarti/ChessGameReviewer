@@ -55,10 +55,13 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
   }, [state.preferences]);
 
   useEffect(() => {
-    if (!state.query.active) return;
+    if (!state.query.active) {
+      if (state.ingestion.status === 'idle' && state.query.token > 0) setRecentQuery(null);
+      return;
+    }
     writeStoredValue(recentQueryStorageKey, state.query.active);
     setRecentQuery(state.query.active);
-  }, [state.query.active]);
+  }, [state.query.active, state.ingestion.status, state.query.token]);
 
   useEffect(() => {
     let active = true;

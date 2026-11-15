@@ -13,6 +13,7 @@ interface ActiveValidation {
 }
 
 export class PgnValidationWorkerClient {
+  private readonly sharedJobs = new Set<AbortController>();
   private worker: Worker | null = null;
   private active: ActiveValidation | null = null;
   private disposed = false;
@@ -35,7 +36,15 @@ export class PgnValidationWorkerClient {
   validate(games: readonly GameRecord[], signal: AbortSignal): Promise<PgnValidationResult> {
     if (this.disposed) return Promise.reject(new Error('PGN_VALIDATION_CLIENT_DISPOSED'));
     if (this.shared) {
-      return this.shared.validate(games, signal);
+      if (signal.aborted) return Promise.reject(abortError());
+      const controller = new AbortController();
+      const onAbort = () => controller.abort();
+      signal.addEventListener('abort', onAbort, { once: true });
+      this.sharedJobs.add(controller);
+      return this.shared.validate(games, controller.signal).finally(() => {
+        signal.removeEventListener('abort', onAbort);
+        this.sharedJobs.delete(controller);
+      });
     }
     if (signal.aborted) return Promise.reject(abortError());
     this.cancel();
@@ -57,7 +66,8 @@ export class PgnValidationWorkerClient {
 
   cancel(): void {
     if (this.shared) {
-      this.shared.cancel();
+      for (const controller of this.sharedJobs) controller.abort();
+      this.sharedJobs.clear();
       return;
     }
     if (this.active) this.cancelJob(this.active.jobId);

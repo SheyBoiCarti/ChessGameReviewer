@@ -150,7 +150,11 @@ describe('GraphService', () => {
         makeNormalizedMonth({ username: whiteIdentity.username, month })
       );
 
-      const build = vi.fn(async () => makeMockResult('white'));
+      const build = vi.fn(async (_games, _options, fingerprint) => {
+        const result = makeMockResult('white');
+        result.snapshot.queryFingerprint = fingerprint;
+        return result;
+      });
       const service = new GraphService({ build, getDb: async () => db });
 
       await service.load(whiteIdentity, whiteGames);
@@ -165,3 +169,196 @@ describe('GraphService', () => {
     }
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+it.each(['user', 'all'] as const)(
+  'R04: %s deletion invalidates delayed DB acquisition through the real shared adapters',
+  async (kind) => {
+    const { OpeningDataWorkerClient } = await import(
+      '@/features/opening-tree/openingDataWorkerClient'
+    );
+    const { GraphWorkerClient } = await import('@/features/opening-tree/graphWorkerClient');
+    const { handleRequest } = await import('@/workers/analysis-data.worker');
+    const { isWorkerRequest } = await import('@/workers/protocol');
+    const { getGraphSnapshot } = await import('@/lib/db/repositories');
+    const { graphCacheKey } = await import('@/features/opening-tree/graphIdentity');
+    const { clearAllData } = await import('@/lib/db/deleteLocalData');
+    class WorkerAdapter extends EventTarget {
+      postMessage(request: unknown) {
+        if (isWorkerRequest(request))
+          void handleRequest(request, (data) =>
+            this.dispatchEvent(new MessageEvent('message', { data }))
+          );
+      }
+      terminate() {}
+    }
+    const db = await openDatabase();
+    const gate = deferred<IDBDatabase>();
+    const identity = createGraphCacheIdentity({
+      username: 'race-player',
+      query: { username: 'race-player', timeClasses: ['blitz'], colors: ['white'], maxGames: 1 },
+      scope: 'white',
+      horizon: 10,
+      datasetRevision: `race-${kind}`,
+    });
+    const shared = new OpeningDataWorkerClient(() => new WorkerAdapter() as unknown as Worker);
+    let reads = 0;
+    const service = new GraphService({
+      workerClient: new GraphWorkerClient(shared),
+      getDb: () => (++reads === 1 ? gate.promise : Promise.resolve(db)),
+    });
+    try {
+      const loading = service.load(identity, [toNormalizedSummary(makeGameRecord())]);
+      const rejected = expect(loading).rejects.toThrow('GRAPH_BUILD_CANCELLED');
+      service.cancel();
+      if (kind === 'user') await service.deleteUser(identity.username);
+      else {
+        service.clearMemory();
+        await service.drain();
+        await clearAllData(db);
+      }
+      gate.resolve(db);
+      await rejected;
+      expect(await getGraphSnapshot(db, graphCacheKey(identity))).toBeNull();
+      // A subsequent request must build fresh rather than hit resurrected memory.
+      const spy = vi.spyOn(shared, 'build');
+      await service.load(identity, [toNormalizedSummary(makeGameRecord())]);
+      expect(spy).toHaveBeenCalledOnce();
+    } finally {
+      service.dispose();
+      shared.dispose();
+      closeDatabase(db);
+    }
+  }
+);
+
+it.each(['user', 'all'] as const)(
+  'R04: %s deletion prevents a late completed build from installing memory or disk',
+  async (kind) => {
+    const { getGraphSnapshot } = await import('@/lib/db/repositories');
+    const { graphCacheKey } = await import('@/features/opening-tree/graphIdentity');
+    const { clearAllData } = await import('@/lib/db/deleteLocalData');
+    const db = await openDatabase();
+    const gate = deferred<GraphBuildWorkerResult>();
+    const build = vi.fn(() => gate.promise);
+    const identity = createGraphCacheIdentity({
+      username: 'late-player',
+      query: { username: 'late-player', timeClasses: ['blitz'], colors: ['white'], maxGames: 1 },
+      scope: 'white',
+      horizon: 10,
+      datasetRevision: `late-${kind}`,
+    });
+    const service = new GraphService({ build, getDb: async () => db });
+    try {
+      const loading = service.load(identity, []);
+      const rejected = expect(loading).rejects.toThrow('GRAPH_BUILD_CANCELLED');
+      await vi.waitFor(() => expect(build).toHaveBeenCalledOnce());
+      if (kind === 'user') await service.deleteUser(identity.username);
+      else {
+        service.clearMemory();
+        await service.drain();
+        await clearAllData(db);
+      }
+      gate.resolve(makeMockResult('white'));
+      await rejected;
+      expect(await getGraphSnapshot(db, graphCacheKey(identity))).toBeNull();
+      await service.load(identity, []);
+      expect(build).toHaveBeenCalledTimes(2);
+    } finally {
+      service.dispose();
+      closeDatabase(db);
+    }
+  }
+);
+
+it('R10: partial result diagnostics and status survive a disk hit', async () => {
+  const db = await openDatabase();
+  const identity = createGraphCacheIdentity({
+    username: 'partial-player',
+    query: { username: 'partial-player', timeClasses: ['blitz'], colors: ['white'], maxGames: 2 },
+    scope: 'white',
+    horizon: 10,
+    datasetRevision: 'partial-revision',
+  });
+  const original = makeMockResult('white');
+  const partial: GraphBuildWorkerResult = {
+    status: 'partial',
+    excludedGameCount: 1,
+    diagnosticCodes: ['ILLEGAL_PGN'],
+    snapshot: {
+      ...original.snapshot,
+      queryFingerprint: identity.datasetRevision,
+      sourceGameCount: 2,
+      excludedGameCount: 1,
+    },
+  };
+  const build = vi.fn(async () => partial);
+  const service = new GraphService({ build, getDb: async () => db });
+  try {
+    await service.load(identity, []);
+    service.clearMemory();
+    const hit = await service.load(identity, []);
+    expect(build).toHaveBeenCalledOnce();
+    expect(hit).toMatchObject({
+      status: 'partial',
+      diagnosticCodes: ['ILLEGAL_PGN'],
+      excludedGameCount: 1,
+    });
+  } finally {
+    service.dispose();
+    closeDatabase(db);
+  }
+});
+
+it.each(['structural', 'bytes'] as const)(
+  'R13: encoded %s limits reach the real worker and produce a limited graph',
+  async (policy) => {
+    const { handleRequest } = await import('@/workers/analysis-data.worker');
+    const { PROTOCOL_VERSION } = await import('@/workers/protocol');
+    const build: NonNullable<
+      import('@/features/opening-tree/graphService').GraphServiceDependencies['build']
+    > = async (games, options, queryFingerprint) => {
+      let result!: GraphBuildWorkerResult;
+      await handleRequest(
+        {
+          type: 'BUILD_GRAPH',
+          protocolVersion: PROTOCOL_VERSION,
+          jobId: crypto.randomUUID(),
+          games,
+          options,
+          queryFingerprint,
+        },
+        (response) => {
+          if (response.type === 'LIMITED') result = { ...response, status: 'limited' };
+          else if (response.type === 'COMPLETE') result = { ...response, status: 'complete' };
+        }
+      );
+      return result;
+    };
+    const identity = createGraphCacheIdentity({
+      username: 'limit-player',
+      query: { username: 'limit-player', timeClasses: ['blitz'], colors: ['white'], maxGames: 1 },
+      scope: 'white',
+      horizon: 10,
+      datasetRevision: 'limit-revision',
+      limits: policy === 'structural' ? { maxPositions: 1 } : { maxBytes: 2000 },
+    });
+    const service = new GraphService({ build });
+    const result = await service.load(identity, [toNormalizedSummary(makeGameRecord())]);
+    expect(result.status).toBe('limited');
+    if (policy === 'structural') expect(result.snapshot.positions).toHaveLength(1);
+    const { serializedGraphByteSize } = await import('@/lib/chess/graph/serialization');
+    expect(serializedGraphByteSize(result.snapshot)).toBeLessThanOrEqual(identity.limits.maxBytes);
+    expect(result.snapshot.includedGameCount).toBe(0);
+    expect(result.snapshot.reachedLimit).toBe(
+      policy === 'structural' ? 'maxPositions' : 'maxSnapshotBytes'
+    );
+  }
+);

@@ -168,9 +168,22 @@ describe('opening graph serialization', () => {
         ],
         rootKey: 'root',
         status: 'complete',
+        sourceGameCount: 0,
+        excludedGameCount: 0,
+        buildTimestamp: 0,
         includedGameCount: 0,
         remainingGameCount: 0,
       } as never)
     ).toThrow('INVALID_GRAPH_REFERENCE');
   });
+});
+
+it.each([-123, NaN, Infinity, 0.5])('R10: rejects corrupt numeric aggregate count %s', (games) => {
+  const snapshot = serializeOpeningGraph(new OpeningGraphBuilder().build([]), {
+    queryFingerprint: 'corrupt',
+    sourceGameCount: 0,
+    buildTimestamp: 0,
+  });
+  snapshot.positions[0]!.aggregate.games = games;
+  expect(() => deserializeOpeningGraph(snapshot)).toThrow('INVALID_GRAPH_DATA');
 });

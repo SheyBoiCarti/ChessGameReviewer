@@ -23,6 +23,8 @@ import type { WorkerRequest, WorkerResponse } from './protocol';
 import { isOpeningGameProjection, isWorkerRequest, PROTOCOL_VERSION } from './protocol';
 
 const cancelledJobs = new Set<string>();
+const completedJobs = new Set<string>();
+const MAX_JOB_TOMBSTONES = 1000;
 const PROGRESS_INTERVAL_MS = 50;
 const PARSE_YIELD_EVERY_GAMES = 25;
 const MAX_DIAGNOSTICS = 100;
@@ -57,6 +59,11 @@ function parsedGameCacheKey(game: NormalizedGameSummary, pgnDigest: string): str
     game.rated,
     game.userRating,
     game.opponentRating,
+    game.timeControl,
+    game.rules,
+    game.whitePlayer,
+    game.blackPlayer,
+    game.accuracies,
   ]);
 }
 
@@ -94,14 +101,30 @@ export async function handleRequest(
   request: WorkerRequest,
   post: (response: WorkerResponse) => void
 ): Promise<void> {
-  if (request.type === 'DISPOSE') {
-    cancelledJobs.add(request.jobId);
+  if (request.type === 'CANCEL_JOB' || request.type === 'DISPOSE') {
+    // A cancel may arrive after the terminal response was posted. Do not retain it.
+    if (!completedJobs.has(request.jobId)) {
+      cancelledJobs.add(request.jobId);
+      while (cancelledJobs.size > MAX_JOB_TOMBSTONES)
+        cancelledJobs.delete(cancelledJobs.values().next().value!);
+    }
     return;
   }
-  if (request.type === 'CANCEL_JOB') {
-    cancelledJobs.add(request.jobId);
-    return;
+  completedJobs.delete(request.jobId);
+  try {
+    await runDataJob(request, post);
+  } finally {
+    cancelledJobs.delete(request.jobId);
+    completedJobs.add(request.jobId);
+    while (completedJobs.size > MAX_JOB_TOMBSTONES)
+      completedJobs.delete(completedJobs.values().next().value!);
   }
+}
+
+async function runDataJob(
+  request: Exclude<WorkerRequest, { type: 'CANCEL_JOB' | 'DISPOSE' }>,
+  post: (response: WorkerResponse) => void
+): Promise<void> {
   post({ protocolVersion: PROTOCOL_VERSION, jobId: request.jobId, type: 'JOB_ACCEPTED' });
   let lastProgressAt = Number.NEGATIVE_INFINITY;
   let parsedGameCount = 0;
@@ -176,6 +199,10 @@ export async function handleRequest(
         buildTimestamp: Date.now(),
       },
       {
+        ...(request.options.maxBytes !== undefined ? { maxBytes: request.options.maxBytes } : {}),
+        ...(request.options.structuralLimits
+          ? { structuralLimits: request.options.structuralLimits }
+          : {}),
         shouldCancel: () => cancelledJobs.has(request.jobId),
         onProgress: (includedGameCount) => reportProgress(includedGameCount),
       }
@@ -366,6 +393,8 @@ async function validatePgnsInWorker(
           ...result.game,
           plies: result.game.plies.slice(0, 40),
           projectionVersion: OPENING_PROJECTION_VERSION,
+          parserVersion: PGN_PARSER_VERSION,
+          positionVersion: POSITION_KEY_VERSION,
           pgnDigest,
         };
         projections.push(projection);
@@ -434,6 +463,8 @@ async function parseGamesInWorker(
           ...result.game,
           plies: result.game.plies.slice(0, 40),
           projectionVersion: OPENING_PROJECTION_VERSION,
+          parserVersion: PGN_PARSER_VERSION,
+          positionVersion: POSITION_KEY_VERSION,
           pgnDigest,
         };
         parsedGames.push(projection);

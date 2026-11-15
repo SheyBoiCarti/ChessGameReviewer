@@ -27,3 +27,17 @@ export function writeStoredOpeningScope(username: string, scope: OpeningScope): 
     // A private browsing context must not break scope selection.
   }
 }
+
+export function clearStoredOpeningScope(username?: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (!username) window.localStorage.removeItem(storageKey);
+    else {
+      const map = JSON.parse(window.localStorage.getItem(storageKey) ?? '{}');
+      delete map[username.toLowerCase()];
+      window.localStorage.setItem(storageKey, JSON.stringify(map));
+    }
+  } catch {
+    /* Optional storage. */
+  }
+}

@@ -26,6 +26,7 @@ export type GraphBuildWorkerResult =
     };
 
 export class GraphWorkerClient {
+  private readonly sharedJobs = new Set<AbortController>();
   private jobId: string | undefined;
   private settle: ((result: GraphBuildWorkerResult) => void) | undefined;
   private reject: ((reason: Error) => void) | undefined;
@@ -61,7 +62,11 @@ export class GraphWorkerClient {
     queryFingerprint: string
   ): Promise<GraphBuildWorkerResult> {
     if (this.shared) {
-      return this.shared.build(games, options, queryFingerprint);
+      const controller = new AbortController();
+      this.sharedJobs.add(controller);
+      return this.shared
+        .build(games, options, queryFingerprint, controller.signal)
+        .finally(() => this.sharedJobs.delete(controller));
     }
     if (!queryFingerprint) return Promise.reject(new Error('MISSING_QUERY_FINGERPRINT'));
     this.cancel();
@@ -84,7 +89,8 @@ export class GraphWorkerClient {
 
   cancel(): void {
     if (this.shared) {
-      this.shared.cancel(this.jobId);
+      for (const controller of this.sharedJobs) controller.abort();
+      this.sharedJobs.clear();
       return;
     }
     if (!this.jobId) return;
@@ -99,7 +105,7 @@ export class GraphWorkerClient {
 
   dispose(): void {
     if (this.shared) {
-      this.shared.dispose();
+      this.cancel();
       return;
     }
     this.cancel();

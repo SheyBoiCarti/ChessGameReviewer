@@ -583,3 +583,102 @@ describe('workspace reducer', () => {
     expect(state.analysis).toMatchObject({ status: 'unavailable', error: 'blocked' });
   });
 });
+
+it.each(['running', 'stopping', 'complete'] as const)(
+  'R05: a changed batch clears %s review and ply before replacing the content',
+  async (status) => {
+    const { makeGameRecord } = await import('../../helpers/phase1Fixtures');
+    const old = makeGameRecord();
+    const active = { ...query, username: old.username };
+    const result = {
+      jobId: 'old',
+      fingerprint: 'old',
+      status: 'complete' as const,
+      games: [old],
+      diagnostics: [],
+      failedMonths: [],
+      offlineCacheOnly: false,
+    };
+    const state: WorkspaceState = {
+      ...initialWorkspaceState,
+      query: { draft: active, active, requested: active, token: 1 },
+      ingestion: { ...initialWorkspaceState.ingestion, result },
+      selection: { ...initialWorkspaceState.selection, gameId: old.id, ply: 2 },
+      analysis: {
+        ...initialWorkspaceState.analysis,
+        status,
+        result: createLongGameAnalysisResult(2),
+        resultsByGameId: { [old.id]: createLongGameAnalysisResult(2) },
+      },
+    };
+    const next = reduceWorkspace(state, {
+      type: 'ingestion/batch',
+      token: 1,
+      batch: {
+        jobId: 'new',
+        fingerprint: 'new',
+        sequence: 1,
+        datasetRevision: 'new',
+        games: [{ ...old, pgn: '1. d4 d5 1/2-1/2' }],
+      },
+    });
+    expect(next.selection.ply).toBe(0);
+    expect(next.analysis.result).toBeNull();
+    expect(next.analysis.resultsByGameId[old.id]).toBeUndefined();
+    expect(next.analysis.status).toBe('idle');
+  }
+);
+
+it('R06: a first batch commits ownership and cancellation/failure retain that displayed owner', async () => {
+  const { makeGameRecord } = await import('../../helpers/phase1Fixtures');
+  const game = makeGameRecord({ username: query.username });
+  let state = reduceWorkspace(initialWorkspaceState, { type: 'query/started', query, token: 1 });
+  state = reduceWorkspace(state, {
+    type: 'ingestion/batch',
+    token: 1,
+    batch: {
+      jobId: 'batch',
+      fingerprint: 'batch',
+      sequence: 1,
+      datasetRevision: 'rev',
+      games: [game],
+    },
+  });
+  expect(state.query.active).toEqual(query);
+  state = reduceWorkspace(state, {
+    type: 'ingestion/terminal',
+    token: 1,
+    result: {
+      jobId: 'batch',
+      fingerprint: 'batch',
+      status: 'cancelled',
+      games: [],
+      diagnostics: [],
+      failedMonths: [],
+      offlineCacheOnly: false,
+    },
+  });
+  expect(state.query.active).toEqual(query);
+  expect(state.ingestion.result?.games).toEqual([game]);
+});
+
+it('R04: deleting a previous user removes their retained review entries while keeping the displayed user', () => {
+  const key = JSON.stringify(['previous-user', 'game', 'digest', 'balanced']);
+  const other = JSON.stringify([query.username, 'other', 'digest', 'balanced']);
+  const review = {
+    lastComplete: createLongGameAnalysisResult(1),
+    latestAttempt: createLongGameAnalysisResult(1),
+  };
+  const state: WorkspaceState = {
+    ...initialWorkspaceState,
+    query: { draft: query, active: query, token: 1 },
+    analysis: {
+      ...initialWorkspaceState.analysis,
+      reviewEntries: { [key]: review, [other]: review },
+    },
+    dataMaintenance: { status: 'deleting-user', error: null },
+  };
+  const next = reduceWorkspace(state, { type: 'data/userDeleted', username: 'previous-user' });
+  expect(next.analysis.reviewEntries).toEqual({ [other]: review });
+  expect(next.query.active).toEqual(query);
+});

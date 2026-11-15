@@ -223,7 +223,7 @@ describe('Bug fixes exploratory verification', () => {
     render(<ChessWorkspace createServices={() => services} />);
     await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
     await user.click(screen.getByRole('button', { name: 'Find games' }));
-    await user.click(screen.getByRole('button', { name: /^Preview .*opponent/i }));
+    await user.click(await screen.findByRole('button', { name: /^Preview .*opponent/i }));
     const board = screen.getByRole('grid', { name: 'Chess board' });
     await user.click(screen.getByRole('button', { name: 'Openings' }));
     expect(board.isConnected).toBe(true);
@@ -244,7 +244,7 @@ describe('Bug fixes exploratory verification', () => {
     render(<ChessWorkspace createServices={() => services} />);
     await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
     await user.click(screen.getByRole('button', { name: 'Find games' }));
-    const rows = screen.getByRole('list', { name: 'Games' }).children;
+    const rows = (await screen.findByRole('list', { name: 'Games' })).children;
     await user.click(within(rows[1] as HTMLElement).getByRole('button', { name: /^Review / }));
     expect(screen.queryByRole('button', { name: 'Back to games' })).not.toBeInTheDocument();
     expect(screen.getAllByText('This game has no reviewable moves.')[0]).toBeVisible();
@@ -263,7 +263,7 @@ describe('Bug fixes exploratory verification', () => {
     await user.click(screen.getByRole('button', { name: /find games/i }));
 
     // Verify game is loaded in the list
-    expect(screen.getByRole('button', { name: /^Preview .*opponent/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^Preview .*opponent/i })).toBeInTheDocument();
 
     // Now open Import games utility drawer
     const importBtn = screen.getByRole('button', { name: /import games/i });
@@ -306,7 +306,7 @@ describe('Bug fixes exploratory verification', () => {
     await user.click(screen.getByRole('button', { name: /find games/i }));
 
     // Switch to Analysis tab directly and start review
-    const reviewBtn = screen.getByRole('button', { name: /review game/i });
+    const reviewBtn = await screen.findByRole('button', { name: /review game/i });
     await user.click(reviewBtn);
 
     // The explicit Review game action starts analysis.
@@ -335,13 +335,15 @@ describe('Bug fixes exploratory verification', () => {
     await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
     await user.click(screen.getByRole('button', { name: /find games/i }));
 
+    await screen.findByLabelText('Position 0 of 6');
+
     // Focus on an element outside the chessboard (e.g. Games nav item)
     const gamesNav = screen.getByRole('button', { name: /^games$/i });
     gamesNav.focus();
     expect(document.activeElement).toBe(gamesNav);
 
     // Initial ply should be 0 (Position 0 of 6)
-    expect(screen.getByLabelText('Position 0 of 6')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Position 0 of 6')).toBeInTheDocument();
 
     // Press ArrowRight while focused on the nav button
     await user.keyboard('{ArrowRight}');

@@ -110,31 +110,28 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         offlineCacheOnly: previousResult?.offlineCacheOnly ?? false,
       };
 
-      let selection = state.selection;
-      const selectedGameId = selection.gameId;
-
-      if (!selectedGameId && updatedResult.games.length > 0) {
-        const newest = updatedResult.games.reduce<GameRecord | null>(
-          (current: GameRecord | null, game: GameRecord) =>
-            !current || game.endedAt > current.endedAt ? game : current,
-          null
-        );
-        if (newest) {
-          selection = {
-            ...selection,
-            gameId: newest.id,
-            ply: 0,
-          };
-        }
-      } else if (selectedGameId) {
-        const stillPresent = updatedResult.games.find((g: GameRecord) => g.id === selectedGameId);
-        if (!stillPresent) {
-          selection = { ...selection, gameId: null, ply: 0 };
-        }
-      }
-
+      const oldSelected =
+        state.ingestion.result?.games.find((g) => g.id === state.selection.gameId) ??
+        state.retainedReviewGame;
+      const requested = state.query.requested ?? state.query.active;
+      const replacement = updatedResult.games.find((g) => g.id === state.selection.gameId);
+      const retained =
+        oldSelected && !replacement && oldSelected.username === requested?.username
+          ? oldSelected
+          : null;
+      // Reuse the same content reconciliation as terminal installation. An older selected
+      // record remains Review-only until its month arrives; it never enters new statistics.
+      const reconciled = reduceWorkspace(state, {
+        type: 'ingestion/terminal',
+        token: action.token,
+        result: retained
+          ? { ...updatedResult, games: [...updatedResult.games, retained] }
+          : updatedResult,
+      });
       return {
-        ...state,
+        ...reconciled,
+        query: { ...reconciled.query, active: requested },
+        retainedReviewGame: retained,
         ingestion: {
           ...state.ingestion,
           status: 'loading',
@@ -142,7 +139,6 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           batchSequence: action.batch.sequence,
           datasetRevision: action.batch.datasetRevision,
         },
-        selection,
       };
     }
     case 'ingestion/terminal': {
@@ -176,12 +172,14 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
       const previousGames = new Map(
         state.ingestion.result?.games.map((game) => [game.id, game]) ?? []
       );
+      if (state.retainedReviewGame)
+        previousGames.set(state.retainedReviewGame.id, state.retainedReviewGame);
       const selectedGame = selectedGameId
         ? action.result.games.find(
             (game) =>
               game.id === selectedGameId &&
-              (!previousGames.has(selectedGameId) ||
-                previousGames.get(selectedGameId)?.pgn === game.pgn)
+              previousGames.get(selectedGameId)?.username === game.username &&
+              previousGames.get(selectedGameId)?.pgn === game.pgn
           )
         : null;
 
@@ -250,6 +248,7 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           active: isFailed ? state.query.active : (state.query.requested ?? state.query.active),
         },
         analysis,
+        retainedReviewGame: null,
         ingestion: {
           status,
           progress: state.ingestion.progress,
@@ -368,6 +367,7 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         : null;
       return {
         ...state,
+        retainedReviewGame: null,
         // A retained last-reviewed ply (T27) is installed atomically with the selection;
         // without one, explicit selection starts at position zero.
         selection: {
@@ -458,7 +458,6 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         !identity ||
         state.analysis.status !== 'running' ||
         identity.jobId !== action.identity.jobId ||
-        identity.queryToken !== state.query.token ||
         JSON.stringify(identity) !== JSON.stringify(action.identity) ||
         state.selection.gameId !== identity.gameId
       )
@@ -633,7 +632,23 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
       ) {
         return state;
       }
-      const next = matchesActiveUser ? resetLoadedData(state) : state;
+      const next = matchesActiveUser
+        ? resetLoadedData(state)
+        : {
+            ...state,
+            analysis: {
+              ...state.analysis,
+              reviewEntries: Object.fromEntries(
+                Object.entries(state.analysis.reviewEntries ?? {}).filter(([key]) => {
+                  try {
+                    return JSON.parse(key)[0] !== action.username.toLowerCase();
+                  } catch {
+                    return false;
+                  }
+                })
+              ),
+            },
+          };
       return { ...next, dataMaintenance: { status: 'idle', error: null } };
     }
     case 'data/allCleared':
@@ -653,6 +668,7 @@ function resetLoadedData(state: WorkspaceState): WorkspaceState {
     repertoire: null,
     dataMaintenance: state.dataMaintenance,
     selection: emptySelection,
+    retainedReviewGame: null,
     analysis: idleAnalysis,
   };
 }

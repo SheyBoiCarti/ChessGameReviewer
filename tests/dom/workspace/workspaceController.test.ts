@@ -1105,3 +1105,134 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
+
+it('R02: refreshing unchanged content preserves the live review and accepts its completion', async () => {
+  const services = createServices(async () => result(secondQuery, [game]));
+  const pending = deferred<ReturnType<typeof createLongGameAnalysisResult>>();
+  let signal: AbortSignal | undefined;
+  let publish: ((update: AnalysisUpdate) => void) | undefined;
+  services.analysis.analyze = (_g, _s, _c, _ctx, s, _p, update) => {
+    signal = s;
+    publish = update;
+    return pending.promise;
+  };
+  const controller = createWorkspaceController(services);
+  await controller.submitQuery(secondQuery);
+  await controller.probeEngine();
+  const run = controller.startAnalysis();
+  await vi.waitFor(() => expect(signal).toBeDefined());
+  controller.selectPly(2);
+  await controller.submitQuery(secondQuery);
+  expect(signal!.aborted).toBe(false);
+  expect(controller.getState().analysis.status).toBe('running');
+  expect(controller.getState().selection.ply).toBe(2);
+  const completed = createLongGameAnalysisResult(2);
+  publish!({ annotation: completed.annotations[0]!, analyzedPlies: 1, totalPlies: 2 });
+  expect(controller.getState().analysis.progress?.analyzedPlies).toBe(1);
+  pending.resolve(completed);
+  await run;
+  expect(controller.getState().analysis.status).toBe('complete');
+  controller.dispose();
+});
+
+it('R05/R06: changed content in a batch cancels the old job and installs the new owner atomically', async () => {
+  const services = createServices(async () => result(secondQuery, [game]));
+  const pending = deferred<ReturnType<typeof createLongGameAnalysisResult>>();
+  let signal: AbortSignal | undefined;
+  services.analysis.analyze = (_g, _s, _c, _ctx, s) => {
+    signal = s;
+    return pending.promise;
+  };
+  const controller = createWorkspaceController(services);
+  await controller.submitQuery(secondQuery);
+  await controller.probeEngine();
+  const run = controller.startAnalysis();
+  await vi.waitFor(() => expect(signal).toBeDefined());
+  controller.selectPly(2);
+  const changed = { ...game, pgn: '1. d4 d5 1-0', username: firstQuery.username };
+  services.ingestion.start = async (_query, options) => {
+    options?.onBatch?.({
+      jobId: 'replacement',
+      fingerprint: 'replacement',
+      sequence: 1,
+      datasetRevision: 'rev',
+      games: [changed],
+    });
+    expect(controller.getState().query.active?.username).toBe(changed.username);
+    expect(controller.getState().analysis.result).toBeNull();
+    expect(controller.getState().analysis.identity).toBeNull();
+    expect(controller.getState().selection.ply).toBe(0);
+    expect(signal!.aborted).toBe(true);
+    return result(firstQuery, [changed]);
+  };
+  await controller.submitQuery(firstQuery);
+  pending.resolve(createLongGameAnalysisResult(2));
+  await run;
+  expect(controller.getState().analysis.result).toBeNull();
+  controller.dispose();
+});
+
+it('R04: deletion invalidates a scope request still computing its staged dataset revision', async () => {
+  const services = createServices(async () => result(secondQuery, [game]));
+  services.graph.build = vi.fn(services.graph.build);
+  const controller = createWorkspaceController(services);
+  await controller.submitQuery(secondQuery);
+  const token = controller.getState().query.token;
+  controller.dispatch({
+    type: 'ingestion/batch',
+    token,
+    batch: {
+      jobId: 'staged',
+      fingerprint: 'staged',
+      sequence: 1,
+      datasetRevision: 'staged',
+      games: [game],
+    },
+  });
+  const before = vi.mocked(services.graph.build).mock.calls.length;
+  const scope = controller.requestOpeningGraph('white');
+  await controller.clearAllData();
+  await scope;
+  expect(services.graph.build).toHaveBeenCalledTimes(before);
+  expect(controller.getState().ingestion.result).toBeNull();
+  controller.dispose();
+});
+
+it('R02: an older selected game remains usable across a newer refresh batch without entering its statistics', async () => {
+  const older = { ...game, id: 'older', endedAt: game.endedAt - 1 };
+  const services = createServices(async () => result(secondQuery, [game, older]));
+  const pending = deferred<ReturnType<typeof createLongGameAnalysisResult>>();
+  let signal: AbortSignal | undefined;
+  services.analysis.analyze = (_g, _s, _c, _ctx, s) => {
+    signal = s;
+    return pending.promise;
+  };
+  const controller = createWorkspaceController(services);
+  await controller.submitQuery(secondQuery);
+  controller.selectGame(older.id);
+  await controller.probeEngine();
+  const run = controller.startAnalysis();
+  await vi.waitFor(() => expect(signal).toBeDefined());
+  controller.selectPly(2);
+  services.ingestion.start = async (_query, options) => {
+    options?.onBatch?.({
+      jobId: 'refresh',
+      fingerprint: 'refresh',
+      sequence: 1,
+      datasetRevision: 'newer',
+      games: [game],
+    });
+    expect(controller.getState().ingestion.result?.games).toEqual([game]);
+    expect(controller.getState().retainedReviewGame).toEqual(older);
+    expect(controller.getState().selection).toMatchObject({ gameId: older.id, ply: 2 });
+    expect(signal!.aborted).toBe(false);
+    return result(secondQuery, [game, older]);
+  };
+  await controller.submitQuery(secondQuery);
+  expect(controller.getState().retainedReviewGame).toBeNull();
+  expect(controller.getState().selection).toMatchObject({ gameId: older.id, ply: 2 });
+  pending.resolve(createLongGameAnalysisResult(2));
+  await run;
+  expect(controller.getState().analysis.status).toBe('complete');
+  controller.dispose();
+});

@@ -2,8 +2,17 @@ import type { Diagnostic, NormalizedGameSummary } from '../../lib/api/contracts'
 import { createAbortError } from '../../lib/api/errors';
 import type { GameRecord } from '../../lib/db/schema';
 import type { GraphBuildOptions, OpeningGameProjection } from '../../lib/chess/graph/types';
-import { OPENING_PROJECTION_VERSION } from '../../lib/chess/graph/types';
-import { PROTOCOL_VERSION, type WorkerResponse } from '../../workers/protocol';
+import { computePgnDigest } from '../stockfish-analysis/reviewIdentity';
+import {
+  OPENING_PROJECTION_VERSION,
+  PGN_PARSER_VERSION,
+  POSITION_KEY_VERSION,
+} from '../../lib/chess/graph/types';
+import {
+  isOpeningGameProjection,
+  PROTOCOL_VERSION,
+  type WorkerResponse,
+} from '../../workers/protocol';
 import type { PgnValidationResult } from '../ingestion/types';
 import type { GraphBuildWorkerResult } from './graphWorkerClient';
 
@@ -29,11 +38,17 @@ type ActiveJob = ValidateJob | BuildJob;
 export class OpeningDataWorkerClient {
   private worker: Worker | null = null;
   private readonly workerFactory: () => Worker;
+  private readonly restartable: boolean;
+  private failure: Error | null = null;
   private readonly jobs = new Map<string, ActiveJob>();
   private readonly projections = new Map<string, OpeningGameProjection>();
+  private readonly projectionBytes = new Map<string, number>();
+  private totalProjectionBytes = 0;
   private disposed = false;
+  private generation = 0;
 
   constructor(workerOrFactory: Worker | (() => Worker)) {
+    this.restartable = typeof workerOrFactory === 'function';
     if (typeof workerOrFactory === 'function') {
       this.workerFactory = workerOrFactory;
     } else {
@@ -55,6 +70,7 @@ export class OpeningDataWorkerClient {
 
   validate(games: readonly GameRecord[], signal?: AbortSignal): Promise<PgnValidationResult> {
     if (this.disposed) return Promise.reject(new Error('OPENING_DATA_WORKER_DISPOSED'));
+    if (this.failure) return Promise.reject(this.failure);
     if (signal?.aborted) return Promise.reject(createAbortError());
 
     const worker = this.getWorker();
@@ -97,13 +113,14 @@ export class OpeningDataWorkerClient {
     });
   }
 
-  build(
+  async build(
     games: readonly (NormalizedGameSummary | GameRecord)[],
     options: GraphBuildOptions,
     queryFingerprint: string,
     signal?: AbortSignal
   ): Promise<GraphBuildWorkerResult> {
     if (this.disposed) return Promise.reject(new Error('OPENING_DATA_WORKER_DISPOSED'));
+    if (this.failure) return Promise.reject(this.failure);
     if (!queryFingerprint) return Promise.reject(new Error('MISSING_QUERY_FINGERPRINT'));
     if (signal?.aborted) return Promise.reject(createAbortError());
 
@@ -111,19 +128,43 @@ export class OpeningDataWorkerClient {
     const jobId = crypto.randomUUID();
     const subscriberId = crypto.randomUUID();
 
-    const gamesWithProjections = games.map((rawGame) => {
-      const game = 'usernameKey' in rawGame ? rawGame : toNormalizedGameSummary(rawGame);
-      const cached = this.projections.get(game.id);
-      if (
-        cached &&
-        cached.projectionVersion === OPENING_PROJECTION_VERSION &&
-        cached.userColor === game.userColor &&
-        cached.endedAt === game.endedAt
-      ) {
-        return cached;
-      }
-      return game;
-    });
+    const generation = this.generation;
+    const gamesWithProjections = await Promise.all(
+      games.map(async (rawGame) => {
+        const game = 'usernameKey' in rawGame ? rawGame : toNormalizedGameSummary(rawGame);
+        const cached = game.openingProjection ?? this.projections.get(game.id);
+        if (
+          isOpeningGameProjection(cached) &&
+          cached.projectionVersion === OPENING_PROJECTION_VERSION &&
+          cached.parserVersion === PGN_PARSER_VERSION &&
+          cached.positionVersion === POSITION_KEY_VERSION &&
+          cached.id === game.id &&
+          cached.pgnDigest === (await computePgnDigest(game.pgn ?? '')) &&
+          [
+            'usernameKey',
+            'userColor',
+            'result',
+            'endedAt',
+            'timeClass',
+            'rated',
+            'userRating',
+            'opponentRating',
+            'whitePlayer',
+            'blackPlayer',
+            'accuracies',
+          ].every(
+            (field) =>
+              JSON.stringify(cached[field as keyof OpeningGameProjection]) ===
+              JSON.stringify(game[field as keyof NormalizedGameSummary])
+          )
+        ) {
+          return cached;
+        }
+        return game;
+      })
+    );
+    if (this.disposed || signal?.aborted || generation !== this.generation)
+      throw createAbortError();
 
     return new Promise<GraphBuildWorkerResult>((resolve, reject) => {
       const subscribers = new Map<string, { signal?: AbortSignal; onAbort?: () => void }>();
@@ -186,6 +227,7 @@ export class OpeningDataWorkerClient {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.generation++;
     this.cancel();
     if (this.worker) {
       this.worker.removeEventListener('message', this.onMessage);
@@ -194,6 +236,23 @@ export class OpeningDataWorkerClient {
       this.worker = null;
     }
     this.projections.clear();
+    this.projectionBytes.clear();
+    this.totalProjectionBytes = 0;
+  }
+
+  clearUserData(): void {
+    if (!this.restartable) this.failure = new Error('OPENING_DATA_WORKER_RESTART_REQUIRED');
+    this.generation++;
+    this.cancel();
+    if (this.worker) {
+      this.worker.removeEventListener('message', this.onMessage);
+      this.worker.removeEventListener('error', this.onError);
+      this.worker.terminate();
+      this.worker = null;
+    }
+    this.projections.clear();
+    this.projectionBytes.clear();
+    this.totalProjectionBytes = 0;
   }
 
   storeProjections(projections: readonly OpeningGameProjection[]): void {
@@ -208,13 +267,24 @@ export class OpeningDataWorkerClient {
 
   private storeProjection(projection: OpeningGameProjection): void {
     if (this.projections.has(projection.id)) {
+      this.totalProjectionBytes -= this.projectionBytes.get(projection.id) ?? 0;
+      this.projectionBytes.delete(projection.id);
       this.projections.delete(projection.id);
     }
-    while (this.projections.size >= 1000) {
+    const byteSize = new TextEncoder().encode(JSON.stringify(projection)).byteLength;
+    if (byteSize > 64 * 1024 * 1024) return;
+    while (
+      this.projections.size >= 1000 ||
+      this.totalProjectionBytes + byteSize > 64 * 1024 * 1024
+    ) {
       const oldest = this.projections.keys().next().value;
-      if (oldest !== undefined) this.projections.delete(oldest);
-      else break;
+      if (oldest === undefined) break;
+      this.totalProjectionBytes -= this.projectionBytes.get(oldest) ?? 0;
+      this.projectionBytes.delete(oldest);
+      this.projections.delete(oldest);
     }
+    this.totalProjectionBytes += byteSize;
+    this.projectionBytes.set(projection.id, byteSize);
     this.projections.set(projection.id, projection);
   }
 
@@ -310,7 +380,18 @@ export class OpeningDataWorkerClient {
   };
 
   private readonly onError = (): void => {
+    this.generation++;
+    if (this.worker) {
+      this.worker.removeEventListener('message', this.onMessage);
+      this.worker.removeEventListener('error', this.onError);
+      this.worker.terminate();
+      this.worker = null;
+    }
+    this.projections.clear();
+    this.projectionBytes.clear();
+    this.totalProjectionBytes = 0;
     const error = new Error('OPENING_DATA_WORKER_FAILED');
+    if (!this.restartable) this.failure = error;
     for (const [id, job] of Array.from(this.jobs.entries())) {
       this.cleanupJobSubscribers(job);
       this.jobs.delete(id);
@@ -321,6 +402,7 @@ export class OpeningDataWorkerClient {
 
 function toNormalizedGameSummary(record: GameRecord): NormalizedGameSummary {
   return {
+    ...(record.openingProjection ? { openingProjection: record.openingProjection } : {}),
     id: record.id,
     url: record.url,
     ...(record.uuid ? { uuid: record.uuid } : {}),

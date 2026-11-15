@@ -127,13 +127,17 @@ describe('runIngestion', () => {
       for (const maxGames of [1, 5]) {
         const cached = new Map<string, Parameters<IngestionDependencies['persistMonth']>[0]>();
         const markers = new Map<string, Parameters<IngestionDependencies['persistMonth']>[1]>();
-        const persistMonth = vi.fn<IngestionDependencies['persistMonth']>(async (games, marker) => {
-          cached.set(
-            marker.month,
-            [...games].sort((a, b) => a.endedAt - b.endedAt)
-          );
-          markers.set(marker.month, marker);
-        });
+        const coverage = new Map<string, import('@/lib/db/schema').NormalizedMonthRecord>();
+        const persistMonth = vi.fn<IngestionDependencies['persistMonth']>(
+          async (games, marker, _signal, normalized) => {
+            if (normalized) coverage.set(marker.month, normalized);
+            cached.set(
+              marker.month,
+              [...games].sort((a, b) => a.endedAt - b.endedAt)
+            );
+            markers.set(marker.month, marker);
+          }
+        );
         const deps = fakeDependencies({
           fetchArchives: vi.fn(async () =>
             months.map(
@@ -142,6 +146,7 @@ describe('runIngestion', () => {
           ),
           fetchMonthlyGames: vi.fn(async (_user, year, month) => rawByMonth[`${year}-${month}`]!),
           persistMonth,
+          readNormalizedMonth: vi.fn(async (_user, month) => coverage.get(month) ?? null),
           validatePgns: vi.fn<IngestionDependencies['validatePgns']>(async (games) => ({
             validGameIds: games.filter((game) => game.id !== 'invalid').map((game) => game.id),
             totalInvalid: games.filter((game) => game.id === 'invalid').length,
@@ -176,13 +181,17 @@ describe('runIngestion', () => {
           maxGames === 1 ? ['g8-c'] : ['g8-c', 'g8-a', 'g8-b', 'g7-b', 'g7-c']
         );
         expect(loaded.offlineCacheOnly).toBe(mode === 'offline');
-        expect(cached.get('2026-08')!.map((game) => game.id)).toEqual(
+        expect(coverage.get('2026-08')!.candidates.map((c) => c.game.id)).toEqual(
           expect.arrayContaining(['g8-a', 'g8-b', 'g8-c', 'filtered'])
         );
+        expect(cached.get('2026-08')!.map((game) => game.id)).toEqual(
+          expect.arrayContaining(maxGames === 1 ? ['g8-c'] : ['g8-a', 'g8-b', 'g8-c'])
+        );
         expect(cached.get('2026-08')!.some((game) => game.id === 'invalid')).toBe(false);
-        expect(markers.get('2026-08')!.observedGameCount).toBe(5);
+        expect(markers.get('2026-08')!.observedGameCount).toBe(cached.get('2026-08')!.length);
+        expect(coverage.get('2026-08')!.completeFetch).toBe(true);
         if (maxGames === 5)
-          expect(cached.get('2026-07')!.some((game) => game.id === 'g7-a')).toBe(true);
+          expect(coverage.get('2026-07')!.candidates.some((c) => c.game.id === 'g7-a')).toBe(true);
         if (mode !== 'live') expect(deps.fetchMonthlyGames).not.toHaveBeenCalled();
       }
     }
@@ -1201,4 +1210,64 @@ it('T51: emits completed-month batches with monotonic sequence and cumulative ac
   expect(firstBatch.datasetRevision).toBeTruthy();
   expect(secondBatch.datasetRevision).toBeTruthy();
   expect(firstBatch.datasetRevision).not.toBe(secondBatch.datasetRevision);
+});
+
+it('R01: accepts only the validated content of conflicting duplicate IDs', async () => {
+  const deps = fakeDependencies({
+    fetchMonthlyGames: vi
+      .fn()
+      .mockResolvedValue([
+        makeRawGame({ uuid: 'conflict', end_time: 1787000002, pgn: '1. e4 INVALID' }),
+        makeRawGame({ uuid: 'conflict', end_time: 1787000001, pgn: '1. d4 d5 1/2-1/2' }),
+      ]),
+    validatePgns: vi.fn<IngestionDependencies['validatePgns']>(async (games) => {
+      const { parseGamePgn } = await import('@/lib/chess/pgnParser');
+      const { toNormalizedSummary } = await import(
+        '@/features/workspace/createWorkspaceController'
+      );
+      return {
+        validGameIds: games
+          .filter((g) => parseGamePgn({ game: toNormalizedSummary(g) }).ok)
+          .map((g) => g.id),
+        diagnostics: [],
+        totalInvalid: 0,
+        diagnosticCodes: [],
+      };
+    }),
+  });
+  const result = await runIngestion(makeQuery({ maxGames: 1 }), { deps, now: () => NOW });
+  expect(result.games).toHaveLength(1);
+  expect(result.games[0]!.pgn).toBe('1. d4 d5 1/2-1/2');
+  expect(vi.mocked(deps.persistMonth).mock.calls[0]![0]).toEqual(result.games);
+});
+
+it('R09: skips casual games and stops replay at the newest valid cap, continuing past invalids', async () => {
+  const deps = fakeDependencies({
+    fetchMonthlyGames: vi
+      .fn()
+      .mockResolvedValue([
+        makeRawGame({ uuid: 'casual', end_time: 1787000004, rated: false }),
+        makeRawGame({ uuid: 'invalid', end_time: 1787000003 }),
+        makeRawGame({ uuid: 'newest', end_time: 1787000002 }),
+        makeRawGame({ uuid: 'older', end_time: 1787000001 }),
+      ]),
+    validatePgns: vi.fn<IngestionDependencies['validatePgns']>(async (games) => ({
+      validGameIds: games.filter((g) => g.id !== 'invalid').map((g) => g.id),
+      diagnostics: [],
+      totalInvalid: games.filter((g) => g.id === 'invalid').length,
+      diagnosticCodes: [],
+    })),
+  });
+  const result = await runIngestion(makeQuery({ maxGames: 1, rated: true }), {
+    deps,
+    now: () => NOW,
+  });
+  expect(result.games.map((g) => g.id)).toEqual(['newest']);
+  expect(
+    vi.mocked(deps.validatePgns).mock.calls.flatMap(([games]) => games.map((g) => g.id))
+  ).toEqual(['invalid', 'newest']);
+  const coverage = vi.mocked(deps.persistMonth).mock.calls[0]![3]!;
+  expect(coverage.completeFetch).toBe(true);
+  expect(coverage.candidates).toHaveLength(4);
+  expect(coverage.candidates.find((c) => c.game.id === 'older')!.validation.state).toBe('unknown');
 });

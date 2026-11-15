@@ -43,6 +43,8 @@ export interface GameVisit {
 export interface GraphBuildOptions {
   maxOpeningPlies: number;
   includeRepeatedPositions: boolean;
+  maxBytes?: number;
+  structuralLimits?: Partial<GraphStructuralLimits>;
 }
 
 export interface GraphStructuralLimits {
@@ -53,12 +55,14 @@ export interface GraphStructuralLimits {
 
 export const PGN_PARSER_VERSION = 'chessjs-1.4.0-strict-v1';
 export const POSITION_KEY_VERSION = 'legal-ep-four-field-v1';
-export const OPENING_PROJECTION_VERSION = 1;
+export const OPENING_PROJECTION_VERSION = 2;
 
 export type OpeningGameProjection = Omit<ParsedGame, 'plies'> & {
   plies: readonly MovePly[]; // at most 40, captured AFTER full strict validation
   projectionVersion: typeof OPENING_PROJECTION_VERSION;
   pgnDigest: string;
+  parserVersion: typeof PGN_PARSER_VERSION;
+  positionVersion: typeof POSITION_KEY_VERSION;
 };
 
 export type ValidationState = 'unknown' | 'valid' | 'invalid';

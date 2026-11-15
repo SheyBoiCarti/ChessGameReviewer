@@ -87,6 +87,56 @@ export function deserializeOpeningGraph(dto: SerializedOpeningGraph): OpeningGra
   if (!Number.isInteger(dto.openingHorizon) || dto.openingHorizon < 2 || dto.openingHorizon > 40) {
     throw new Error('INVALID_OPENING_HORIZON');
   }
+  const count = (value: number) => Number.isSafeInteger(value) && value >= 0;
+  const validAggregate = (aggregate: OutcomeAggregate) =>
+    aggregate &&
+    Object.entries(aggregate).length === 8 &&
+    Object.entries(aggregate).every(
+      ([key, value]) =>
+        typeof value === 'number' &&
+        Number.isFinite(value) &&
+        value >= 0 &&
+        (key === 'opponentRatingSum' || Number.isSafeInteger(value))
+    ) &&
+    aggregate.userWins + aggregate.draws + aggregate.userLosses === aggregate.games &&
+    aggregate.whiteWins + aggregate.draws + aggregate.blackWins === aggregate.games &&
+    aggregate.opponentRatingCount <= aggregate.games;
+  if (
+    ![
+      dto.sourceGameCount,
+      dto.includedGameCount,
+      dto.excludedGameCount,
+      dto.remainingGameCount,
+    ].every(count) ||
+    !Number.isFinite(dto.buildTimestamp) ||
+    dto.buildTimestamp < 0 ||
+    dto.includedGameCount + dto.excludedGameCount + dto.remainingGameCount !==
+      dto.sourceGameCount ||
+    !['complete', 'limited'].includes(dto.status) ||
+    (dto.status === 'limited' &&
+      !['maxPositions', 'maxEdges', 'maxPathNodes', 'maxSnapshotBytes'].includes(
+        dto.reachedLimit ?? ''
+      )) ||
+    (dto.status === 'complete' &&
+      (dto.remainingGameCount !== 0 || dto.reachedLimit !== undefined)) ||
+    !Array.isArray(dto.positions) ||
+    new Set(dto.positions.map((p) => p.key)).size !== dto.positions.length ||
+    dto.positions.some(
+      (p) =>
+        !validAggregate(p.aggregate) ||
+        new Set(p.edges.map((e) => e.uci)).size !== p.edges.length ||
+        p.edges.some(
+          (e) =>
+            !validAggregate(e.aggregate) ||
+            typeof e.san !== 'string' ||
+            !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(e.uci)
+        ) ||
+        new Map(p.arrivalsByPath).size !== p.arrivalsByPath.length ||
+        p.arrivalsByPath.some(([, aggregate]) => !validAggregate(aggregate))
+    )
+  ) {
+    throw new Error('INVALID_GRAPH_DATA');
+  }
   const paths = PathStore.fromNodes(dto.paths);
   const positions = new Map<string, PositionNode>();
   for (const serialized of dto.positions)

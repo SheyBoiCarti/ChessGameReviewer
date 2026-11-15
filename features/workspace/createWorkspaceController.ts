@@ -8,7 +8,8 @@ import type { GameRecord } from '@/lib/db/schema';
 import type { AnalysisUpdate, GameAnalysisResult } from '../stockfish-analysis/analyzeGame';
 import { computePgnDigest, reviewResultKey } from '../stockfish-analysis/reviewIdentity';
 import type { AnalysisStrength, GameReviewCursor } from './types';
-import { clearWorkspaceSession } from './session';
+import { clearWorkspaceSession, readWorkspaceSession } from './session';
+import { clearStoredOpeningScope } from './openingScopePreference';
 import type { GraphBuildWorkerResult } from '../opening-tree/graphWorkerClient';
 import type { IngestionBatch, IngestionProgress, IngestionResult } from '../ingestion/types';
 import { initialWorkspaceState, reduceWorkspace } from './reducer';
@@ -50,6 +51,7 @@ export interface WorkspaceServices {
     dispose(): void;
     clearMemory?(): void;
     deleteUser?(username: string): Promise<void>;
+    drain?(): Promise<void>;
   };
   engine: {
     initialize(): Promise<EngineCapability>;
@@ -292,15 +294,26 @@ export function createWorkspaceController(
     // T27: deletion removes retained cursors from memory and the saved session.
     if (action.type === 'data/userDeleted') {
       clearCursorsForUser(action.username);
-      if (state.query.active?.username === action.username) clearWorkspaceSession();
+      clearStoredOpeningScope(action.username);
+      if (readWorkspaceSession()?.username === action.username) clearWorkspaceSession();
+      clearRecentQuery(action.username);
     }
     if (action.type === 'data/allCleared') {
       clearAllCursors();
+      clearStoredOpeningScope();
+      clearRecentQuery();
       clearWorkspaceSession();
     }
     const next = reduceWorkspace(state, action);
     if (next === state) return;
+    const invalidatedReview = state.analysis.identity && !next.analysis.identity;
     state = next;
+    if (invalidatedReview) {
+      analysisSequence++;
+      analysisController?.abort();
+      analysisController = null;
+      runningReview = null;
+    }
     for (const listener of listeners) listener();
   };
 
@@ -387,6 +400,7 @@ export function createWorkspaceController(
     reviewResults.clear();
     const invalidationToken = ++nextToken;
     analysisSequence += 1;
+    gameAnalysisSequences.clear();
     dispatch({ type: 'operations/invalidated', token: invalidationToken });
     services.ingestion.cancel();
     services.graph.cancel();
@@ -395,6 +409,7 @@ export function createWorkspaceController(
       (promise): promise is Promise<void> => promise !== null
     );
     await Promise.allSettled(active);
+    await services.graph.drain?.();
   }
 
   function runDeletion<T>(
@@ -440,11 +455,23 @@ export function createWorkspaceController(
       analysisController?.abort();
       analysisController = new AbortController();
       restoreGenerations.set(game.id, (restoreGenerations.get(game.id) ?? 0) + 1);
+      const current = () => {
+        const record =
+          state.ingestion.result?.games.find((g) => g.id === game.id) ??
+          (state.retainedReviewGame?.id === game.id ? state.retainedReviewGame : null);
+        return (
+          !disposed &&
+          gameAnalysisSequences.get(game.id) === sequence &&
+          record?.username === game.username &&
+          record.pgn === game.pgn
+        );
+      };
       const pgnDigest = await computePgnDigest(game.pgn);
       if (
         disposed ||
-        token !== state.query.token ||
+        !current() ||
         sequence !== analysisSequence ||
+        !analysisController ||
         analysisController.signal.aborted
       )
         return;
@@ -456,7 +483,7 @@ export function createWorkspaceController(
         strength,
         jobId: sequence,
       };
-      dispatch({ type: 'analysis/started', token, identity });
+      dispatch({ type: 'analysis/started', token: state.query.token, identity });
       // The opening graph may be scoped or incomplete; it is not repertoire context.
       const bookMoveKeys: readonly string[] = [];
       try {
@@ -466,10 +493,7 @@ export function createWorkspaceController(
           capability,
           {
             bookMoveKeys,
-            isCurrent: () =>
-              !disposed &&
-              token === state.query.token &&
-              gameAnalysisSequences.get(game.id) === sequence,
+            isCurrent: () => current() && gameAnalysisSequences.get(game.id) === sequence,
           },
           analysisController.signal,
           () => {
@@ -477,19 +501,21 @@ export function createWorkspaceController(
           },
           (update) => dispatch({ type: 'analysis/update', identity, update })
         );
-        if (
-          !disposed &&
-          token === state.query.token &&
-          gameAnalysisSequences.get(game.id) === sequence
-        ) {
+        if (current() && gameAnalysisSequences.get(game.id) === sequence) {
           rememberReview(game, strength, result);
-          dispatch({ type: 'analysis/terminal', token, gameId: game.id, result, identity });
+          dispatch({
+            type: 'analysis/terminal',
+            token: state.query.token,
+            gameId: game.id,
+            result,
+            identity,
+          });
         }
       } catch (error) {
         if (sequence === analysisSequence) {
           dispatch({
             type: 'analysis/failed',
-            token,
+            token: state.query.token,
             error: error instanceof Error ? error.message : 'Game analysis failed.',
           });
         }
@@ -511,7 +537,9 @@ export function createWorkspaceController(
     const leavingGameId = state.selection.gameId;
     const leavingPly = state.selection.ply;
     if (leavingGameId) {
-      const leavingGame = state.ingestion.result?.games.find((game) => game.id === leavingGameId);
+      const leavingGame =
+        state.ingestion.result?.games.find((game) => game.id === leavingGameId) ??
+        state.retainedReviewGame;
       if (leavingGame) recordLastReviewedPly(leavingGame, leavingPly);
     }
     let retainedPly: number | undefined;
@@ -654,12 +682,10 @@ export function createWorkspaceController(
       try {
         disposed = false;
         invalidateReviewIntent();
-        reviewResults.clear();
-        restoreGenerations.clear();
+
         const token = ++nextToken;
         services.ingestion.cancel();
         services.graph.cancel();
-        analysisController?.abort();
         dispatch({ type: 'query/started', query, token });
         try {
           const result = await services.ingestion.start(query, {
@@ -676,6 +702,7 @@ export function createWorkspaceController(
             null
           );
           const datasetRevision = await computeDatasetRevision(result.games);
+          if (disposed || token !== state.query.token) return;
           datasetRevisions.set(result, datasetRevision);
           dispatch({
             type: 'ingestion/terminal',
@@ -804,19 +831,27 @@ export function createWorkspaceController(
       // candidates and line while the user edits or submits that import.
       if (scope !== 'both' && !state.query.active?.colors.includes(scope)) return;
       const horizon = state.preferences.openingHorizon;
-      let datasetRevision = revisionFor(dataset);
-      if (!datasetRevision) {
-        datasetRevision = await computeDatasetRevision(dataset.games);
-        datasetRevisions.set(dataset, datasetRevision);
-      }
+      const token = state.query.token;
       const graphRequestId = ++graphSequence;
       dispatch({
         type: 'graph/rebuildStarted',
         requestId: graphRequestId,
         scope,
-        datasetRevision,
+        datasetRevision: revisionFor(dataset),
       });
-      const token = state.query.token;
+      let datasetRevision = revisionFor(dataset);
+      if (!datasetRevision) {
+        datasetRevision = await computeDatasetRevision(dataset.games);
+        datasetRevisions.set(dataset, datasetRevision);
+      }
+      if (
+        disposed ||
+        maintenance ||
+        token !== state.query.token ||
+        graphRequestId !== graphSequence ||
+        state.ingestion.result !== dataset
+      )
+        return;
       await buildOpeningGraph(
         dataset.games,
         horizon,
@@ -873,11 +908,15 @@ export function createWorkspaceController(
     },
     selectPly(ply) {
       dispatch({ type: 'selection/ply', ply });
-      const game = state.ingestion.result?.games.find((game) => game.id === state.selection.gameId);
+      const game =
+        state.ingestion.result?.games.find((game) => game.id === state.selection.gameId) ??
+        state.retainedReviewGame;
       if (game) recordLastReviewedPly(game, state.selection.ply);
     },
     startAnalysis(strength = state.preferences.analysisStrength) {
-      const game = state.ingestion.result?.games.find((game) => game.id === state.selection.gameId);
+      const game =
+        state.ingestion.result?.games.find((game) => game.id === state.selection.gameId) ??
+        state.retainedReviewGame;
       return game ? requestReview(game, strength, false) : Promise.resolve();
     },
     cancelAnalysis() {
@@ -939,6 +978,8 @@ export function createWorkspaceController(
 
 export function toNormalizedSummary(game: IngestionResult['games'][number]): NormalizedGameSummary {
   return {
+    ...(game.openingProjection ? { openingProjection: game.openingProjection } : {}),
+    ...(game.accuracies ? { accuracies: game.accuracies } : {}),
     id: game.id,
     url: game.url,
     ...(game.uuid ? { uuid: game.uuid } : {}),
@@ -969,4 +1010,14 @@ function unavailableCapability(error: unknown): EngineCapability {
     threads: 0,
     hashMb: 0,
   };
+}
+
+function clearRecentQuery(username?: string): void {
+  try {
+    const key = 'chess-game-reviewer:recent-query';
+    const saved = JSON.parse(window.localStorage.getItem(key) ?? 'null');
+    if (!username || saved?.username === username) window.localStorage.removeItem(key);
+  } catch {
+    /* Optional storage. */
+  }
 }

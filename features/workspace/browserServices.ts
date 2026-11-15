@@ -210,12 +210,14 @@ export function createBrowserWorkspaceServices(): WorkspaceServices {
     engine,
     data: {
       deleteUsername: async (username) => {
+        sharedDataWorker.clearUserData();
         archives.delete(username.toLowerCase());
         for (const [key, value] of months)
           if (value.marker.username === username.toLowerCase()) months.delete(key);
         return deleteUserData(await db(), username);
       },
       clearAll: async () => {
+        sharedDataWorker.clearUserData();
         archives.clear();
         months.clear();
         await memoryEvaluations.recoverQuota();

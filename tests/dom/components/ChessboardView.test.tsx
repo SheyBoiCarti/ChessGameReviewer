@@ -481,3 +481,41 @@ describe('ChessboardView', () => {
     });
   });
 });
+
+it.each(['white', 'black'] as const)(
+  'T53: %s overlay endpoints cover castling, promotion, knights and shared destinations',
+  (orientation) => {
+    const arrows = [
+      { from: 'e1', to: 'g1', uci: 'e1g1' },
+      { from: 'a7', to: 'a8', uci: 'a7a8q' },
+      { from: 'b1', to: 'c3', uci: 'b1c3' },
+      { from: 'd1', to: 'c3', uci: 'd1c3' },
+    ] as const;
+    const { container } = render(
+      <ChessboardView
+        fen="4k3/P7/8/8/8/8/8/1N1NK2R w K - 0 1"
+        orientation={orientation}
+        openingArrows={arrows.map((a) => ({ ...a, band: 'strong', active: false }))}
+      />
+    );
+    const lines = [...container.querySelectorAll('.opening-arrow')];
+    expect(lines).toHaveLength(arrows.length);
+    const center = (square: string) => {
+      const file = square.charCodeAt(0) - 97;
+      const rank = Number(square[1]) - 1;
+      return orientation === 'white'
+        ? { x: (file + 0.5) * 12.5, y: (7.5 - rank) * 12.5 }
+        : { x: (7.5 - file) * 12.5, y: (rank + 0.5) * 12.5 };
+    };
+    lines.forEach((line, i) => {
+      const from = center(arrows[i]!.from);
+      const to = center(arrows[i]!.to);
+      expect(Number(line.getAttribute('x1'))).toBe(from.x);
+      expect(Number(line.getAttribute('y1'))).toBe(from.y);
+      expect(
+        Math.hypot(Number(line.getAttribute('x2')) - to.x, Number(line.getAttribute('y2')) - to.y)
+      ).toBeCloseTo(Math.min(2, Math.hypot(to.x - from.x, to.y - from.y) * 0.15));
+    });
+    expect(container.querySelector('.opening-arrows')).toHaveAttribute('pointer-events', 'none');
+  }
+);

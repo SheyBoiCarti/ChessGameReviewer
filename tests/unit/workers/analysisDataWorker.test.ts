@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildGraphWithinByteBudget, handleRequest } from '@/workers/analysis-data.worker';
-import { PROTOCOL_VERSION } from '@/workers/protocol';
+import { PROTOCOL_VERSION, type WorkerResponse } from '@/workers/protocol';
 import type { NormalizedGameSummary } from '@/lib/api/contracts';
 import { parseGamePgn, type ParsedGame } from '@/lib/chess/pgnParser';
 import { OpeningGraphBuilder, canonicalGameOrder } from '@/lib/chess/graph/openingGraph';
@@ -467,4 +467,40 @@ describe('analysis data worker', () => {
       diagnosticCodes: ['ILLEGAL_PGN'],
     });
   });
+});
+
+it('R07: a terminal cancellation leaves no tombstone that cancels a subsequent request', async () => {
+  const { toNormalizedSummary } = await import('@/features/workspace/createWorkspaceController');
+  const { makeGameRecord } = await import('../../helpers/phase1Fixtures');
+  const responses: WorkerResponse[] = [];
+  const jobId = 'cancelled-then-reused';
+  const work = handleRequest(
+    {
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      type: 'BUILD_GRAPH',
+      games: Array.from({ length: 50 }, (_, i) =>
+        toNormalizedSummary(makeGameRecord({ id: `cleanup-${i}` }))
+      ),
+      options: { maxOpeningPlies: 30, includeRepeatedPositions: false },
+      queryFingerprint: 'cleanup',
+    },
+    (response) => responses.push(response)
+  );
+  await handleRequest({ protocolVersion: PROTOCOL_VERSION, jobId, type: 'CANCEL_JOB' }, () => {});
+  await work;
+  expect(responses.at(-1)?.type).toBe('CANCELLED');
+  const retry: WorkerResponse[] = [];
+  await handleRequest(
+    {
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      type: 'BUILD_GRAPH',
+      games: [],
+      options: { maxOpeningPlies: 30, includeRepeatedPositions: false },
+      queryFingerprint: 'retry',
+    },
+    (response) => retry.push(response)
+  );
+  expect(retry.at(-1)?.type).toBe('COMPLETE');
 });

@@ -84,6 +84,8 @@ export interface WorkspaceState {
     status: 'idle' | 'deleting-user' | 'clearing-all';
     error: string | null;
   };
+  /** Previously validated selected content retained while older months are still loading. */
+  retainedReviewGame?: GameRecord | null;
   selection: WorkspaceSelection;
   analysis: {
     status:

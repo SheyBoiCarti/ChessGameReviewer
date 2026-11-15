@@ -179,7 +179,9 @@ export function ChessWorkspace({
     setListPresentation({ key: listStateKey, state: stored });
   }, [listStateKey]);
   const selectedRecord =
-    state.ingestion.result?.games.find(({ id }) => id === state.selection.gameId) ?? null;
+    state.ingestion.result?.games.find(({ id }) => id === state.selection.gameId) ??
+    state.retainedReviewGame ??
+    null;
   const [sessionContent, setSessionContent] = useState<{
     record: NonNullable<typeof selectedRecord>;
     digest: string;
@@ -812,6 +814,7 @@ export function ChessWorkspace({
         currentPly: navigation!.cursor,
         totalPlies: navigation!.history.length - 1,
         onPlyChange: (index) =>
+          state.graph.status !== 'building' &&
           setNavigation((prev) => (prev ? navigateToHistoryIndex(prev, index) : null)),
       }
     : tab === 'analysis' && variation
@@ -882,7 +885,10 @@ export function ChessWorkspace({
   // Openings: graph moves allowed
   const isInteractive =
     (tab === 'analysis' && reviewMode === 'analysis' && Boolean(displayedBoardFen)) ||
-    (tab === 'opening' && Boolean(graph && navigation) && !unobservedMove);
+    (tab === 'opening' &&
+      state.graph.status !== 'building' &&
+      Boolean(graph && navigation) &&
+      !unobservedMove);
 
   const hasGamesLoaded = (state.ingestion.result?.games.length ?? 0) > 0;
   const isSelectedGameWithoutMoves = Boolean(
@@ -1204,6 +1210,14 @@ export function ChessWorkspace({
                 maintenance={state.dataMaintenance}
                 onDeleteUsername={async (username) => {
                   const res = await controller.deleteUserData(username);
+                  for (const key of openingHistoryRef.current.keys())
+                    if (key.split('\u0000')[0] === username.toLowerCase())
+                      openingHistoryRef.current.delete(key);
+                  for (const key of latestOpeningHistoryRef.current.keys())
+                    if (JSON.parse(key)[0] === username.toLowerCase())
+                      latestOpeningHistoryRef.current.delete(key);
+                  listStateStoreRef.current.clear();
+                  setListPresentation({ key: listStateKey, state: { ...defaultGameListState } });
                   setStoredUsernames((prev) =>
                     prev.filter((u) => u.toLowerCase() !== username.toLowerCase())
                   );
@@ -1211,6 +1225,10 @@ export function ChessWorkspace({
                 }}
                 onClearAll={async () => {
                   const res = await controller.clearAllData();
+                  openingHistoryRef.current.clear();
+                  latestOpeningHistoryRef.current.clear();
+                  listStateStoreRef.current.clear();
+                  setListPresentation({ key: listStateKey, state: { ...defaultGameListState } });
                   setStoredUsernames([]);
                   return res;
                 }}
@@ -1385,9 +1403,7 @@ export function ChessWorkspace({
                           }}
                         />
                         {state.graph.status === 'building' ? (
-                          <p role="status" className="sr-only">
-                            Updating opening candidates…
-                          </p>
+                          <p role="status">Preparing opening candidates…</p>
                         ) : null}
                         {state.graph.error ? <p role="alert">{state.graph.error}</p> : null}
                         {openingNotice ? <p role="status">{openingNotice}</p> : null}
@@ -1407,74 +1423,87 @@ export function ChessWorkspace({
                           </p>
                         ) : null}
                         {/* T41: notation/navigation and candidates next. */}
-                        <OpeningTreeTable
-                          graph={graph}
-                          navigation={navigation}
-                          perspective={state.preferences.resultPerspective}
-                          excludedGameCount={state.graph.snapshot?.excludedGameCount ?? 0}
-                          diagnosticCodes={state.graph.diagnosticCodes}
-                          showArrows={showOpeningArrows}
-                          onToggleArrows={setShowOpeningArrows}
-                          activeUci={activeOpeningUci}
-                          onHoverCandidate={setActiveOpeningUci}
-                          onNavigate={(next) => {
-                            setActiveOpeningUci(null);
-                            setNavigation(next);
-                            controller.navigateGraph(next.positionKey, next.pathId);
+                        <fieldset
+                          disabled={state.graph.status === 'building'}
+                          inert={state.graph.status === 'building'}
+                          style={{
+                            display: 'grid',
+                            gap: 'inherit',
+                            border: 0,
+                            padding: 0,
+                            margin: 0,
+                            minWidth: 0,
                           }}
-                          onPerspectiveChange={(next) => {
-                            controller.dispatch({
-                              type: 'preferences/changed',
-                              preferences: { resultPerspective: next },
-                            });
-                          }}
-                          moveOrdersAction={
-                            <button
-                              ref={moveOrdersButton}
-                              type="button"
-                              className="button-secondary"
-                              onClick={() => setMoveOrdersOpen(true)}
-                              disabled={
-                                Boolean(unobservedMove) ||
-                                !graph.positions.get(navigation.positionKey)?.arrivalsByPath.size
-                              }
-                            >
-                              View move orders
-                            </button>
-                          }
-                        />
-                        <OpeningSettings
-                          value={state.preferences.openingHorizon}
-                          onChange={(openingHorizon) =>
-                            controller.dispatch({
-                              type: 'preferences/changed',
-                              preferences: { openingHorizon },
-                            })
-                          }
-                        />
-                        {/* T41: expensive secondary contents mount only on expansion. */}
-                        <OpeningDisclosure label="Stockfish analysis">
-                          {displayedBoardFen ? (
-                            <OpeningPositionAnalysis fen={displayedBoardFen} />
-                          ) : null}
-                        </OpeningDisclosure>
-                        <OpeningDisclosure
-                          label={`Matching games (${openingExactMatchCount})`}
-                          className="opening-disclosure opening-matching-disclosure"
                         >
-                          <OpeningView
-                            gamesById={openingGamesById}
-                            snapshot={state.graph.snapshot!}
-                            positionKey={navigation.positionKey}
-                            pathId={navigation.observed ? navigation.pathId : null}
-                            onSelectGame={(id) => {
-                              setReviewReturnTab('opening');
-                              void controller.openReview(id);
-                              selectTab('analysis');
+                          <OpeningTreeTable
+                            graph={graph}
+                            navigation={navigation}
+                            perspective={state.preferences.resultPerspective}
+                            excludedGameCount={state.graph.snapshot?.excludedGameCount ?? 0}
+                            diagnosticCodes={state.graph.diagnosticCodes}
+                            showArrows={showOpeningArrows}
+                            onToggleArrows={setShowOpeningArrows}
+                            activeUci={activeOpeningUci}
+                            onHoverCandidate={setActiveOpeningUci}
+                            onNavigate={(next) => {
+                              setActiveOpeningUci(null);
+                              setNavigation(next);
+                              controller.navigateGraph(next.positionKey, next.pathId);
                             }}
+                            onPerspectiveChange={(next) => {
+                              controller.dispatch({
+                                type: 'preferences/changed',
+                                preferences: { resultPerspective: next },
+                              });
+                            }}
+                            moveOrdersAction={
+                              <button
+                                ref={moveOrdersButton}
+                                type="button"
+                                className="button-secondary"
+                                onClick={() => setMoveOrdersOpen(true)}
+                                disabled={
+                                  Boolean(unobservedMove) ||
+                                  !graph.positions.get(navigation.positionKey)?.arrivalsByPath.size
+                                }
+                              >
+                                View move orders
+                              </button>
+                            }
                           />
-                        </OpeningDisclosure>
-                        {moveOrdersOpen ? (
+                          <OpeningSettings
+                            value={state.preferences.openingHorizon}
+                            onChange={(openingHorizon) =>
+                              controller.dispatch({
+                                type: 'preferences/changed',
+                                preferences: { openingHorizon },
+                              })
+                            }
+                          />
+                          {/* T41: expensive secondary contents mount only on expansion. */}
+                          <OpeningDisclosure label="Stockfish analysis">
+                            {displayedBoardFen ? (
+                              <OpeningPositionAnalysis fen={displayedBoardFen} />
+                            ) : null}
+                          </OpeningDisclosure>
+                          <OpeningDisclosure
+                            label={`Matching games (${openingExactMatchCount})`}
+                            className="opening-disclosure opening-matching-disclosure"
+                          >
+                            <OpeningView
+                              gamesById={openingGamesById}
+                              snapshot={state.graph.snapshot!}
+                              positionKey={navigation.positionKey}
+                              pathId={navigation.observed ? navigation.pathId : null}
+                              onSelectGame={(id) => {
+                                setReviewReturnTab('opening');
+                                selectTab('analysis');
+                                void controller.openReview(id);
+                              }}
+                            />
+                          </OpeningDisclosure>
+                        </fieldset>
+                        {moveOrdersOpen && state.graph.status !== 'building' ? (
                           <MoveOrderDialog
                             node={graph.positions.get(navigation.positionKey)!}
                             paths={graph.paths}

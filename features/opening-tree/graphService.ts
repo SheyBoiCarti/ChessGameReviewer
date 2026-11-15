@@ -45,6 +45,8 @@ export class GraphService {
   private readonly cache = new Map<string, MemoryCacheEntry>();
   private readonly inFlight = new Map<string, Promise<GraphBuildWorkerResult>>();
   private totalBytes = 0;
+  private generation = 0;
+  private readonly writers = new Set<Promise<unknown>>();
 
   constructor(deps: GraphServiceDependencies) {
     this.deps = deps;
@@ -58,6 +60,12 @@ export class GraphService {
     byteSize: number,
     username: string
   ): void {
+    if (byteSize > this.maxMemoryBytes || this.maxMemoryEntries < 1) return;
+    const previous = this.cache.get(key);
+    if (previous) {
+      this.totalBytes -= previous.byteSize;
+      this.cache.delete(key);
+    }
     while (
       this.cache.size >= this.maxMemoryEntries ||
       (this.cache.size > 0 && this.totalBytes + byteSize > this.maxMemoryBytes)
@@ -93,49 +101,86 @@ export class GraphService {
     const pending = this.inFlight.get(key);
     if (pending) return pending;
 
+    const generation = this.generation;
+    const assertCurrent = () => {
+      if (generation !== this.generation) throw new Error('GRAPH_BUILD_CANCELLED');
+    };
+    const write = async (operation: () => Promise<unknown>) => {
+      assertCurrent();
+      const writer = operation();
+      this.writers.add(writer);
+      try {
+        await writer;
+      } finally {
+        this.writers.delete(writer);
+      }
+      assertCurrent();
+    };
     const buildPromise = (async () => {
       const db = this.deps.getDb ? await this.deps.getDb().catch(() => null) : null;
+      assertCurrent();
       if (db) {
         try {
           const record = await getGraphSnapshot(db, key);
-          if (record && record.snapshotData) {
-            const snapshot = record.snapshotData as SerializedOpeningGraph;
+          assertCurrent();
+          if (record?.snapshotData) {
+            const envelope = record.snapshotData as {
+              version: number;
+              identity: string;
+              result: GraphBuildWorkerResult;
+            };
+            if (
+              envelope.version !== 1 ||
+              envelope.identity !== key ||
+              record.username !== identity.username.trim().toLowerCase() ||
+              record.byteSize !== new TextEncoder().encode(JSON.stringify(envelope)).byteLength ||
+              record.byteSize > identity.limits.maxBytes
+            )
+              throw new Error('INVALID_GRAPH_CACHE');
+            const result = envelope.result;
+            const snapshot = result.snapshot;
             deserializeOpeningGraph(snapshot);
             if (
-              !snapshot.datasetRevision ||
-              snapshot.datasetRevision === identity.datasetRevision
-            ) {
-              void putGraphSnapshot(db, {
-                ...record,
-                lastUsedAt: Date.now(),
-              }).catch(() => {});
-              const result: GraphBuildWorkerResult =
-                snapshot.status === 'limited'
-                  ? {
-                      status: 'limited',
-                      snapshot,
-                      reachedLimit: snapshot.reachedLimit ?? 'maxPositions',
-                      includedGameCount: snapshot.includedGameCount,
-                      remainingGameCount: snapshot.remainingGameCount,
-                      excludedGameCount: snapshot.excludedGameCount,
-                      diagnosticCodes: [],
-                    }
-                  : {
-                      status: 'complete',
-                      snapshot,
-                    };
-              this.putMemory(key, result, record.byteSize, identity.username);
-              return result;
-            }
+              snapshot.datasetRevision !== identity.datasetRevision ||
+              snapshot.queryFingerprint !== identity.datasetRevision ||
+              snapshot.openingHorizon !== identity.horizon ||
+              !['complete', 'partial', 'limited'].includes(result.status) ||
+              (result.status !== 'complete' &&
+                (!Array.isArray(result.diagnosticCodes) ||
+                  result.diagnosticCodes.some((code) => typeof code !== 'string') ||
+                  result.excludedGameCount !== snapshot.excludedGameCount)) ||
+              (result.status === 'limited' &&
+                (snapshot.status !== 'limited' ||
+                  result.reachedLimit !== snapshot.reachedLimit ||
+                  result.includedGameCount !== snapshot.includedGameCount ||
+                  result.remainingGameCount !== snapshot.remainingGameCount)) ||
+              (result.status !== 'limited' && snapshot.status !== 'complete') ||
+              (result.status === 'partial' && snapshot.excludedGameCount === 0)
+            )
+              throw new Error('INVALID_GRAPH_CACHE');
+            await write(() => putGraphSnapshot(db, { ...record, lastUsedAt: Date.now() }));
+            this.putMemory(key, result, record.byteSize, identity.username);
+            return result;
           }
         } catch {
           // Corrupt/quota/version mismatch is treated as safe cache miss
         }
       }
 
+      assertCurrent();
       const options: GraphBuildOptions = {
         maxOpeningPlies: identity.horizon,
         includeRepeatedPositions: identity.repetitionPolicy === 'include-repeats',
+        maxBytes: identity.limits.maxBytes,
+        structuralLimits: {
+          ...(identity.limits.maxPositions !== undefined
+            ? { maxPositions: identity.limits.maxPositions }
+            : {}),
+          ...(identity.limits.maxEdges !== undefined ? { maxEdges: identity.limits.maxEdges } : {}),
+          ...(identity.limits.maxPathNodes !== undefined
+            ? { maxPathNodes: identity.limits.maxPathNodes }
+            : {}),
+        },
       };
       const queryFingerprint = identity.datasetRevision;
 
@@ -143,6 +188,7 @@ export class GraphService {
         ? await this.deps.build(games, options, queryFingerprint)
         : await this.deps.workerClient!.build(games, options, queryFingerprint);
 
+      assertCurrent();
       const byteSize = serializedGraphByteSize(result.snapshot);
 
       this.putMemory(key, result, byteSize, identity.username);
@@ -153,20 +199,33 @@ export class GraphService {
             ...result.snapshot,
             datasetRevision: identity.datasetRevision,
           };
-          await putGraphSnapshot(db, {
-            key,
-            username: identity.username.trim().toLowerCase(),
-            createdAt: Date.now(),
-            lastUsedAt: Date.now(),
-            byteSize,
-            snapshotData: snapshotWithRevision,
-          });
-          await evictGraphSnapshots(db, { maxCount: 50, maxTotalBytes: 128 * 1024 * 1024 });
+          const envelope = {
+            version: 1,
+            identity: key,
+            result: { ...result, snapshot: snapshotWithRevision },
+          };
+          const persistedBytes = new TextEncoder().encode(JSON.stringify(envelope)).byteLength;
+          if (persistedBytes <= identity.limits.maxBytes) {
+            await write(() =>
+              putGraphSnapshot(db, {
+                key,
+                username: identity.username.trim().toLowerCase(),
+                createdAt: Date.now(),
+                lastUsedAt: Date.now(),
+                byteSize: persistedBytes,
+                snapshotData: envelope,
+              })
+            );
+            await write(() =>
+              evictGraphSnapshots(db, { maxCount: 50, maxTotalBytes: 128 * 1024 * 1024 })
+            );
+          }
         } catch {
           // Persistence errors do not fail the build
         }
       }
 
+      assertCurrent();
       return result;
     })();
 
@@ -174,7 +233,7 @@ export class GraphService {
     try {
       return await buildPromise;
     } finally {
-      this.inFlight.delete(key);
+      if (this.inFlight.get(key) === buildPromise) this.inFlight.delete(key);
     }
   }
 
@@ -190,15 +249,24 @@ export class GraphService {
   }
 
   cancel(): void {
+    this.generation++;
+    this.inFlight.clear();
     this.deps.workerClient?.cancel?.();
   }
 
   clearMemory(): void {
+    this.cancel();
     this.cache.clear();
     this.totalBytes = 0;
   }
 
+  async drain(): Promise<void> {
+    await Promise.allSettled([...this.writers]);
+  }
+
   async deleteUser(username: string): Promise<void> {
+    this.cancel();
+    await this.drain();
     const normalized = username.trim().toLowerCase();
     for (const [key, entry] of this.cache.entries()) {
       if (entry.username === normalized) {

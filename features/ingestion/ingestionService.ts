@@ -425,7 +425,8 @@ async function executeIngestion(
       game.endedAt >= from &&
       game.endedAt <= to &&
       query.timeClasses.includes(game.timeClass) &&
-      query.colors.includes(game.userColor)
+      query.colors.includes(game.userColor) &&
+      (query.rated === undefined || game.rated === query.rated)
     );
   };
 
@@ -471,18 +472,30 @@ async function executeIngestion(
       })
     );
     throwIfAborted(runtime.signal);
-    const unknownEligible = candidates.filter(
-      (candidate) => candidate.validation.state === 'unknown' && isEligibleForReplay(candidate.game)
-    );
-    if (unknownEligible.length > 0) {
+    // Walk newest first, validating only enough unknown candidates to fill the cap.
+    // Full fetch coverage still retains the untouched candidates as unknown.
+    const eligible = candidates
+      .filter((c) => isEligibleForReplay(c.game) && !seen.has(c.game.id))
+      .sort((a, b) => newestFirst(a.game, b.game));
+    let remaining = query.maxGames - games.length;
+    let cursor = 0;
+    while (cursor < eligible.length && remaining > 0) {
+      const pending: NormalizedMonthCandidate[] = [];
+      while (cursor < eligible.length && pending.length < remaining) {
+        const candidate = eligible[cursor++]!;
+        if (candidate.validation.state === 'valid') remaining--;
+        else if (candidate.validation.state === 'unknown') pending.push(candidate);
+        if (remaining === 0) break;
+      }
+      if (pending.length === 0) continue;
       const result = await runtime.deps.validatePgns(
-        unknownEligible.map((candidate) => candidate.game),
+        pending.map((c) => c.game),
         { signal: runtime.signal }
       );
       throwIfAborted(runtime.signal);
       const validIds = new Set(result.validGameIds);
       for (const diagnostic of result.diagnostics) appendDiagnostic(diagnostics, diagnostic);
-      for (const candidate of unknownEligible) {
+      for (const candidate of pending) {
         const valid = validIds.has(candidate.game.id);
         const projection = result.projections?.find((p) => p.id === candidate.game.id);
         candidate.validation = {
@@ -494,14 +507,16 @@ async function executeIngestion(
             : [
                 ...new Set(
                   result.diagnostics
-                    .filter((diagnostic) => diagnostic.gameId === candidate.game.id)
-                    .map((diagnostic) => diagnostic.code)
+                    .filter((d) => d.gameId === candidate.game.id)
+                    .map((d) => d.code)
                     .concat(result.diagnosticCodes)
                 ),
               ].slice(0, 20),
         };
+        if (valid) remaining--;
       }
     }
+    recordsExcluded += candidates.filter((c) => c.validation.state === 'unknown').length;
     for (const candidate of candidates) {
       if (candidate.validation.state !== 'invalid') continue;
       recordsExcluded += 1;
@@ -518,7 +533,12 @@ async function executeIngestion(
     return {
       validGames: candidates
         .filter((candidate) => candidate.validation.state === 'valid')
-        .map((candidate) => candidate.game),
+        .map((candidate) => ({
+          ...candidate.game,
+          ...(candidate.validation.projection
+            ? { openingProjection: candidate.validation.projection }
+            : {}),
+        })),
       normalized: {
         username: query.username,
         month,
@@ -674,14 +694,12 @@ async function executeIngestion(
         const uniqueMonthGames = [
           ...new Map(normalizedMonthGames.map((game) => [game.id, game])).values(),
         ];
-        const { validGames: uniqueValidGames, normalized } = await validateGames(
+        const { validGames: validMonthGames, normalized } = await validateGames(
           uniqueMonthGames,
           month,
           runtime.now(),
           true
         );
-        const acceptedIds = new Set(uniqueValidGames.map((game) => game.id));
-        const validMonthGames = normalizedMonthGames.filter((game) => acceptedIds.has(game.id));
         const stagedMatches: GameRecord[] = [];
         const stagedIds = new Set<string>();
         for (const game of [...validMonthGames].sort(newestFirst)) {

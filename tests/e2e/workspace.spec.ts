@@ -1,3 +1,8 @@
+import {
+  instrumentOpenings,
+  openingCounts,
+  resetOpeningCounts,
+} from './helpers/openingInstrumentation';
 import { expect, test } from '@playwright/test';
 import { installPaginatedWorkspaceFixtures } from './helpers/workspaceFixtures';
 import { installEngineFixtures } from './helpers/engineFixtures';
@@ -609,14 +614,10 @@ test('T56: verifies opening navigation has zero network/worker/build operations 
 }) => {
   test.setTimeout(90_000);
   let networkFetches = 0;
-  page.on('request', (req) => {
-    if (req.url().includes('api.chess.com')) {
-      networkFetches += 1;
-    }
-  });
+  page.on('request', () => networkFetches++);
+  const instrumentedBaseUrl = await instrumentOpenings(page);
   await installOpeningScopeWorkspaceFixtures(page);
-
-  await page.goto('/?engine=unavailable');
+  await page.goto(`${instrumentedBaseUrl}/?engine=unavailable`);
   await page.getByLabel('Username').fill('audit-player');
   await page.getByRole('button', { name: 'Game filters' }).click();
   await page.getByRole('radio', { name: 'Custom' }).click();
@@ -624,39 +625,56 @@ test('T56: verifies opening navigation has zero network/worker/build operations 
   await page.getByLabel('To date').fill('2024-01-31');
   await page.getByRole('button', { name: 'Find games' }).click();
   await expect(page.getByText('20 games loaded', { exact: false })).toBeVisible();
-
   await page.getByRole('button', { name: 'Openings', exact: true }).click();
-  await expect(page.getByRole('table', { name: 'Opening candidates' })).toBeVisible();
-
+  const play = page.getByRole('button', { name: 'Play e4, 7 games', exact: true });
+  await expect(play).toBeEnabled();
+  expect((await openingCounts(page)).replays).toBe(20); // Verify probe is live.
+  // Prime both scope snapshots before recording retained hits.
+  await page.getByRole('radio', { name: 'Black', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Play d4, 4 games', exact: true })).toBeEnabled();
+  await page.getByRole('radio', { name: 'White', exact: true }).click();
+  await expect(play).toBeEnabled();
+  await resetOpeningCounts(page);
   networkFetches = 0;
-  const navigationSamples: Array<{ fetches: number; replays: number; builds: number }> = [];
-
+  const samples = [];
   for (let i = 0; i < 50; i++) {
-    const candidateBtn = page.getByRole('button', { name: /^Play /i }).first();
-    if (await candidateBtn.isVisible()) {
-      await candidateBtn.click();
-      navigationSamples.push({ fetches: networkFetches, replays: 0, builds: 0 });
-    }
-    const backBtn = page.getByRole('button', { name: 'Previous move', exact: true });
-    if ((await backBtn.isVisible()) && (await backBtn.isEnabled())) {
-      await backBtn.click();
-      navigationSamples.push({ fetches: networkFetches, replays: 0, builds: 0 });
-    }
+    await play.click();
+    await expect(page.getByLabel('Opening move history')).toContainText('e4');
+    samples.push({ fetches: networkFetches, ...(await openingCounts(page)) });
+    await page.getByRole('button', { name: 'Previous move', exact: true }).click();
+    await expect(play).toBeEnabled();
+    samples.push({ fetches: networkFetches, ...(await openingCounts(page)) });
   }
-
-  while (navigationSamples.length < 100) {
-    navigationSamples.push({ fetches: networkFetches, replays: 0, builds: 0 });
-  }
-
-  expect(navigationSamples).toHaveLength(100);
-  expect(navigationSamples.every((s) => s.fetches === 0 && s.replays === 0 && s.builds === 0)).toBe(
-    true
-  );
-
-  const warmHitSamples = [{ archiveRequests: networkFetches, replays: 0, builds: 0 }];
-  expect(
-    warmHitSamples.every((s) => s.archiveRequests === 0 && s.replays === 0 && s.builds === 0)
-  ).toBe(true);
+  expect(samples).toHaveLength(100);
+  expect(samples.every((s) => s.fetches === 0 && s.replays === 0 && s.builds === 0)).toBe(true);
+  await page.getByRole('radio', { name: 'Black', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Play d4, 4 games', exact: true })).toBeEnabled();
+  await page.getByRole('radio', { name: 'White', exact: true }).click();
+  await expect(play).toBeEnabled();
+  expect({ fetches: networkFetches, ...(await openingCounts(page)) }).toEqual({
+    fetches: 0,
+    replays: 0,
+    builds: 0,
+    validations: 0,
+  });
+  // Perform a real warm query, then a fresh-page disk return.
+  await page.getByRole('button', { name: 'Import games', exact: true }).click();
+  await page.getByRole('button', { name: 'Find games', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Import games' })).toBeHidden();
+  await page.getByRole('button', { name: 'Openings', exact: true }).click();
+  await expect(play).toBeEnabled();
+  expect((await openingCounts(page)).builds).toBe(0);
+  expect((await openingCounts(page)).replays).toBe(0);
+  const apiRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('api.chess.com/pub/player/audit-player/games'))
+      apiRequests.push(request.url());
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Openings', exact: true }).click();
+  await expect(play).toBeEnabled();
+  expect(await openingCounts(page)).toEqual({ replays: 0, builds: 0, validations: 0 });
+  expect(apiRequests).toEqual([]);
 });
 
 test('T57: navigates from matching opening source game into Review and back with preserved line, scope, and review state', async ({
@@ -675,8 +693,13 @@ test('T57: navigates from matching opening source game into Review and back with
   await page.getByRole('button', { name: 'Openings', exact: true }).click();
   await expect(page.getByRole('table', { name: 'Opening candidates' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Play e4, 7 games', exact: true }).click();
-  await expect(page.getByLabel('Opening move history')).toContainText('e4');
+  await page.getByRole('radio', { name: 'Black', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Play d4, 4 games', exact: true })).toBeEnabled();
+  await page.getByText('Advanced opening settings', { exact: true }).click();
+  await page.getByLabel('Opening horizon (plies)').fill('12');
+  await expect(page.getByText('Preparing opening candidates…', { exact: true })).toBeHidden();
+  await page.getByRole('button', { name: 'Play d4, 4 games', exact: true }).click();
+  await expect(page.getByLabel('Opening move history')).toContainText('d4');
   const line = await page.getByLabel('Opening move history').textContent();
 
   await page.getByText(/Matching games/i).click();
@@ -687,13 +710,105 @@ test('T57: navigates from matching opening source game into Review and back with
   await expect(page).toHaveURL(/view=analysis.*game=/);
   await expect(page.getByRole('button', { name: 'Back to openings', exact: true })).toBeVisible();
 
-  const nextMove = page.getByRole('button', { name: 'Next move', exact: true });
-  if (await nextMove.isEnabled()) {
-    await nextMove.click();
-  }
+  await page.getByRole('button', { name: 'Next move', exact: true }).click();
+  await page.getByRole('button', { name: 'Next move', exact: true }).click();
+  await expect(page.getByLabel('Position 2 of 6')).toBeVisible();
+  const reviewGame = new URL(page.url()).searchParams.get('game');
+  expect(reviewGame).toBeTruthy();
 
   await page.getByRole('button', { name: 'Back to openings', exact: true }).click();
   await expect(page).toHaveURL(/view=opening/);
   await expect(page.getByLabel('Opening move history')).toHaveText(line!);
-  await expect(page.getByRole('radio', { name: /^White/ })).toBeChecked();
+  await expect(page.getByRole('radio', { name: 'Black', exact: true })).toBeChecked();
+  await expect(page.getByLabel('Opening horizon (plies)')).toHaveValue('12');
+  await page.getByText(/Matching games/i).click();
+  await page
+    .getByRole('button', { name: /review source game/i })
+    .first()
+    .click();
+  await expect(page.getByLabel('Position 2 of 6')).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`game=${reviewGame}&ply=2`));
+});
+
+test('R11: retained candidates and source actions are disabled while a replacement scope prepares', async ({
+  page,
+}) => {
+  await installOpeningScopeWorkspaceFixtures(page);
+  await page.addInitScript(() => {
+    const controls = { hold: false, pending: [] as Array<() => void> };
+    (window as unknown as { __openingHold: typeof controls }).__openingHold = controls;
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      postMessage(data: { type?: string }, options?: StructuredSerializeOptions | Transferable[]) {
+        if (data.type === 'BUILD_GRAPH' && controls.hold)
+          controls.pending.push(() =>
+            super.postMessage(data, options as StructuredSerializeOptions)
+          );
+        else super.postMessage(data, options as StructuredSerializeOptions);
+      }
+    };
+  });
+  await page.goto('/?engine=unavailable');
+  await page.getByLabel('Username').fill('audit-player');
+  await page.getByRole('button', { name: 'Game filters' }).click();
+  await page.getByRole('radio', { name: 'Custom' }).click();
+  await page.getByLabel('From date').fill('2024-01-01');
+  await page.getByLabel('To date').fill('2024-01-31');
+  await page.getByRole('button', { name: 'Find games' }).click();
+  await expect(page.getByText('20 games loaded', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Openings', exact: true }).click();
+  const play = page.getByRole('button', { name: 'Play e4, 7 games', exact: true });
+  await expect(play).toBeEnabled();
+  await page.evaluate(() => {
+    (window as unknown as { __openingHold: { hold: boolean } }).__openingHold.hold = true;
+  });
+  await page.getByRole('radio', { name: 'Black', exact: true }).click();
+  await expect(page.getByText('Preparing opening candidates…')).toBeVisible();
+  await expect(play).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'View move orders' })).toBeDisabled();
+  const history = await page.getByLabel('Opening move history').textContent();
+  await page.getByRole('gridcell', { name: 'e2', exact: true }).click();
+  await page.getByRole('gridcell', { name: 'e4', exact: true }).click();
+  await expect(page.getByLabel('Opening move history')).toHaveText(history!);
+  await page.evaluate(() => {
+    const controls = (
+      window as unknown as { __openingHold: { hold: boolean; pending: Array<() => void> } }
+    ).__openingHold;
+    controls.hold = false;
+    controls.pending.splice(0).forEach((deliver) => deliver());
+  });
+  await expect(page.getByRole('button', { name: 'Play d4, 4 games', exact: true })).toBeEnabled();
+});
+
+test('R12: source-game entry starts an available engine and restores its saved review on return', async ({
+  page,
+}) => {
+  await installOpeningScopeWorkspaceFixtures(page);
+  const engine = await installEngineFixtures(page, {
+    manualReady: false,
+    manualEvaluations: false,
+  });
+  await page.goto('/?engine=single');
+  await page.getByLabel('Username').fill('audit-player');
+  await page.getByRole('button', { name: 'Game filters' }).click();
+  await page.getByRole('radio', { name: 'Custom' }).click();
+  await page.getByLabel('From date').fill('2024-01-01');
+  await page.getByLabel('To date').fill('2024-01-31');
+  await page.getByRole('button', { name: 'Find games' }).click();
+  await expect(page.getByText('20 games loaded', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Openings', exact: true }).click();
+  await page.getByRole('button', { name: 'Play e4, 7 games', exact: true }).click();
+  const line = await page.getByLabel('Opening move history').textContent();
+  await page.getByText(/Matching games \(7\)/).click();
+  const source = page.getByRole('button', { name: /Review source game/ }).first();
+  await source.click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({ timeout: 30000 });
+  const requests = (await engine.requests()).filter((r) => r.type === 'EVALUATE').length;
+  expect(requests).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Back to openings', exact: true }).click();
+  await expect(page.getByLabel('Opening move history')).toHaveText(line!);
+  await page.getByText(/Matching games \(7\)/).click();
+  await source.click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  expect((await engine.requests()).filter((r) => r.type === 'EVALUATE')).toHaveLength(requests);
 });
