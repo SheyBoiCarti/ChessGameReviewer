@@ -493,7 +493,15 @@ function BoardArrow({
       role="img"
     >
       <defs>
-        <marker id={markerId} markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
+        <marker
+          id={markerId}
+          markerUnits="userSpaceOnUse"
+          markerWidth="5"
+          markerHeight="5"
+          refX="5"
+          refY="2.5"
+          orient="auto"
+        >
           <path d="M0,0 L5,2.5 L0,5 Z" />
         </marker>
       </defs>
@@ -521,9 +529,10 @@ function OpeningArrows({
             <marker
               key={arrow.uci}
               id={markerId}
+              markerUnits="userSpaceOnUse"
               markerWidth="5"
               markerHeight="5"
-              refX="4"
+              refX="5"
               refY="2.5"
               orient="auto"
             >

@@ -456,13 +456,20 @@ test('desktop analyzer layout stays bounded within usable viewport height for lo
   const moveListLocator = page.locator('.analysis-move-list');
   const contextMetrics = await scrollMetrics(contextLocator);
   const moveListMetrics = await scrollMetrics(moveListLocator);
-  // The document owns the outer scroll; only the move list has a bounded viewport.
+  // Desktop panels scroll beside the anchored board; long move lists stay bounded too.
   expect(contextMetrics.scrollHeight).toBe(contextMetrics.clientHeight);
+  const sidebarMetrics = await scrollMetrics(page.locator('.workspace-layout__sidebar'));
+  expect(sidebarMetrics.scrollHeight).toBeGreaterThan(sidebarMetrics.clientHeight);
+  const sidebarContentBottom = await contextLocator.evaluate(
+    (element) => (element as HTMLElement).offsetTop + (element as HTMLElement).offsetHeight
+  );
+  // Offscreen move labels must not create an empty scroll tail below the panels.
+  expect(sidebarMetrics.scrollHeight).toBeLessThanOrEqual(sidebarContentBottom + 1);
 
   expect(moveListMetrics.scrollHeight).toBeGreaterThan(moveListMetrics.clientHeight);
 
   const documentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
-  expect(documentHeight).toBeLessThan(1500);
+  expect(documentHeight).toBeLessThanOrEqual(958);
 
   await expect(page.locator('.annotation-panel-empty')).toBeVisible();
   await expect(page.locator('.annotation-panel')).toHaveCount(0);
@@ -693,9 +700,15 @@ test('expanded review feedback remains usable and keeps its toggle focused', asy
   const toggle = page.locator('.review-feedback summary');
   await expect(toggle).toBeVisible();
   expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(43.99);
+  const boardDocumentTop = () =>
+    page
+      .getByRole('grid', { name: 'Chess board' })
+      .evaluate((element) => element.getBoundingClientRect().top + window.scrollY);
+  const beforeExpansion = await boardDocumentTop();
   await toggle.click();
   await expect(toggle).toBeFocused();
   await expect(page.getByText(/Best move:/)).toBeVisible();
+  expect(await boardDocumentTop()).toBeCloseTo(beforeExpansion, 0);
   expect(await overflow(page)).toBeLessThanOrEqual(1);
   await page.setViewportSize({ width: 320, height: 740 });
   await expect(page.getByRole('grid', { name: 'Chess board' })).toBeVisible();

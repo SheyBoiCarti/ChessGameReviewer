@@ -902,20 +902,6 @@ export function ChessWorkspace({
       </div>
     ) : (
       <div ref={boardRef} className="workspace-board">
-        {tab === 'analysis' && variation ? (
-          <VariationSandboxBanner
-            state={variation}
-            returnNotation={
-              variationOrigin?.selectedPly
-                ? `${Math.ceil(variationOrigin.selectedPly / 2)}${variationOrigin.selectedPly % 2 ? '.' : '…'} ${parsedGame?.plies[variationOrigin.selectedPly - 1]?.san ?? ''}`
-                : 'Starting position'
-            }
-            onCursorChange={(cursor) =>
-              setVariation((prev) => (prev ? moveVariationCursor(prev, cursor) : null))
-            }
-            onClose={returnToGame}
-          />
-        ) : null}
         {tab === 'opening' && unobservedMove ? (
           <UnobservedMoveNotice
             san={unobservedMove.san ?? ''}
@@ -1526,6 +1512,21 @@ export function ChessWorkspace({
                         </button>
                       </div>
                     )
+                  ) : null}
+
+                  {tab === 'analysis' && variation ? (
+                    <VariationSandboxBanner
+                      state={variation}
+                      returnNotation={
+                        variationOrigin?.selectedPly
+                          ? `${Math.ceil(variationOrigin.selectedPly / 2)}${variationOrigin.selectedPly % 2 ? '.' : '…'} ${parsedGame?.plies[variationOrigin.selectedPly - 1]?.san ?? ''}`
+                          : 'Starting position'
+                      }
+                      onCursorChange={(cursor) =>
+                        setVariation((prev) => (prev ? moveVariationCursor(prev, cursor) : null))
+                      }
+                      onClose={returnToGame}
+                    />
                   ) : null}
 
                   {tab === 'analysis' ? (

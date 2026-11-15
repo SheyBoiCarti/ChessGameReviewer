@@ -24,16 +24,18 @@ export function WorkspaceLayout({
       className={`workspace-layout${!board ? ' workspace-layout--no-board' : ''}${review && board ? ' workspace-layout--review' : ''}${opening && board ? ' workspace-layout--opening' : ''}`}
     >
       <div className="workspace-layout__header">{header}</div>
-      <div className="workspace-layout__feedback">{feedback}</div>
       {board ? (
         <section className="workspace-layout__board" aria-label="Board focal region">
           {board}
         </section>
       ) : null}
-      <section className="workspace-layout__context" aria-label="Contextual workspace">
-        {tabs}
-        {panel}
-      </section>
+      <div className="workspace-layout__sidebar">
+        <div className="workspace-layout__feedback">{feedback}</div>
+        <section className="workspace-layout__context" aria-label="Contextual workspace">
+          {tabs}
+          {panel}
+        </section>
+      </div>
     </div>
   );
 }
