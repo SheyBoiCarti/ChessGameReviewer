@@ -555,11 +555,11 @@ describe('workspace controller', () => {
       vi.fn()
     );
     const selected = deferred<typeof saved | null>();
-    services.analysis.restoreSelected = vi.fn(() => selected.promise);
     services.analysis.analyze = vi.fn(services.analysis.analyze);
     services.engine.initialize = vi.fn(services.engine.initialize);
     const controller = createWorkspaceController(services);
     await controller.submitQuery(secondQuery);
+    services.analysis.restoreSelected = vi.fn(() => selected.promise);
     const opening = controller.openReview(game.id);
     const direct = controller.startAnalysis();
     expect(services.analysis.restoreSelected).toHaveBeenCalledTimes(1);

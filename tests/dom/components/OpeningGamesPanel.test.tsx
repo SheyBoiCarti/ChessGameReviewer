@@ -34,8 +34,8 @@ it('replaces page rows and opens the intended source game', async () => {
   );
   await user.click(screen.getByRole('button', { name: 'Next matching games' }));
   expect(screen.getAllByRole('listitem')).toHaveLength(50);
-  expect(screen.queryByRole('button', { name: /^player-0 vs/ })).toBeNull();
-  await user.click(screen.getByRole('button', { name: /^player-50 vs/ }));
+  expect(screen.queryByRole('button', { name: /player-0 vs/ })).toBeNull();
+  await user.click(screen.getByRole('button', { name: /player-50 vs/ }));
   expect(onSelectGame).toHaveBeenCalledWith('source-50');
   await user.click(screen.getByRole('button', { name: 'Next matching games' }));
   expect(screen.getAllByRole('listitem')).toHaveLength(20);

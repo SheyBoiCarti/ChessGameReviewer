@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import {
+  installOpeningScopeWorkspaceFixtures,
   installTranspositionWorkspaceFixtures,
   installWorkspaceFixtures,
   loadFixtureGames,
@@ -301,4 +302,35 @@ test('B10: loading and reloading emits no analytics CSP failures', async ({ page
       /content security policy|script.debug.js|Failed to load.*Vercel/i.test(message)
     )
   ).toEqual([]);
+});
+
+test('T57: source game to review and back preserves move history, scope, and review state', async ({
+  page,
+}) => {
+  await installOpeningScopeWorkspaceFixtures(page);
+  await page.goto('/?engine=unavailable');
+  await page.getByLabel('Username').fill('audit-player');
+  await page.getByRole('button', { name: 'Game filters' }).click();
+  await page.getByRole('radio', { name: 'Custom' }).click();
+  await page.getByLabel('From date').fill('2024-01-01');
+  await page.getByLabel('To date').fill('2024-01-31');
+  await page.getByRole('button', { name: 'Find games' }).click();
+  await expect(page.getByText('20 games loaded', { exact: false })).toBeVisible();
+
+  await openTab(page, 'Openings');
+  await expect(page.getByRole('table', { name: 'Opening candidates' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Play e4, 7 games', exact: true }).click();
+  const line = await page.getByLabel('Opening move history').textContent();
+  expect(line).toContain('e4');
+
+  await page.getByText(/Matching games/i).click();
+  await page
+    .getByRole('button', { name: /review source game/i })
+    .first()
+    .click();
+
+  await expect(page.getByRole('button', { name: 'Back to openings', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to openings', exact: true }).click();
+  await expect(page.getByLabel('Opening move history')).toHaveText(line!);
 });

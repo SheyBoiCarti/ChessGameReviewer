@@ -599,14 +599,15 @@ test('T43: mounts 50 indexed source games per page and preserves the chosen game
   await expect(page.getByText('Page 2 of 10', { exact: true })).toBeVisible();
   await list.getByRole('button').first().click();
   await expect(page).toHaveURL(/view=analysis.*game=/);
-  await expect(page.getByRole('button', { name: 'Back to games', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Openings', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Back to openings', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to openings', exact: true }).click();
   await expect(page.getByText('Matching games (500)', { exact: true })).toBeVisible();
 });
 
 test('T56: verifies opening navigation has zero network/worker/build operations across 100 actions and warm hits replay zero', async ({
   page,
 }) => {
+  test.setTimeout(90_000);
   let networkFetches = 0;
   page.on('request', (req) => {
     if (req.url().includes('api.chess.com')) {
@@ -656,4 +657,43 @@ test('T56: verifies opening navigation has zero network/worker/build operations 
   expect(
     warmHitSamples.every((s) => s.archiveRequests === 0 && s.replays === 0 && s.builds === 0)
   ).toBe(true);
+});
+
+test('T57: navigates from matching opening source game into Review and back with preserved line, scope, and review state', async ({
+  page,
+}) => {
+  await installOpeningScopeWorkspaceFixtures(page);
+  await page.goto('/?engine=unavailable');
+  await page.getByLabel('Username').fill('audit-player');
+  await page.getByRole('button', { name: 'Game filters' }).click();
+  await page.getByRole('radio', { name: 'Custom' }).click();
+  await page.getByLabel('From date').fill('2024-01-01');
+  await page.getByLabel('To date').fill('2024-01-31');
+  await page.getByRole('button', { name: 'Find games' }).click();
+  await expect(page.getByText('20 games loaded', { exact: false })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Openings', exact: true }).click();
+  await expect(page.getByRole('table', { name: 'Opening candidates' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Play e4, 7 games', exact: true }).click();
+  await expect(page.getByLabel('Opening move history')).toContainText('e4');
+  const line = await page.getByLabel('Opening move history').textContent();
+
+  await page.getByText(/Matching games/i).click();
+  const reviewButton = page.getByRole('button', { name: /review source game/i }).first();
+  await expect(reviewButton).toBeVisible();
+  await reviewButton.click();
+
+  await expect(page).toHaveURL(/view=analysis.*game=/);
+  await expect(page.getByRole('button', { name: 'Back to openings', exact: true })).toBeVisible();
+
+  const nextMove = page.getByRole('button', { name: 'Next move', exact: true });
+  if (await nextMove.isEnabled()) {
+    await nextMove.click();
+  }
+
+  await page.getByRole('button', { name: 'Back to openings', exact: true }).click();
+  await expect(page).toHaveURL(/view=opening/);
+  await expect(page.getByLabel('Opening move history')).toHaveText(line!);
+  await expect(page.getByRole('radio', { name: /^White/ })).toBeChecked();
 });

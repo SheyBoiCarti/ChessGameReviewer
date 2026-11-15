@@ -675,6 +675,8 @@ export function createWorkspaceController(
             (current, game) => (!current || game.endedAt > current.endedAt ? game : current),
             null
           );
+          const datasetRevision = await computeDatasetRevision(result.games);
+          datasetRevisions.set(result, datasetRevision);
           dispatch({
             type: 'ingestion/terminal',
             token,
@@ -746,8 +748,6 @@ export function createWorkspaceController(
             })();
           }, 0);
           const graphRequestId = ++graphSequence;
-          const datasetRevision = await computeDatasetRevision(result.games);
-          datasetRevisions.set(result, datasetRevision);
           dispatch({ type: 'graph/started', token, requestId: graphRequestId });
           void buildOpeningGraph(
             result.games,
@@ -804,7 +804,11 @@ export function createWorkspaceController(
       // candidates and line while the user edits or submits that import.
       if (scope !== 'both' && !state.query.active?.colors.includes(scope)) return;
       const horizon = state.preferences.openingHorizon;
-      const datasetRevision = revisionFor(dataset);
+      let datasetRevision = revisionFor(dataset);
+      if (!datasetRevision) {
+        datasetRevision = await computeDatasetRevision(dataset.games);
+        datasetRevisions.set(dataset, datasetRevision);
+      }
       const graphRequestId = ++graphSequence;
       dispatch({
         type: 'graph/rebuildStarted',
@@ -894,8 +898,9 @@ export function createWorkspaceController(
       return runDeletion(
         'user',
         async () => {
+          const result = await services.data.deleteUsername(normalized);
           await services.graph.deleteUser?.(normalized);
-          return services.data.deleteUsername(normalized);
+          return result;
         },
         () => ({ type: 'data/userDeleted', username: normalized })
       );

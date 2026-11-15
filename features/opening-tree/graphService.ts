@@ -10,6 +10,7 @@ import {
 import type { GraphBuildOptions } from '@/lib/chess/graph/types';
 import { getGraphSnapshot, putGraphSnapshot } from '@/lib/db/repositories';
 import { evictGraphSnapshots } from '@/lib/db/retention';
+import { deleteUserData } from '@/lib/db/deleteLocalData';
 
 export interface GraphServiceDependencies {
   workerClient?: {
@@ -203,6 +204,15 @@ export class GraphService {
       if (entry.username === normalized) {
         this.totalBytes -= entry.byteSize;
         this.cache.delete(key);
+      }
+    }
+
+    const db = this.deps.getDb ? await this.deps.getDb().catch(() => null) : null;
+    if (db) {
+      try {
+        await deleteUserData(db, normalized);
+      } catch {
+        // Safe deletion
       }
     }
   }

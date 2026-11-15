@@ -134,6 +134,7 @@ export function ChessWorkspace({
   const [openingImportQuery, setOpeningImportQuery] = useState<GameQuery | null>(null);
   const [openingNotice, setOpeningNotice] = useState<string | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [reviewReturnTab, setReviewReturnTab] = useState<'games' | 'opening'>('games');
   const [navigation, setNavigation] = useState<GraphNavigationState | null>(null);
   // T40: visited histories are kept per username/dataset/scope/horizon above the
   // view mount lifetime so opening → Review → Back restores scope and line.
@@ -150,7 +151,7 @@ export function ChessWorkspace({
   // T26: list presentation state is owned above GameSelector's mount lifetime, keyed by
   // the canonical import query, so Review returns retain filter/sort/page/scroll.
   const listStateStoreRef = useRef(new Map<string, GameListState>());
-  const listStateKey = canonicalQueryKey(state.query.active ?? recentQuery ?? state.query.draft);
+  const listStateKey = canonicalQueryKey(state.query.active ?? recentQuery);
   const [listPresentation, setListPresentation] = useState(() => ({
     key: listStateKey,
     state: listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState },
@@ -166,6 +167,17 @@ export function ChessWorkspace({
     },
     [listStateKey]
   );
+  const handleScrollChange = useCallback(
+    (scrollTop: number) => {
+      const current = listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState };
+      listStateStoreRef.current.set(listStateKey, { ...current, scrollTop });
+    },
+    [listStateKey]
+  );
+  useEffect(() => {
+    const stored = listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState };
+    setListPresentation({ key: listStateKey, state: stored });
+  }, [listStateKey]);
   const selectedRecord =
     state.ingestion.result?.games.find(({ id }) => id === state.selection.gameId) ?? null;
   const [sessionContent, setSessionContent] = useState<{
@@ -596,14 +608,15 @@ export function ChessWorkspace({
       // Recovery is a one-time form intent; later saved searches own their dates.
       if (queryRecovery) setQueryRecovery(null);
       const hasGames = (state.ingestion.result?.games.length ?? 0) > 0;
+      const inReview = tab === 'analysis';
       const userNavigated =
-        controller.getNavigationVersion() !== queryIntentVersion.current || tab !== 'games';
+        controller.getNavigationVersion() !== queryIntentVersion.current || inReview;
       if (startupComplete && ['complete', 'partial'].includes(state.ingestion.status) && hasGames) {
         setImportOpen(false);
         setOpeningImportQuery(null);
         if (!userNavigated) {
           selectTab('games');
-          requestAnimationFrame(() => titleHeadingRef.current?.focus());
+          requestAnimationFrame(() => titleHeadingRef.current?.focus({ preventScroll: true }));
         }
         setLoadedAnnouncement(`${state.ingestion.result?.games.length} games loaded`);
       } else {
@@ -1232,9 +1245,13 @@ export function ChessWorkspace({
                     <button
                       type="button"
                       className="button-secondary"
-                      onClick={() => selectTab('games')}
+                      onClick={() => {
+                        const target = reviewReturnTab;
+                        setReviewReturnTab('games');
+                        selectTab(target);
+                      }}
                     >
-                      Back to games
+                      {reviewReturnTab === 'opening' ? 'Back to openings' : 'Back to games'}
                     </button>
                     <div>
                       <strong>
@@ -1296,6 +1313,7 @@ export function ChessWorkspace({
                           selectedGameId={state.selection.gameId}
                           listState={listState}
                           onListStateChange={handleListStateChange}
+                          onScrollChange={handleScrollChange}
                           onSelect={(gameId) => {
                             controller.selectGame(gameId);
                             setVariation(null);
@@ -1307,12 +1325,13 @@ export function ChessWorkspace({
                               state.ingestion.result?.games.find((game) => game.id === gameId) ??
                               null;
                             if (!parseSelectedGame(candidate)?.plies.length) return;
+                            setReviewReturnTab('games');
                             setReviewMode('review');
                             selectTab('analysis');
                             void controller.openReview(gameId);
                           }}
                           analysisStatus={analysisStatusMap}
-                          hasLoaded={hasGamesLoaded}
+                          hasLoaded={hasGamesLoaded && state.ingestion.status !== 'loading'}
                           reviewDisabledReason={
                             isSelectedGameWithoutMoves
                               ? 'This game has no reviewable moves.'
@@ -1449,6 +1468,7 @@ export function ChessWorkspace({
                             positionKey={navigation.positionKey}
                             pathId={navigation.observed ? navigation.pathId : null}
                             onSelectGame={(id) => {
+                              setReviewReturnTab('opening');
                               void controller.openReview(id);
                               selectTab('analysis');
                             }}
@@ -1616,7 +1636,9 @@ export function ChessWorkspace({
               onSelect={(nextTab) => {
                 selectTab(nextTab);
                 setMenuOpen(false);
-                requestAnimationFrame(() => titleHeadingRef.current?.focus());
+                requestAnimationFrame(() =>
+                  titleHeadingRef.current?.focus({ preventScroll: true })
+                );
               }}
               onOpenAbout={() => {
                 setMenuOpen(false);

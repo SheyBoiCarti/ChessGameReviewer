@@ -28,10 +28,11 @@ export function GameSelector({
   onSelect,
   onReview,
   analysisStatus = {},
-  hasLoaded = false,
+  hasLoaded = true,
   reviewDisabledReason,
   listState: controlledListState,
   onListStateChange,
+  onScrollChange,
 }: {
   games: readonly GameRecord[];
   selectedGameId: string | null;
@@ -42,6 +43,7 @@ export function GameSelector({
   reviewDisabledReason?: string | undefined;
   listState?: GameListState | undefined;
   onListStateChange?: ((next: GameListState) => void) | undefined;
+  onScrollChange?: ((scrollTop: number) => void) | undefined;
 }) {
   const controlled = controlledListState !== undefined && onListStateChange !== undefined;
   const [internalListState, setInternalListState] = useState<GameListState>(defaultGameListState);
@@ -53,19 +55,45 @@ export function GameSelector({
 
   const updateListState = (patch: Partial<GameListState>) => {
     const next = { ...listStateRef.current, ...patch };
+    if (viewportRef.current && patch.scrollTop !== undefined) {
+      viewportRef.current.scrollTop = patch.scrollTop;
+      lastScrollRef.current = patch.scrollTop;
+    }
     if (controlled) onListStateChange!(next);
     else setInternalListState(next);
   };
 
   const viewportRef = useRef<HTMLDivElement>(null);
+  const isRestoringRef = useRef(false);
   // React detaches refs before unmount cleanups, so scroll is tracked on the event
   // and persisted once when the selector leaves the DOM (T26).
   const lastScrollRef = useRef(listState.scrollTop);
   useEffect(() => {
+    lastScrollRef.current = listState.scrollTop;
+  }, [listState.scrollTop]);
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      if (!hasLoaded || isRestoringRef.current) return;
+      const top = el.scrollTop;
+      lastScrollRef.current = top;
+      onScrollChange?.(top);
+    };
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', handleScroll);
+    };
+  }, [hasLoaded, onScrollChange]);
+
+  useEffect(() => {
     return () => {
       const save = onListStateChangeRef.current;
       if (save) {
-        save({ ...listStateRef.current, scrollTop: lastScrollRef.current });
+        const top =
+          lastScrollRef.current > 0 ? lastScrollRef.current : listStateRef.current.scrollTop;
+        save({ ...listStateRef.current, scrollTop: top });
       }
     };
   }, []);
@@ -88,26 +116,45 @@ export function GameSelector({
     () => rowsOf(metadata, listState.filter, listState.sort),
     [metadata, listState.filter, listState.sort]
   );
+  const hasRows = rows.length > 0;
   const pageCount = Math.max(1, Math.ceil(rows.length / 20));
   const page = Math.max(1, Math.min(listState.page, pageCount));
   const visibleRows = rows.slice((page - 1) * 20, page * 20);
   useEffect(() => {
-    if (listState.page !== page) {
-      const next = { ...listStateRef.current, page, scrollTop: 0 };
+    if (hasLoaded && hasRows && listState.page > pageCount) {
+      const next = { ...listStateRef.current, page: pageCount, scrollTop: 0 };
       if (controlled) onListStateChangeRef.current?.(next);
       else setInternalListState(next);
     }
-  }, [page, listState.page, controlled]);
-  const hasRows = rows.length > 0;
+  }, [pageCount, listState.page, controlled, hasRows, hasLoaded]);
+
   // Restore the saved scroll once matching rows exist again.
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    if (viewport.scrollTop !== listState.scrollTop) {
-      viewport.scrollTop = listState.scrollTop;
+    if (listState.scrollTop > 0) {
+      if (!hasLoaded || !hasRows) return;
+      const target = listState.scrollTop;
+      isRestoringRef.current = true;
+      const applyScroll = () => {
+        if (viewportRef.current) {
+          viewportRef.current.scrollTop = target;
+          lastScrollRef.current = target;
+        }
+      };
+      applyScroll();
+      const raf = requestAnimationFrame(() => {
+        applyScroll();
+        requestAnimationFrame(() => {
+          isRestoringRef.current = false;
+        });
+      });
+      return () => {
+        cancelAnimationFrame(raf);
+        isRestoringRef.current = false;
+      };
     }
-    lastScrollRef.current = listState.scrollTop;
-  }, [listState.scrollTop, hasRows, listState.filter, listState.sort, page]);
+  }, [listState.scrollTop, hasRows, listState.filter, listState.sort, page, hasLoaded]);
 
   const selectedGame = useMemo(
     () => (selectedGameId ? (games.find((g) => g.id === selectedGameId) ?? null) : null),
@@ -218,9 +265,6 @@ export function GameSelector({
           role="region"
           aria-label="Game results"
           tabIndex={0}
-          onScroll={(event) => {
-            lastScrollRef.current = event.currentTarget.scrollTop;
-          }}
         >
           <ul className="game-card-list" aria-label="Games">
             {visibleRows.map(({ game, opponent, date, timeControl, opening }) => (

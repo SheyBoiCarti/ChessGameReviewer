@@ -40,7 +40,12 @@ export function OpeningGamesPanel({
             const formattedDate = utcDateFormatter.format(new Date(record.endedAt * 1000));
             return (
               <li key={id}>
-                <button type="button" className="button-secondary" onClick={() => onSelectGame(id)}>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => onSelectGame(id)}
+                  aria-label={`Review source game: ${record.whitePlayer.username ?? 'White'} vs ${record.blackPlayer.username ?? 'Black'}`}
+                >
                   {record.whitePlayer.username ?? 'White'} vs{' '}
                   {record.blackPlayer.username ?? 'Black'} · You played{' '}
                   {record.userColor === 'white' ? 'White' : 'Black'} · {formattedDate}
