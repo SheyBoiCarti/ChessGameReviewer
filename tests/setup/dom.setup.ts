@@ -6,7 +6,7 @@ import { afterEach } from 'vitest';
 afterEach(() => cleanup());
 
 // jsdom does not implement pointer capture; browsers handle the real drag lifecycle in E2E tests.
-if (!Element.prototype.setPointerCapture) {
+if (typeof Element !== 'undefined' && !Element.prototype.setPointerCapture) {
   const capturedPointers = new WeakMap<Element, number>();
   Element.prototype.setPointerCapture = function (pointerId: number) {
     capturedPointers.set(this, pointerId);

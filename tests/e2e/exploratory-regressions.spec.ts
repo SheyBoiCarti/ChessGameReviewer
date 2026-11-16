@@ -28,10 +28,8 @@ test('B1/T37: a transposed candidate keeps the actual route via row and board in
   await loadFixtureGames(page);
   await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await openTab(page, 'Openings');
-  // The transposition route exists only with position-wide Both scope, so the
-  // test selects it explicitly (T40 defaults to White for mixed datasets).
+  // Both transposition routes belong to the player's White repertoire.
   await expect(page.getByRole('radio', { name: /^White/ })).toBeChecked();
-  await page.getByRole('radio', { name: /^Both/ }).click();
   await expect(page.getByRole('button', { name: /^Play d4,/ })).toBeVisible();
   const history = page.getByLabel('Opening move history');
   for (const move of ['Nf3', 'd5', 'd4', 'Nf6', 'e3']) {
@@ -74,10 +72,10 @@ test('B11/T38: an unobserved board novelty clears candidates until Return', asyn
   await page.locator('[data-square="a3"]').click();
 
   // Neither root candidates nor root statistics leak into the unknown position.
-  await expect(page.getByRole('button', { name: /^Play / })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Play (?!engine choice)/ })).toHaveCount(0);
   await expect(page.getByText(/no observed games reach this position/i)).toBeVisible();
   await expect(page.locator('.unobserved-move-notice')).toContainText(
-    /the move a3 was not played in any imported games/i
+    /beyond your imported opening tree after a3/i
   );
 
   // Return atomically restores the last observed entry and its statistics.

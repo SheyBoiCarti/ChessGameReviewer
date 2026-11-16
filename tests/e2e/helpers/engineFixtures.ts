@@ -27,7 +27,7 @@ export function createEvaluationFixture(
   score: UciScore = { kind: 'cp', value: 35 }
 ): EvaluationResult {
   const chess = new Chess(fen);
-  const candidates = chess.moves({ verbose: true }).slice(0, 2);
+  const candidates = chess.moves({ verbose: true }).slice(0, 3);
   const lines = candidates.map((move, index) => {
     const board = new Chess(fen);
     board.move(move);

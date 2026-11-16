@@ -252,6 +252,50 @@ describe('opening graph navigation', () => {
     expect(replayGraphNavigation(appendVisitedEntry(root, invalidEntry), graph)).toEqual(root);
   });
 
+  it('preserves multiple exploratory moves and redo when returning to the opening view', () => {
+    const graph = legalGraph();
+    let state = createGraphNavigation(graph);
+    for (const uci of ['a2a3', 'a7a6', 'b2b3', 'b7b6']) {
+      const move = appliedFrom(state.fen, uci);
+      const resolved = resolveBoardMoveInGraph(graph, state.positionKey, state.pathId, move);
+      state = appendVisitedEntry(state, {
+        positionKey: resolved.nextPositionKey,
+        fen: resolved.nextFen,
+        pathId: resolved.nextPathId,
+        observed: resolved.observed,
+        uci,
+        san: move.san,
+      });
+    }
+    expect(state.observed).toBe(false);
+    expect(state.pathId).toBeNull();
+    expect(replayGraphNavigation(state, graph)).toEqual(state);
+    const back = navigateToHistoryIndex(state, 1);
+    expect(replayGraphNavigation(back, graph)).toEqual(back);
+    expect(navigateToHistoryIndex(back, 4).fen).toBe(state.fen);
+  });
+
+  it('rejoins position statistics after a variation without inventing an exact game path', () => {
+    const graph = legalGraph(['1. e4 e5 1-0']);
+    let state = createGraphNavigation(graph);
+    for (const uci of ['g1f3', 'g8f6', 'f3g1', 'f6g8', 'e2e4']) {
+      const move = appliedFrom(state.fen, uci);
+      const resolved = resolveBoardMoveInGraph(graph, state.positionKey, state.pathId, move);
+      state = appendVisitedEntry(state, {
+        positionKey: resolved.nextPositionKey,
+        fen: resolved.nextFen,
+        pathId: resolved.nextPathId,
+        observed: resolved.observed,
+        uci,
+        san: move.san,
+      });
+    }
+    expect(state.observed).toBe(true);
+    expect(state.pathId).toBeNull();
+    expect(state.history[4]!.positionKey).toBe(graph.root.key);
+    expect(replayGraphNavigation(state, graph)).toEqual(state);
+  });
+
   it('never assigns arbitrary observed prefixes when replaying a transposition', () => {
     const graph = legalGraph();
     let state = createGraphNavigation(graph);

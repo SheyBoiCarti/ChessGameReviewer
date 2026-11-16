@@ -116,8 +116,8 @@ export function navigateBack(state: GraphNavigationState): GraphNavigationState 
 /**
  * Restore the actual line against the current graph, including its redo tail.
  * Arrival IDs belong to a particular graph build and must be resolved afresh.
- * If a formerly observed edge disappears, retain only the valid prefix. A
- * terminal novelty may be restored only after applying its legal UCI move.
+ * If a formerly observed position disappears, retain only the valid prefix.
+ * Exploratory moves are restored by replaying their legal UCI moves.
  */
 export function replayGraphNavigation(
   saved: GraphNavigationState,
@@ -127,7 +127,7 @@ export function replayGraphNavigation(
   if (saved.history[0]?.positionKey !== replayed.positionKey) return replayed;
 
   for (const entry of saved.history.slice(1)) {
-    if (!entry.uci || !replayed.observed) break;
+    if (!entry.uci) break;
     const edge = graph.positions.get(replayed.positionKey)?.outgoing.get(entry.uci);
     if (edge) {
       try {
@@ -137,20 +137,21 @@ export function replayGraphNavigation(
       }
       continue;
     }
-    if (entry.observed) break;
     const applied = applyBoardMove(replayed.fen, {
       from: entry.uci.slice(0, 2) as Square,
       to: entry.uci.slice(2, 4) as Square,
       ...(entry.uci.length > 4 ? { promotion: entry.uci.slice(4) as PromotionPiece } : {}),
     });
     if (!applied) break;
+    const positionKey = normalizePositionKey(applied.fenAfter);
+    if (entry.observed && !graph.positions.has(positionKey)) break;
     replayed = appendVisitedEntry(replayed, {
-      positionKey: normalizePositionKey(applied.fenAfter),
+      positionKey,
       fen: applied.fenAfter,
       pathId: null,
       uci: applied.uci,
       san: applied.san,
-      observed: false,
+      observed: graph.positions.has(positionKey),
     });
   }
   return navigateToHistoryIndex(replayed, Math.min(saved.cursor, replayed.history.length - 1));
@@ -195,11 +196,13 @@ export function resolveBoardMoveInGraph(
     };
   }
 
+  const nextPositionKey = normalizePositionKey(move.fenAfter);
+  const observed = graph.positions.has(nextPositionKey);
   return {
-    observed: false,
-    nextPositionKey: normalizePositionKey(move.fenAfter),
+    observed,
+    nextPositionKey,
     nextFen: move.fenAfter,
     nextPathId: null,
-    warning: 'This move does not appear in your imported games.',
+    ...(!observed ? { warning: 'This position does not appear in your imported games.' } : {}),
   };
 }

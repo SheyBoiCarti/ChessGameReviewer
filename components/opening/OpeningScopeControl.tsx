@@ -18,7 +18,6 @@ export interface OpeningScopeControlProps {
 const scopeOptions: Array<{ value: OpeningScope; label: string }> = [
   { value: 'white', label: 'White' },
   { value: 'black', label: 'Black' },
-  { value: 'both', label: 'Both' },
 ];
 
 export function OpeningScopeControl({

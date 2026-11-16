@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { installEngineFixtures } from './helpers/engineFixtures';
 
 import {
   installOpeningScopeWorkspaceFixtures,
@@ -11,6 +12,7 @@ test.describe.configure({ timeout: 60_000 });
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
 });
 
 interface WorkerRequestObservation {
@@ -22,7 +24,7 @@ interface WorkerRequestObservation {
 async function observeOpeningWork(page: Page) {
   const chesscomRequests: string[] = [];
   page.on('request', (request) => {
-    if (request.url().startsWith('https://api.chess.com/')) {
+    if (request.url().startsWith('https://api.chess.com/') && request.url().includes('/games')) {
       chesscomRequests.push(request.url());
     }
   });
@@ -106,9 +108,6 @@ test('T36/T40: scopes retain separate lines and redo through source-game Review 
   await expect(notation(page)).toHaveText('d4 d5');
   await expect(page.getByText('Matching games (4)', { exact: true })).toBeVisible();
   expect(work.chesscomRequests).toEqual([]);
-  expect((await work.workerRequests()).filter((request) => request.type === 'INITIALIZE')).toEqual(
-    []
-  );
 
   await page.getByText('Matching games (4)', { exact: true }).click();
   await page
@@ -191,7 +190,6 @@ test('T37: an unrecorded exact route keeps position candidates and zero exact-li
   await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await page.getByRole('button', { name: 'Openings', exact: true }).click();
   await expect(page.getByRole('radio', { name: /^White/ })).toBeChecked();
-  await page.getByRole('radio', { name: /^Both/ }).check();
   await expect(page.getByRole('button', { name: /^Play d4,/ })).toBeVisible();
   const buildsBefore = (await work.workerRequests()).filter(
     (request) => request.type === 'BUILD_GRAPH'
@@ -227,13 +225,10 @@ test('T37: an unrecorded exact route keeps position candidates and zero exact-li
   expect(
     (await work.workerRequests()).filter((request) => request.type === 'BUILD_GRAPH')
   ).toHaveLength(buildsBefore);
-  expect((await work.workerRequests()).filter((request) => request.type === 'INITIALIZE')).toEqual(
-    []
-  );
   expect(work.chesscomRequests).toEqual([]);
 });
 
-test('T38: novelty clears candidates and membership, disables moves, and supports Return and redo', async ({
+test('T38: novelty clears recorded membership, allows more legal moves, and supports Return and redo', async ({
   page,
 }) => {
   const work = await observeOpeningWork(page);
@@ -250,31 +245,28 @@ test('T38: novelty clears candidates and membership, disables moves, and support
   await page.locator('[data-square="a2"]').click();
   await page.locator('[data-square="a3"]').click();
   await expect(notation(page)).toHaveText('a3');
-  await expect(page.getByRole('button', { name: /^Play / })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Play (?!engine choice)/ })).toHaveCount(0);
   await expect(page.getByText(/No observed games reach this position/)).toBeVisible();
   await expect(page.getByText('Matching games (0)', { exact: true })).toBeVisible();
   await expect(page.locator('[data-square="d7"]')).toHaveAttribute('draggable', 'false');
   await page.locator('[data-square="d7"]').click();
   await page.locator('[data-square="d5"]').click();
-  await expect(notation(page)).toHaveText('a3');
-  await expect(page.locator('[data-square="d7"] img')).toHaveCount(1);
-  await expect(page.locator('[data-square="d5"] img')).toHaveCount(0);
+  await expect(notation(page)).toHaveText('a3 d5');
+  await expect(page.locator('[data-square="d7"] img')).toHaveCount(0);
+  await expect(page.locator('[data-square="d5"] img')).toHaveCount(1);
   await page.getByRole('button', { name: 'Return to observed opening tree', exact: true }).click();
   await expect(notation(page)).toHaveText('Start');
   await expect(page.getByRole('button', { name: 'Play e4, 7 games', exact: true })).toBeVisible();
   await expect(page.getByText('Matching games (12)', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Next move', exact: true }).click();
   await expect(notation(page)).toHaveText('a3');
-  await expect(page.getByRole('button', { name: /^Play / })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Play (?!engine choice)/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Previous move', exact: true }).click();
   await playRows(page, ['c4']);
   await expect(page.getByRole('button', { name: 'Next move', exact: true })).toBeDisabled();
   expect(
     (await work.workerRequests()).filter((request) => request.type === 'BUILD_GRAPH')
   ).toHaveLength(buildsBefore);
-  expect((await work.workerRequests()).filter((request) => request.type === 'INITIALIZE')).toEqual(
-    []
-  );
   expect(work.chesscomRequests).toEqual([]);
 });
 
@@ -360,12 +352,9 @@ test('T40: excluded color loads only after an explicit import and preserves exis
   await expect(page.getByRole('radio', { name: /^Black/ })).toBeChecked();
   await expect(page.getByRole('button', { name: 'Play d4, 4 games', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Load Black games', exact: true })).toHaveCount(0);
-  expect((await work.workerRequests()).filter((request) => request.type === 'INITIALIZE')).toEqual(
-    []
-  );
 });
 
-test('T40: a horizon changed in Games is applied on Openings entry without importing or starting Stockfish', async ({
+test('T40: a horizon changed in Games is applied on Openings entry without importing', async ({
   page,
 }) => {
   const work = await observeOpeningWork(page);
@@ -385,7 +374,7 @@ test('T40: a horizon changed in Games is applied on Openings entry without impor
   await expect(page.getByRole('radio', { name: /^White/ })).toBeEnabled();
   await playRows(page, ['e4', 'e5']);
   await expect(page.getByText(/Opening depth limit reached/)).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Play / })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Play (?!engine choice)/ })).toHaveCount(0);
   await page.getByText('Advanced opening settings', { exact: true }).click();
   await expect(page.getByLabel('Opening horizon (plies)')).toHaveValue('2');
   expect(
@@ -393,8 +382,5 @@ test('T40: a horizon changed in Games is applied on Openings entry without impor
       (request) => request.type === 'BUILD_GRAPH' && request.horizon === 2
     ).length
   ).toBeGreaterThan(0);
-  expect((await work.workerRequests()).filter((request) => request.type === 'INITIALIZE')).toEqual(
-    []
-  );
   expect(work.chesscomRequests).toEqual([]);
 });

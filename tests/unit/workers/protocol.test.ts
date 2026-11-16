@@ -65,7 +65,7 @@ describe('analysis worker protocol validation', () => {
 // Legal PVs are generated from each FEN, unlike synthetic long-analysis transport fixtures.
 
 describe('controlled engine fixture responses', () => {
-  it('has legal primary/secondary PVs, depth and scores for every fixture position', () => {
+  it('has three legal ranked PVs, depth and scores for every fixture position', () => {
     const fens = new Set<string>();
     for (const game of scopeGames) {
       const board = new Chess();
@@ -77,7 +77,7 @@ describe('controlled engine fixture responses', () => {
     }
     for (const fen of fens) {
       const result = createEvaluationFixture(fen);
-      expect(result.lines).toHaveLength(2);
+      expect(result.lines).toHaveLength(3);
       expect(result.bestMove).toBe(result.lines[0]?.pv[0]);
       for (const line of result.lines) {
         expect(line.depth).toBeGreaterThan(0);

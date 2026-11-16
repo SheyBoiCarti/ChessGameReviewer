@@ -168,7 +168,15 @@ function game(input: {
 export async function installTranspositionWorkspaceFixtures(page: Page) {
   const alternateGames = [
     { ...games[0]!, pgn: games[0]!.pgn.replace('3. e3 e6 4. Bd3 Bd6', '3. Bf4 e6 4. e3 Bd6') },
-    games[1]!,
+    game({
+      id: 'fixture-game-2',
+      url: games[1]!.url,
+      white: 'fixture-user',
+      black: 'opponent-two',
+      result: '1-0',
+      moves: '1. d4 Nf6 2. Nf3 d5 3. e3 e6 4. Bd3 Bd6 1-0',
+      endTime: games[1]!.end_time,
+    }),
   ];
   await installRoutes(page, alternateGames);
 }

@@ -12,9 +12,10 @@ export function UnobservedMoveNotice({
   onReturn,
 }: UnobservedMoveNoticeProps): React.JSX.Element {
   return (
-    <div className="unobserved-move-notice surface-panel" role="alert">
+    <div className="unobserved-move-notice surface-panel" role="status">
       <p className="unobserved-move-notice__message">
-        The move <strong>{san}</strong> was not played in any imported games.
+        You’re exploring beyond your imported opening tree after <strong>{san}</strong>. Keep
+        playing legal moves to analyse this variation.
       </p>
       <button type="button" className="unobserved-move-notice__return-button" onClick={onReturn}>
         Return to observed opening tree

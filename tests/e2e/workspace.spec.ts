@@ -9,6 +9,7 @@ import { installEngineFixtures } from './helpers/engineFixtures';
 
 import {
   installWorkspaceFixtures,
+  installTranspositionWorkspaceFixtures,
   installLongGameWorkspaceFixtures,
   installOpeningScopeWorkspaceFixtures,
   loadFixtureGames,
@@ -24,6 +25,7 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
   browserName,
 }) => {
   test.setTimeout(90_000);
+  await installTranspositionWorkspaceFixtures(page);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
   await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
@@ -40,9 +42,7 @@ test('queries, navigates a real transposition, analyses, and deletes local data'
   await expect(board).toBeVisible();
   expect(await boardHandle?.evaluate((grid) => grid.isConnected)).toBe(true);
   await expect(page.getByRole('heading', { name: 'Openings', level: 3 })).toBeVisible();
-  // The transposition spans a White and a Black game, so this journey opts into
-  // Both scope (T40 defaults to White for mixed imports).
-  await page.getByRole('radio', { name: /^Both/ }).click();
+  // The fixture contains both move orders in the player's White repertoire.
   await expect(page.getByRole('button', { name: 'Play d4,' })).toBeVisible();
   await page.getByRole('button', { name: 'Play Nf3' }).click();
   await page.getByRole('button', { name: 'Play d5' }).click();
@@ -154,7 +154,9 @@ test('supports interactive board moves, variation sandbox, and unobserved openin
   await expect(page.locator('.variation-sandbox-banner')).toHaveCount(0);
 });
 
-test('shows independent White/Black/Both opening scope counts (T40)', async ({ page }) => {
+test('shows White and Black opening counts and follows the selected playing perspective', async ({
+  page,
+}) => {
   test.setTimeout(60_000);
   await installOpeningScopeWorkspaceFixtures(page);
   await page.goto('/');
@@ -179,16 +181,11 @@ test('shows independent White/Black/Both opening scope counts (T40)', async ({ p
   await expect(page.getByRole('button', { name: 'Play d4, 3 games', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Play c4, 2 games', exact: true })).toBeVisible();
 
-  // Orientation is independent of the scoped graph.
+  // Manual flipping remains available until another playing color is selected.
   await page.getByRole('button', { name: 'Flip board', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Play e4, 7 games', exact: true })).toBeVisible();
 
-  await page.getByRole('radio', { name: /^Both/ }).click();
-  await expect(page.getByRole('button', { name: 'Play e4, 9 games', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Play d4, 7 games', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Play c4, 2 games', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Play Nf3, 2 games', exact: true })).toBeVisible();
-
+  await expect(page.getByRole('radio', { name: /^Both/ })).toHaveCount(0);
   await page.getByRole('radio', { name: /^Black/ }).click();
   await expect(page.getByRole('button', { name: 'Play d4, 4 games', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Play e4, 2 games', exact: true })).toBeVisible();
@@ -595,18 +592,17 @@ test('T43: mounts 50 indexed source games per page and preserves the chosen game
     timeout: 30000,
   });
   await page.getByRole('button', { name: 'Openings', exact: true }).click();
-  await page.getByRole('radio', { name: /^Both/ }).click();
-  await page.getByText('Matching games (500)', { exact: true }).click();
+  await page.getByText('Matching games (250)', { exact: true }).click();
   const list = page.getByRole('list', { name: 'Matching source games' });
   await expect(list.getByRole('listitem')).toHaveCount(50);
   await page.getByRole('button', { name: 'Next matching games' }).click();
   await expect(list.getByRole('listitem')).toHaveCount(50);
-  await expect(page.getByText('Page 2 of 10', { exact: true })).toBeVisible();
+  await expect(page.getByText('Page 2 of 5', { exact: true })).toBeVisible();
   await list.getByRole('button').first().click();
   await expect(page).toHaveURL(/view=analysis.*game=/);
   await expect(page.getByRole('button', { name: 'Back to openings', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Back to openings', exact: true }).click();
-  await expect(page.getByText('Matching games (500)', { exact: true })).toBeVisible();
+  await expect(page.getByText('Matching games (250)', { exact: true })).toBeVisible();
 });
 
 test('T56: verifies opening navigation has zero network/worker/build operations across 100 actions and warm hits replay zero', async ({

@@ -10,7 +10,7 @@ export function readStoredOpeningScope(username: string): OpeningScope | null {
     if (!stored) return null;
     const map = JSON.parse(stored) as Record<string, unknown>;
     const value = map[username.toLowerCase()];
-    return value === 'white' || value === 'black' || value === 'both' ? value : null;
+    return value === 'white' || value === 'black' ? value : null;
   } catch {
     return null;
   }

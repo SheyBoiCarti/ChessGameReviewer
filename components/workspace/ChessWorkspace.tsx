@@ -33,8 +33,9 @@ import { OpeningDisclosure } from '@/components/opening/OpeningDisclosure';
 import { OpeningSettings } from '@/components/opening/OpeningSettings';
 import { UnobservedMoveNotice } from '@/components/opening/UnobservedMoveNotice';
 import { OpeningPositionAnalysis } from '@/components/opening/OpeningPositionAnalysis';
+import { usePositionAnalysis } from '@/features/stockfish-analysis/usePositionAnalysis';
 import { AppIcon } from '@/components/ui/AppIcon';
-import type { AppliedBoardMove } from '@/features/board/moves';
+import { applyBoardMove, type AppliedBoardMove, type PromotionPiece } from '@/features/board/moves';
 import {
   appendVariationMove,
   createVariationFromUciSequence,
@@ -47,7 +48,6 @@ import {
   appendVisitedEntry,
   createGraphNavigation,
   replayGraphNavigation,
-  navigateBack,
   navigateToHistoryIndex,
   resolveBoardMoveInGraph,
   type GraphNavigationEntry,
@@ -451,9 +451,10 @@ export function ChessWorkspace({
     const username = state.query.active?.username ?? '';
     const freshDataset =
       scopeInitializedDatasetRef.current !== result || !requestedOpeningRef.current;
-    const effective = freshDataset
+    const preferred = freshDataset
       ? (readStoredOpeningScope(username) ?? initialOpeningScope(result.games))
       : state.preferences.openingScope;
+    const effective = preferred === 'both' ? initialOpeningScope(result.games) : preferred;
     scopeInitializedDatasetRef.current = result;
     if (effective !== state.preferences.openingScope) {
       controller.dispatch({
@@ -479,6 +480,16 @@ export function ChessWorkspace({
     state.preferences.openingScope,
     state.preferences.openingHorizon,
   ]);
+
+  // Color selection sets the playing perspective, including a restored preference.
+  useEffect(() => {
+    const scope = state.preferences.openingScope;
+    if (tab === 'opening' && scope !== 'both')
+      controller.dispatch({
+        type: 'preferences/changed',
+        preferences: { boardOrientation: scope },
+      });
+  }, [controller, tab, state.preferences.openingScope]);
 
   const handleOpeningScopeChange = (scope: OpeningScope) => {
     writeStoredOpeningScope(state.query.active?.username ?? '', scope);
@@ -677,9 +688,6 @@ export function ChessWorkspace({
     setTab(next);
     if (next !== 'opening') {
       setMoveOrdersOpen(false);
-      // An unobserved novelty is transient: leaving Openings returns to the
-      // last observed entry instead of keeping a disabled board.
-      setNavigation((prev) => (prev && !prev.observed ? navigateBack(prev) : prev));
     }
     if (next !== 'analysis') {
       setVariation(null);
@@ -717,8 +725,8 @@ export function ChessWorkspace({
   };
 
   const handleBoardMove = (applied: AppliedBoardMove): boolean => {
-    // Piece moves only allowed in analysis mode of analysis tab
-    if (tab === 'analysis' && reviewMode === 'analysis') {
+    // Both Review and Analysis can follow the game or explore a legal variation.
+    if (tab === 'analysis') {
       if (!variation) {
         const nextMainMove = parsedGame?.plies[state.selection.ply];
         if (nextMainMove && applied.uci === nextMainMove.uci) {
@@ -749,9 +757,6 @@ export function ChessWorkspace({
 
     if (tab === 'opening') {
       if (!graph || !navigation) return false;
-      // T38: an unobserved novelty disables further opening input until Return.
-      if (!navigation.observed) return false;
-
       const res = resolveBoardMoveInGraph(
         graph,
         navigation.positionKey,
@@ -786,6 +791,34 @@ export function ChessWorkspace({
       : isOpeningBoard && unobservedMove
         ? unobservedMove.fen
         : displayedFen;
+
+  const [positionEngineEnabled, setPositionEngineEnabled] = useState(true);
+  const positionEnginePaused =
+    tab === 'analysis' && ['running', 'stopping'].includes(state.analysis.status);
+  const positionAnalysis = usePositionAnalysis(
+    positionEngineEnabled && !positionEnginePaused && (tab === 'opening' || tab === 'analysis')
+      ? displayedBoardFen
+      : null
+  );
+  const positionEnginePanel = displayedBoardFen ? (
+    <OpeningPositionAnalysis
+      fen={displayedBoardFen}
+      analysis={positionAnalysis}
+      enabled={positionEngineEnabled}
+      onEnabledChange={setPositionEngineEnabled}
+      paused={positionEnginePaused}
+      onPlayMove={(uci) => {
+        if (tab === 'analysis' || state.graph.status !== 'building') {
+          const move = applyBoardMove(displayedBoardFen, {
+            from: uci.slice(0, 2) as Square,
+            to: uci.slice(2, 4) as Square,
+            ...(uci.length > 4 ? { promotion: uci.slice(4) as PromotionPiece } : {}),
+          });
+          if (move) handleBoardMove(move);
+        }
+      }}
+    />
+  ) : null;
 
   const lastMoveValue: { from: Square; to: Square } | undefined =
     tab === 'analysis' && variation
@@ -880,15 +913,12 @@ export function ChessWorkspace({
   }, [tab, importOpen, aboutOpen, menuOpen, moveOrdersOpen, historyValue]);
 
   // Board interactivity by view:
-  // Games & Review: playback and orientation only (isInteractive = false)
-  // Analysis: piece moves and variations allowed (isInteractive = true)
-  // Openings: graph moves allowed
+  // Games: playback and orientation only.
+  // Review and Analysis: follow recorded moves or explore variations.
+  // Openings: recorded moves and legal exploratory moves are allowed.
   const isInteractive =
-    (tab === 'analysis' && reviewMode === 'analysis' && Boolean(displayedBoardFen)) ||
-    (tab === 'opening' &&
-      state.graph.status !== 'building' &&
-      Boolean(graph && navigation) &&
-      !unobservedMove);
+    (tab === 'analysis' && Boolean(displayedBoardFen)) ||
+    (tab === 'opening' && state.graph.status !== 'building' && Boolean(graph && navigation));
 
   const hasGamesLoaded = (state.ingestion.result?.games.length ?? 0) > 0;
   const isSelectedGameWithoutMoves = Boolean(
@@ -906,7 +936,10 @@ export function ChessWorkspace({
           <UnobservedMoveNotice
             san={unobservedMove.san ?? ''}
             onReturn={() => {
-              const next = navigateBack(navigation!);
+              const observedIndex = navigation!.history
+                .slice(0, navigation!.cursor + 1)
+                .findLastIndex((entry) => entry.observed);
+              const next = navigateToHistoryIndex(navigation!, Math.max(0, observedIndex));
               setNavigation(next);
               controller.navigateGraph(next.positionKey, next.pathId);
             }}
@@ -938,7 +971,7 @@ export function ChessWorkspace({
           {...(lastMoveValue !== undefined ? { lastMove: lastMoveValue } : {})}
           {...(selectedBadge !== undefined ? { lastMoveBadge: selectedBadge } : {})}
           {...(historyValue !== undefined ? { history: historyValue } : {})}
-          {...(selectedAnnotation ? { evaluationScore: selectedAnnotation.after.score } : {})}
+          evaluationScore={positionAnalysis.score ?? selectedAnnotation?.after.score}
           {...(tab === 'analysis' && selectedArrow ? { pvArrow: selectedArrow } : {})}
           {...(openingArrows !== undefined ? { openingArrows } : {})}
         />
@@ -1414,6 +1447,7 @@ export function ChessWorkspace({
                           inert={state.graph.status === 'building'}
                           style={{
                             display: 'grid',
+                            gridTemplateColumns: 'minmax(0, 1fr)',
                             gap: 'inherit',
                             border: 0,
                             padding: 0,
@@ -1467,11 +1501,7 @@ export function ChessWorkspace({
                             }
                           />
                           {/* T41: expensive secondary contents mount only on expansion. */}
-                          <OpeningDisclosure label="Stockfish analysis">
-                            {displayedBoardFen ? (
-                              <OpeningPositionAnalysis fen={displayedBoardFen} />
-                            ) : null}
-                          </OpeningDisclosure>
+                          {positionEnginePanel}
                           <OpeningDisclosure
                             label={`Matching games (${openingExactMatchCount})`}
                             className="opening-disclosure opening-matching-disclosure"
@@ -1531,48 +1561,52 @@ export function ChessWorkspace({
 
                   {tab === 'analysis' ? (
                     selectedRecord && parsedGame ? (
-                      <ReviewView
-                        feedbackInLayout
-                        userColor={selectedRecord.userColor}
-                        reviewFilter={reviewFilter}
-                        onReviewFilterChange={setReviewFilter}
-                        mode={reviewMode}
-                        game={parsedGame}
-                        players={{
-                          white: parsedGame.whitePlayer,
-                          black: parsedGame.blackPlayer,
-                        }}
-                        isVariationActive={Boolean(variation)}
-                        onReturnToGame={returnToGame}
-                        capability={state.analysis.capability}
-                        status={state.analysis.status}
-                        result={reviewResult}
-                        showingPrevious={state.analysis.showingPrevious}
-                        previousStrength={state.analysis.previousStrength}
-                        progress={state.analysis.progress}
-                        strength={state.preferences.analysisStrength}
-                        upstreamAccuracies={selectedRecord.accuracies}
-                        onStrengthChange={(analysisStrength) =>
-                          controller.dispatch({
-                            type: 'preferences/changed',
-                            preferences: { analysisStrength },
-                          })
-                        }
-                        onStart={(strength) => void controller.startAnalysis(strength)}
-                        onRetryEngine={() => void controller.retryEngine()}
-                        onCancel={controller.cancelAnalysis}
-                        onResume={() => void controller.startAnalysis()}
-                        onStartOver={() => {
-                          setVariation(null);
-                          setVariationOrigin(null);
-                          setReviewMode('review');
-                          if (state.selection.gameId) controller.startOver(state.selection.gameId);
-                        }}
-                        onSelectPly={handlePlyChange}
-                        selectedPly={state.selection.ply}
-                        fenByPly={fenByPly}
-                        onExplorePv={explorePv}
-                      />
+                      <>
+                        {positionEnginePanel}
+                        <ReviewView
+                          feedbackInLayout
+                          userColor={selectedRecord.userColor}
+                          reviewFilter={reviewFilter}
+                          onReviewFilterChange={setReviewFilter}
+                          mode={reviewMode}
+                          game={parsedGame}
+                          players={{
+                            white: parsedGame.whitePlayer,
+                            black: parsedGame.blackPlayer,
+                          }}
+                          isVariationActive={Boolean(variation)}
+                          onReturnToGame={returnToGame}
+                          capability={state.analysis.capability}
+                          status={state.analysis.status}
+                          result={reviewResult}
+                          showingPrevious={state.analysis.showingPrevious}
+                          previousStrength={state.analysis.previousStrength}
+                          progress={state.analysis.progress}
+                          strength={state.preferences.analysisStrength}
+                          upstreamAccuracies={selectedRecord.accuracies}
+                          onStrengthChange={(analysisStrength) =>
+                            controller.dispatch({
+                              type: 'preferences/changed',
+                              preferences: { analysisStrength },
+                            })
+                          }
+                          onStart={(strength) => void controller.startAnalysis(strength)}
+                          onRetryEngine={() => void controller.retryEngine()}
+                          onCancel={controller.cancelAnalysis}
+                          onResume={() => void controller.startAnalysis()}
+                          onStartOver={() => {
+                            setVariation(null);
+                            setVariationOrigin(null);
+                            setReviewMode('review');
+                            if (state.selection.gameId)
+                              controller.startOver(state.selection.gameId);
+                          }}
+                          onSelectPly={handlePlyChange}
+                          selectedPly={state.selection.ply}
+                          fenByPly={fenByPly}
+                          onExplorePv={explorePv}
+                        />
+                      </>
                     ) : (
                       <div className="workspace-empty">
                         <h2>Choose a game to review</h2>

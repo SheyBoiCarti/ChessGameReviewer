@@ -67,7 +67,8 @@ export function OpeningTreeTable({
           <h3 id="opening-tree-heading">Openings</h3>
           <PathBreadcrumbs graph={graph} navigation={navigation} onNavigate={onNavigate} />
           <p className="opening-tree__empty" role="status">
-            No observed games reach this position. Further opening input is disabled here.
+            No observed games reach this position. Keep playing on the board or try an engine move
+            to explore this variation.
           </p>
         </section>
       );
