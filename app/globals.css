@@ -2342,6 +2342,29 @@ li[data-selected='true'] {
   contain: layout;
 }
 
+.square-draggable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.square-drag-source > .chess-piece {
+  opacity: 0.35;
+}
+
+.square-drag-source {
+  cursor: grabbing;
+}
+
+.chess-piece-drag-preview {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  pointer-events: none;
+  will-change: transform;
+}
+
 .chess-piece {
   position: relative;
   z-index: 1;

@@ -5,6 +5,20 @@ import { afterEach } from 'vitest';
 
 afterEach(() => cleanup());
 
+// jsdom does not implement pointer capture; browsers handle the real drag lifecycle in E2E tests.
+if (!Element.prototype.setPointerCapture) {
+  const capturedPointers = new WeakMap<Element, number>();
+  Element.prototype.setPointerCapture = function (pointerId: number) {
+    capturedPointers.set(this, pointerId);
+  };
+  Element.prototype.hasPointerCapture = function (pointerId: number) {
+    return capturedPointers.get(this) === pointerId;
+  };
+  Element.prototype.releasePointerCapture = function (pointerId: number) {
+    if (this.hasPointerCapture(pointerId)) capturedPointers.delete(this);
+  };
+}
+
 // Mock Web Worker if needed for worker-test strategy in DOM env
 if (typeof window !== 'undefined' && !window.Worker) {
   class MockWorker implements Worker {
