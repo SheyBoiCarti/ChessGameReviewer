@@ -19,6 +19,8 @@ describe('AppIcon', () => {
     'next',
     'last',
     'flip',
+    'play',
+    'pause',
   ];
 
   it.each(iconNames)('renders icon "%s" with 24x24 viewBox and aria-hidden', (name) => {

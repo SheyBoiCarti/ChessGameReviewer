@@ -1,8 +1,17 @@
-import { createEvent, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Chess } from 'chess.js';
 
-import { ChessboardView } from '@/components/board/ChessboardView';
+import {
+  calculateMoveDelta,
+  ChessboardView,
+  computeArrowPath,
+  getCastlingRookMove,
+  prefersReducedMotion,
+  squareCenter,
+} from '@/components/board/ChessboardView';
+import { EvaluationBar } from '@/components/board/EvaluationBar';
 
 it('keeps opening square navigation when further piece input is disabled', () => {
   const onPlyChange = vi.fn();
@@ -171,6 +180,18 @@ describe('ChessboardView', () => {
     expect(screen.getByRole('button', { name: /return to start/i })).toBeInTheDocument();
   });
 
+  it('recovers across valid and invalid FEN updates without changing hook order', async () => {
+    const onPlyChange = vi.fn();
+    const props = { orientation: 'white' as const, currentPly: 1, totalPlies: 2, onPlyChange };
+    const { rerender } = render(<ChessboardView {...props} fen={new Chess().fen()} />);
+    rerender(<ChessboardView {...props} fen="invalid" />);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Return to start' }));
+    expect(onPlyChange).toHaveBeenCalledWith(0);
+    rerender(<ChessboardView {...props} fen={new Chess().fen()} />);
+    expect(screen.getAllByRole('gridcell')).toHaveLength(64);
+  });
+
   it('ignores unsupported modifiers, prevented events, editable descendants, and open dialogs', () => {
     const onPlyChange = vi.fn();
     render(
@@ -232,8 +253,8 @@ describe('ChessboardView', () => {
     expect(onPlyChange).not.toHaveBeenCalled();
   });
 
-  it('draws a labelled principal-variation arrow without changing board semantics', () => {
-    render(
+  it('draws a labelled principal-variation arrow in 2048x2048 space without changing board semantics', () => {
+    const { container, rerender } = render(
       <ChessboardView
         fen="8/8/8/8/8/8/4P3/K6k w - - 0 1"
         orientation="white"
@@ -244,8 +265,42 @@ describe('ChessboardView', () => {
       />
     );
 
+    const arrowSvg = container.querySelector('svg.board-arrow');
+    expect(arrowSvg).toBeInTheDocument();
+    expect(arrowSvg).toHaveAttribute('viewBox', '0 0 2048 2048');
+    expect(arrowSvg).toHaveAttribute('pointer-events', 'none');
     expect(screen.getByLabelText('Principal variation e2 to e4')).toBeInTheDocument();
     expect(screen.getAllByRole('gridcell')).toHaveLength(64);
+
+    const marker = container.querySelector('.board-arrow marker');
+    expect(marker).toHaveAttribute('markerWidth', '2');
+    expect(marker).toHaveAttribute('markerHeight', '2.5');
+    expect(marker).toHaveAttribute('refX', '1.25');
+    expect(marker).toHaveAttribute('refY', '1.25');
+    expect(marker).toHaveAttribute('orient', 'auto');
+
+    const polygon = marker?.querySelector('polygon');
+    expect(polygon).toHaveAttribute('points', '0.3 0, 2 1.25, 0.3 2.5');
+    expect(polygon).toHaveAttribute('fill', 'rgb(255 170 0 / 78%)');
+
+    const path = container.querySelector('.board-arrow path');
+    expect(path).toHaveAttribute('stroke-width', '51.2');
+    expect(path).toHaveAttribute('fill', 'none');
+    expect(path).toHaveAttribute('d', 'M 1152,1664 L 1152,1200');
+
+    // Knight PV arrow
+    rerender(
+      <ChessboardView
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        orientation="white"
+        currentPly={0}
+        totalPlies={0}
+        onPlyChange={vi.fn()}
+        pvArrow={{ from: 'g1', to: 'f3' }}
+      />
+    );
+    const knightPath = container.querySelector('.board-arrow path');
+    expect(knightPath).toHaveAttribute('d', 'M 1664,1920 L 1664,1408 L 1456,1408');
   });
 
   it('places the evaluation meter beside the framed board and above move controls', () => {
@@ -268,6 +323,152 @@ describe('ChessboardView', () => {
     expect(stage).not.toBeNull();
     expect(stage).toContainElement(meter);
     expect(stage).not.toContainElement(next);
+  });
+
+  it('does not render evaluation meter when evaluationScore is undefined, keeping desktop placeholder to prevent layout shift', () => {
+    const { container } = render(
+      <ChessboardView
+        fen="8/8/8/8/8/8/4P3/K6k w - - 0 1"
+        orientation="white"
+        currentPly={0}
+        totalPlies={0}
+        onPlyChange={vi.fn()}
+      />
+    );
+    expect(screen.queryByRole('meter')).not.toBeInTheDocument();
+    expect(container.querySelector('.evaluation-bar-placeholder')).toBeInTheDocument();
+  });
+
+  it('positions vertical bar next to board on desktop and horizontal bar beneath board on mobile', () => {
+    const originalMatchMedia = window.matchMedia;
+    try {
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }));
+
+      const { container: desktopContainer, unmount } = render(
+        <ChessboardView
+          fen="8/8/8/8/8/8/4P3/K6k w - - 0 1"
+          orientation="white"
+          evaluationScore={{ kind: 'cp', value: 150 }}
+        />
+      );
+
+      const desktopMeter = screen.getByRole('meter');
+      expect(desktopMeter).toHaveAttribute('data-mode', 'vertical');
+      expect(desktopMeter).toHaveClass('evaluation-bar--vertical');
+      const stageChildren = Array.from(desktopContainer.querySelector('.board-stage')!.children);
+      const meterIndexDesktop = stageChildren.indexOf(desktopMeter);
+      const frameIndexDesktop = stageChildren.indexOf(
+        desktopContainer.querySelector('.chessboard-frame')!
+      );
+      expect(meterIndexDesktop).toBeLessThan(frameIndexDesktop);
+
+      unmount();
+
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: query === '(width < 768px)',
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }));
+
+      const { container: mobileContainer } = render(
+        <ChessboardView
+          fen="8/8/8/8/8/8/4P3/K6k w - - 0 1"
+          orientation="white"
+          evaluationScore={{ kind: 'cp', value: 150 }}
+        />
+      );
+
+      const mobileMeter = screen.getByRole('meter');
+      expect(mobileMeter).toHaveAttribute('data-mode', 'horizontal');
+      expect(mobileMeter).toHaveClass('evaluation-bar--horizontal');
+      const mobileStageChildren = Array.from(
+        mobileContainer.querySelector('.board-stage')!.children
+      );
+      const meterIndexMobile = mobileStageChildren.indexOf(mobileMeter);
+      const frameIndexMobile = mobileStageChildren.indexOf(
+        mobileContainer.querySelector('.chessboard-frame')!
+      );
+      expect(meterIndexMobile).toBeGreaterThan(frameIndexMobile);
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  describe('Phase 4: EvaluationBar responsive rendering modes', () => {
+    it('renders vertical mode with 28px width, 100% height, border-radius 6px, and score pill', () => {
+      render(
+        <EvaluationBar mode="vertical" score={{ kind: 'cp', value: 150 }} orientation="white" />
+      );
+      const meter = screen.getByRole('meter');
+      expect(meter).toHaveAttribute('data-mode', 'vertical');
+      expect(meter).toHaveClass('evaluation-bar--vertical');
+      expect(meter.style.width).toBe('28px');
+      expect(meter.style.height).toBe('100%');
+      expect(meter.style.borderRadius).toBe('6px');
+
+      const fill = meter.querySelector('.evaluation-bar__white') as HTMLElement;
+      expect(fill).toBeInTheDocument();
+      expect(fill.style.height).toBeTruthy();
+      expect(fill.style.transition).toBe('height 160ms cubic-bezier(0.4, 0, 0.2, 1)');
+      expect(fill.style.bottom).toBe('0px');
+
+      const text = meter.querySelector('.evaluation-bar__text');
+      expect(text).toBeInTheDocument();
+      expect(text).toHaveTextContent('+1.5');
+    });
+
+    it('renders horizontal mode with 100% width, 6px height, border-radius 999px, and no text pill', () => {
+      render(
+        <EvaluationBar mode="horizontal" score={{ kind: 'cp', value: 150 }} orientation="white" />
+      );
+      const meter = screen.getByRole('meter');
+      expect(meter).toHaveAttribute('data-mode', 'horizontal');
+      expect(meter).toHaveClass('evaluation-bar--horizontal');
+      expect(meter.style.width).toBe('100%');
+      expect(meter.style.height).toBe('6px');
+      expect(meter.style.borderRadius).toBe('999px');
+
+      const fill = meter.querySelector('.evaluation-bar__white') as HTMLElement;
+      expect(fill).toBeInTheDocument();
+      expect(fill.style.width).toBeTruthy();
+      expect(fill.style.transition).toBe('width 160ms cubic-bezier(0.4, 0, 0.2, 1)');
+      expect(fill.style.left).toBe('0px');
+
+      const text = meter.querySelector('.evaluation-bar__text');
+      expect(text).not.toBeInTheDocument();
+    });
+
+    it('inverts fill origin when orientation is black', () => {
+      const { rerender } = render(
+        <EvaluationBar mode="vertical" score={{ kind: 'cp', value: 150 }} orientation="black" />
+      );
+      const verticalFill = screen
+        .getByRole('meter')
+        .querySelector('.evaluation-bar__white') as HTMLElement;
+      expect(verticalFill.style.top).toBe('0px');
+
+      rerender(
+        <EvaluationBar mode="horizontal" score={{ kind: 'cp', value: 150 }} orientation="black" />
+      );
+      const horizontalFill = screen
+        .getByRole('meter')
+        .querySelector('.evaluation-bar__white') as HTMLElement;
+      expect(horizontalFill.style.right).toBe('0px');
+    });
   });
 
   it('supports full keyboard move selection, roving square navigation, and move execution', async () => {
@@ -498,24 +699,269 @@ it.each(['white', 'black'] as const)(
         openingArrows={arrows.map((a) => ({ ...a, band: 'strong', active: false }))}
       />
     );
-    const lines = [...container.querySelectorAll('.opening-arrow')];
-    expect(lines).toHaveLength(arrows.length);
-    const center = (square: string) => {
-      const file = square.charCodeAt(0) - 97;
-      const rank = Number(square[1]) - 1;
-      return orientation === 'white'
-        ? { x: (file + 0.5) * 12.5, y: (7.5 - rank) * 12.5 }
-        : { x: (7.5 - file) * 12.5, y: (rank + 0.5) * 12.5 };
-    };
-    lines.forEach((line, i) => {
-      const from = center(arrows[i]!.from);
-      const to = center(arrows[i]!.to);
-      expect(Number(line.getAttribute('x1'))).toBe(from.x);
-      expect(Number(line.getAttribute('y1'))).toBe(from.y);
-      expect(
-        Math.hypot(Number(line.getAttribute('x2')) - to.x, Number(line.getAttribute('y2')) - to.y)
-      ).toBeCloseTo(Math.min(2, Math.hypot(to.x - from.x, to.y - from.y) * 0.15));
+    const arrowElements = [...container.querySelectorAll('.opening-arrow')];
+    expect(arrowElements).toHaveLength(arrows.length);
+
+    arrows.forEach((arrow, i) => {
+      const from = squareCenter(arrow.from, orientation)!;
+      const to = squareCenter(arrow.to, orientation)!;
+      const expected = computeArrowPath(from, to);
+      expect(arrowElements[i]?.getAttribute('d')).toBe(expected.d);
+      expect(arrowElements[i]?.getAttribute('stroke-width')).toBe('51.2');
+      expect(arrowElements[i]?.getAttribute('fill')).toBe('none');
     });
-    expect(container.querySelector('.opening-arrows')).toHaveAttribute('pointer-events', 'none');
+
+    const overlay = container.querySelector('.opening-arrows');
+    expect(overlay).toHaveAttribute('pointer-events', 'none');
+    expect(overlay).toHaveAttribute('viewBox', '0 0 2048 2048');
+
+    const markers = container.querySelectorAll('.opening-arrows marker');
+    expect(markers).toHaveLength(arrows.length);
+    markers.forEach((marker) => {
+      expect(marker).toHaveAttribute('markerWidth', '2');
+      expect(marker).toHaveAttribute('markerHeight', '2.5');
+      expect(marker).toHaveAttribute('refX', '1.25');
+      expect(marker).toHaveAttribute('refY', '1.25');
+      expect(marker).toHaveAttribute('orient', 'auto');
+      const polygon = marker.querySelector('polygon');
+      expect(polygon).toHaveAttribute('points', '0.3 0, 2 1.25, 0.3 2.5');
+    });
   }
 );
+
+describe('Phase 3: FLIP Piece Animations', () => {
+  describe('calculateMoveDelta', () => {
+    it('calculates correct square delta percentages for white orientation', () => {
+      // e2 -> e4: 2 squares up (deltaY = +200%)
+      expect(calculateMoveDelta('e2', 'e4', 'white')).toEqual({ deltaX: 0, deltaY: 200 });
+      // e4 -> e2: 2 squares down (deltaY = -200%)
+      expect(calculateMoveDelta('e4', 'e2', 'white')).toEqual({ deltaX: 0, deltaY: -200 });
+      // e1 -> g1: 2 squares right (deltaX = -200%)
+      expect(calculateMoveDelta('e1', 'g1', 'white')).toEqual({ deltaX: -200, deltaY: 0 });
+      // h1 -> f1: 2 squares left (deltaX = +200%)
+      expect(calculateMoveDelta('h1', 'f1', 'white')).toEqual({ deltaX: 200, deltaY: 0 });
+      // e1 -> c1: 2 squares left (deltaX = +200%)
+      expect(calculateMoveDelta('e1', 'c1', 'white')).toEqual({ deltaX: 200, deltaY: 0 });
+      // a1 -> d1: 3 squares right (deltaX = -300%)
+      expect(calculateMoveDelta('a1', 'd1', 'white')).toEqual({ deltaX: -300, deltaY: 0 });
+      // b1 -> c3: knight move (deltaX = -100%, deltaY = +200%)
+      expect(calculateMoveDelta('b1', 'c3', 'white')).toEqual({ deltaX: -100, deltaY: 200 });
+    });
+
+    it('calculates correct square delta percentages for black orientation', () => {
+      // In black orientation, ranks and files are inverted
+      // e2 -> e4: from black perspective, e2 is near the top (row 1), e4 is lower (row 3)
+      expect(calculateMoveDelta('e2', 'e4', 'black')).toEqual({ deltaX: 0, deltaY: -200 });
+      // e1 -> g1: from black perspective, e1 is to the right of g1
+      expect(calculateMoveDelta('e1', 'g1', 'black')).toEqual({ deltaX: 200, deltaY: 0 });
+      // h1 -> f1: from black perspective, h1 is to the left of f1
+      expect(calculateMoveDelta('h1', 'f1', 'black')).toEqual({ deltaX: -200, deltaY: 0 });
+    });
+  });
+
+  describe('getCastlingRookMove', () => {
+    it('detects all four standard castling moves and returns corresponding rook moves', () => {
+      expect(getCastlingRookMove('e1', 'g1')).toEqual({ from: 'h1', to: 'f1' });
+      expect(getCastlingRookMove('e1', 'c1')).toEqual({ from: 'a1', to: 'd1' });
+      expect(getCastlingRookMove('e8', 'g8')).toEqual({ from: 'h8', to: 'f8' });
+      expect(getCastlingRookMove('e8', 'c8')).toEqual({ from: 'a8', to: 'd8' });
+    });
+
+    it('returns null for non-castling king or piece moves', () => {
+      expect(getCastlingRookMove('e2', 'e4')).toBeNull();
+      expect(getCastlingRookMove('e1', 'e2')).toBeNull();
+      expect(getCastlingRookMove('e1', 'd1')).toBeNull();
+      expect(getCastlingRookMove('a1', 'a8')).toBeNull();
+    });
+  });
+
+  describe('FLIP piece animations in ChessboardView', () => {
+    const animations: Array<{
+      element: HTMLElement;
+      keyframes: Keyframe[];
+      options: KeyframeAnimationOptions;
+      cancel: ReturnType<typeof vi.fn>;
+      finish(): void;
+    }> = [];
+    const originalAnimate = HTMLElement.prototype.animate;
+
+    beforeEach(() => {
+      animations.length = 0;
+      HTMLElement.prototype.animate = vi.fn(function (
+        this: HTMLElement,
+        keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
+        options?: number | KeyframeAnimationOptions
+      ) {
+        let finish!: () => void;
+        let reject!: () => void;
+        const finished = new Promise<void>((resolve, rejectPromise) => {
+          finish = resolve;
+          reject = () => rejectPromise(new Error('cancelled'));
+        });
+        const cancel = vi.fn(reject);
+        animations.push({
+          element: this,
+          keyframes: keyframes as Keyframe[],
+          options: options as KeyframeAnimationOptions,
+          cancel,
+          finish,
+        });
+        return { finished, cancel } as unknown as Animation;
+      });
+    });
+
+    afterEach(() => {
+      if (originalAnimate) HTMLElement.prototype.animate = originalAnimate;
+      else Reflect.deleteProperty(HTMLElement.prototype, 'animate');
+    });
+
+    function transition(beforeFen: string, san: string, orientation: 'white' | 'black' = 'white') {
+      const chess = new Chess(beforeFen);
+      const view = render(<ChessboardView fen={chess.fen()} orientation={orientation} />);
+      const move = chess.move(san);
+      const props = { fen: chess.fen(), orientation, lastMove: { from: move.from, to: move.to } };
+      view.rerender(<ChessboardView {...props} />);
+      return { ...view, props };
+    }
+
+    it('keeps an equivalent move rerender running until animation completion', async () => {
+      const { container, rerender, props } = transition(new Chess().fen(), 'e4');
+      const animation = animations[0]!;
+      expect(animation.element).toBe(container.querySelector('[data-square="e4"] .chess-piece'));
+      expect(animation.keyframes).toEqual([
+        { transform: 'translate3d(0%, 200%, 0)' },
+        { transform: 'translate3d(0, 0, 0)' },
+      ]);
+      expect(animation.options).toEqual({ duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' });
+      rerender(<ChessboardView {...props} lastMove={{ from: 'e2', to: 'e4' }} />);
+      expect(animation.cancel).not.toHaveBeenCalled();
+      expect(animations).toHaveLength(1);
+      await act(async () => animation.finish());
+      expect(animation.cancel).toHaveBeenCalledOnce();
+      expect(animation.element.style.willChange).toBe('');
+      expect(animation.element.parentElement?.style.zIndex).toBe('');
+    });
+
+    it('undoes the latest move instead of replaying the preceding move', () => {
+      const before = new Chess();
+      before.move('e4');
+      const { rerender, props } = transition(before.fen(), 'c5');
+      rerender(
+        <ChessboardView
+          fen={before.fen()}
+          orientation={props.orientation}
+          lastMove={{ from: 'e2', to: 'e4' }}
+        />
+      );
+      expect(animations).toHaveLength(2);
+      expect(animations[0]!.cancel).toHaveBeenCalledOnce();
+      expect(animations[1]!.element).toHaveAttribute('aria-label', 'black pawn on c7');
+      expect(animations[1]!.keyframes[0]).toEqual({ transform: 'translate3d(0%, 200%, 0)' });
+    });
+
+    it('animates undoing the first move even without a lastMove at the starting position', () => {
+      const { rerender } = transition(new Chess().fen(), 'e4');
+      rerender(<ChessboardView fen={new Chess().fen()} orientation="white" />);
+      expect(animations[1]!.element).toHaveAttribute('aria-label', 'white pawn on e2');
+      expect(animations[1]!.keyframes[0]).toEqual({ transform: 'translate3d(0%, -200%, 0)' });
+    });
+
+    it.each([
+      ['white', 'w', 'O-O', 'g1', 'f1', -200, 200],
+      ['white', 'w', 'O-O-O', 'c1', 'd1', 200, -300],
+      ['white', 'b', 'O-O', 'g8', 'f8', -200, 200],
+      ['white', 'b', 'O-O-O', 'c8', 'd8', 200, -300],
+      ['black', 'w', 'O-O', 'g1', 'f1', 200, -200],
+      ['black', 'w', 'O-O-O', 'c1', 'd1', -200, 300],
+      ['black', 'b', 'O-O', 'g8', 'f8', 200, -200],
+      ['black', 'b', 'O-O-O', 'c8', 'd8', -200, 300],
+    ] as const)(
+      'animates %s orientation %s %s king and rook forward and backward',
+      (orientation, side, san, king, rook, kingDelta, rookDelta) => {
+        const fen = `r3k2r/8/8/8/8/8/8/R3K2R ${side} KQkq - 0 1`;
+        const { rerender } = transition(fen, san, orientation);
+        expect(animations.map((a) => a.element.parentElement?.dataset.square)).toEqual([
+          king,
+          rook,
+        ]);
+        expect(animations.map((a) => a.keyframes[0])).toEqual([
+          { transform: `translate3d(${kingDelta}%, 0%, 0)` },
+          { transform: `translate3d(${rookDelta}%, 0%, 0)` },
+        ]);
+        rerender(<ChessboardView fen={fen} orientation={orientation} />);
+        expect(animations.slice(2).map((a) => a.element.parentElement?.dataset.square)).toEqual([
+          side === 'w' ? 'e1' : 'e8',
+          `${san === 'O-O' ? 'h' : 'a'}${side === 'w' ? '1' : '8'}`,
+        ]);
+        expect(animations.slice(2).map((a) => a.keyframes[0])).toEqual([
+          { transform: `translate3d(${-kingDelta}%, 0%, 0)` },
+          { transform: `translate3d(${-rookDelta}%, 0%, 0)` },
+        ]);
+      }
+    );
+
+    it.each([
+      ['capture', '7k/8/8/3p4/4P3/8/8/K7 w - - 0 1', 'exd5', 'd5', 'white pawn on d5'],
+      ['en passant', '7k/8/8/3pP3/8/8/8/K7 w - d6 0 1', 'exd6', 'd6', 'white pawn on d6'],
+      ['promotion', '7k/P7/8/8/8/8/8/K7 w - - 0 1', 'a8=Q+', 'a8', 'white queen on a8'],
+      ['underpromotion', '7k/P7/8/8/8/8/8/K7 w - - 0 1', 'a8=N', 'a8', 'white knight on a8'],
+    ])('animates %s and restores its original piece on undo', (_name, fen, san, square, label) => {
+      const { container, rerender } = transition(fen!, san!);
+      expect(animations).toHaveLength(1);
+      expect(animations[0]!.element).toHaveAttribute('aria-label', label);
+      expect(animations[0]!.element.parentElement).toHaveAttribute('data-square', square);
+      rerender(<ChessboardView fen={fen!} orientation="white" />);
+      expect(animations).toHaveLength(2);
+      expect(container.querySelectorAll('.chess-piece')).toHaveLength(
+        new Chess(fen).board().flat().filter(Boolean).length
+      );
+    });
+
+    it('cleans up rapid reversals without an old completion clearing the current animation', async () => {
+      const { rerender, props, unmount } = transition(new Chess().fen(), 'e4');
+      rerender(<ChessboardView fen={new Chess().fen()} orientation="white" />);
+      rerender(<ChessboardView {...props} />);
+      expect(animations).toHaveLength(3);
+      await act(async () => {
+        animations[0]!.finish();
+        animations[1]!.finish();
+      });
+      const current = animations[2]!;
+      expect(current.cancel).not.toHaveBeenCalled();
+      expect(current.element.style.willChange).toBe('transform');
+      expect(current.element.parentElement?.style.zIndex).toBe('10');
+      unmount();
+      expect(current.cancel).toHaveBeenCalledOnce();
+      expect(current.element.style.willChange).toBe('');
+    });
+
+    it('snaps history jumps and orientation changes without replaying an unrelated move', () => {
+      const chess = new Chess();
+      const { rerender } = render(<ChessboardView fen={chess.fen()} orientation="white" />);
+      chess.move('e4');
+      chess.move('e5');
+      rerender(
+        <ChessboardView fen={chess.fen()} orientation="white" lastMove={{ from: 'e7', to: 'e5' }} />
+      );
+      rerender(
+        <ChessboardView fen={chess.fen()} orientation="black" lastMove={{ from: 'e7', to: 'e5' }} />
+      );
+      expect(animations).toHaveLength(0);
+    });
+
+    it('skips animations when reduced motion is requested', () => {
+      const originalMatchMedia = window.matchMedia;
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes('prefers-reduced-motion'),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }));
+      try {
+        transition(new Chess().fen(), 'e4');
+        expect(animations).toHaveLength(0);
+      } finally {
+        window.matchMedia = originalMatchMedia;
+      }
+    });
+  });
+});

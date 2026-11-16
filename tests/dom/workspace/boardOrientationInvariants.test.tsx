@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChessWorkspace } from '@/components/workspace/ChessWorkspace';
-import { ChessboardView } from '@/components/board/ChessboardView';
+import { ChessboardView, computeArrowPath, squareCenter } from '@/components/board/ChessboardView';
 import * as parser from '@/features/workspace/parseSelectedGame';
 import type { WorkspaceServices } from '@/features/workspace/createWorkspaceController';
 import type { GameRecord } from '@/lib/db/schema';
@@ -106,7 +106,7 @@ describe('Board orientation and player metadata invariants', () => {
       render(<ChessWorkspace createServices={() => services} />);
       await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
       await user.click(screen.getByRole('button', { name: /find games/i }));
-      await user.click(screen.getByRole('button', { name: /^Preview .*cmzulu/i }));
+      await user.click(await screen.findByRole('button', { name: /^Preview .*cmzulu/i }));
       await user.click(screen.getByRole('button', { name: /^review$/i }));
       expect(spy.mock.calls.some(([record]) => record?.id === 'other-game')).toBe(false);
       expect(spy.mock.calls.some(([record]) => record?.id === sampleGame.id)).toBe(true);
@@ -127,7 +127,7 @@ describe('Board orientation and player metadata invariants', () => {
     await user.click(screen.getByRole('button', { name: /find games/i }));
 
     // Select the game
-    await user.click(screen.getByRole('button', { name: /^Preview .*cmzulu/i }));
+    await user.click(await screen.findByRole('button', { name: /^Preview .*cmzulu/i }));
 
     // Verify initial White orientation: Black on top, White on bottom
     const topRowInitial = screen.getByLabelText(/black: iamsheyboicarti \(1150\)/i);
@@ -174,7 +174,7 @@ describe('Board orientation and player metadata invariants', () => {
     const usernameInput = screen.getByLabelText(/^username$/i);
     await user.type(usernameInput, 'iamSheyBoiCarti');
     await user.click(screen.getByRole('button', { name: /find games/i }));
-    await user.click(screen.getByRole('button', { name: /^Preview .*cmzulu/i }));
+    await user.click(await screen.findByRole('button', { name: /^Preview .*cmzulu/i }));
 
     // Navigate history to ply 2 (1...e5)
     const board = screen.getByRole('grid', { name: /chess board/i });
@@ -215,8 +215,11 @@ describe('Board orientation and player metadata invariants', () => {
 
     const lineWhite = container.querySelector('.opening-arrow');
     expect(lineWhite).toBeInTheDocument();
-    expect(Number(lineWhite?.getAttribute('x1'))).toBeCloseTo(56.25);
-    expect(Number(lineWhite?.getAttribute('y1'))).toBeCloseTo(81.25);
+    const whiteFrom = squareCenter('e2', 'white')!;
+    const whiteTo = squareCenter('e4', 'white')!;
+    const expectedWhite = computeArrowPath(whiteFrom, whiteTo);
+    expect(lineWhite?.getAttribute('d')).toBe(expectedWhite.d);
+    expect(lineWhite?.getAttribute('d')).toBe('M 1152,1664 L 1152,1200');
 
     rerender(
       <ChessboardView
@@ -228,7 +231,10 @@ describe('Board orientation and player metadata invariants', () => {
 
     const lineBlack = container.querySelector('.opening-arrow');
     expect(lineBlack).toBeInTheDocument();
-    expect(Number(lineBlack?.getAttribute('x1'))).toBeCloseTo(43.75);
-    expect(Number(lineBlack?.getAttribute('y1'))).toBeCloseTo(18.75);
+    const blackFrom = squareCenter('e2', 'black')!;
+    const blackTo = squareCenter('e4', 'black')!;
+    const expectedBlack = computeArrowPath(blackFrom, blackTo);
+    expect(lineBlack?.getAttribute('d')).toBe(expectedBlack.d);
+    expect(lineBlack?.getAttribute('d')).toBe('M 896,384 L 896,848');
   });
 });

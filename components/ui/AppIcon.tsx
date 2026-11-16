@@ -14,7 +14,9 @@ export type AppIconName =
   | 'previous'
   | 'next'
   | 'last'
-  | 'flip';
+  | 'flip'
+  | 'play'
+  | 'pause';
 
 export interface AppIconProps {
   name: AppIconName;
@@ -138,6 +140,41 @@ function renderIconPaths(name: AppIconName): JSX.Element {
         <>
           <path d="M7 20V4M7 4L3 8M7 4L11 8" />
           <path d="M17 4V20M17 20L21 16M17 20L13 16" />
+        </>
+      );
+    case 'play':
+      return (
+        <polygon
+          points="6 4 20 12 6 20 6 4"
+          fill="currentColor"
+          stroke="currentColor"
+          strokeWidth={1}
+          strokeLinejoin="round"
+        />
+      );
+    case 'pause':
+      return (
+        <>
+          <rect
+            x="6"
+            y="4"
+            width="4"
+            height="16"
+            fill="currentColor"
+            stroke="currentColor"
+            strokeWidth={1}
+            rx="1"
+          />
+          <rect
+            x="14"
+            y="4"
+            width="4"
+            height="16"
+            fill="currentColor"
+            stroke="currentColor"
+            strokeWidth={1}
+            rx="1"
+          />
         </>
       );
   }

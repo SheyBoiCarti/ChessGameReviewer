@@ -28,3 +28,22 @@ export function normalizeEvaluationBar(score: EvaluationScore | undefined): Eval
     text: `${pawns >= 0 ? 'White' : 'Black'} advantage ${Math.abs(pawns).toFixed(2)} pawns`,
   };
 }
+
+export function formatEvaluationScore(score: EvaluationScore | undefined): string {
+  if (!score || !Number.isFinite(score.value)) {
+    return '0.0';
+  }
+  if (score.kind === 'mate') {
+    return score.value > 0
+      ? `M${score.value}`
+      : score.value < 0
+        ? `-M${Math.abs(score.value)}`
+        : 'M0';
+  }
+  const pawns = score.value / 100;
+  if (Math.abs(pawns) < 0.05) {
+    return '0.0';
+  }
+  const sign = pawns > 0 ? '+' : '';
+  return `${sign}${pawns.toFixed(1)}`;
+}

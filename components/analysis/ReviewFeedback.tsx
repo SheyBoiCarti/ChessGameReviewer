@@ -171,6 +171,12 @@ export function ReviewFeedback({
             : 'The available scores do not support a reliable move grade.'}
         </p>
         {explanation ? <p>{explanation}</p> : null}
+        {annotation.accuracy.status === 'classified' &&
+        typeof annotation.accuracy.accuracyEstimate === 'number' ? (
+          <p className="review-feedback__accuracy">
+            Accuracy score: {Math.round(annotation.accuracy.accuracyEstimate)}%
+          </p>
+        ) : null}
         <EvaluationComparison annotation={annotation} />
         {continuation && continuation.moves.length > 0 && !continuation.diagnostic ? (
           <p>Engine continuation: {continuation.moves.join(' ')}</p>

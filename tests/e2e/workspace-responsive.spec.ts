@@ -121,7 +121,7 @@ test('keeps the product identity and workspace tabs readable on a phone', async 
   expect(await overflow(page)).toBeLessThanOrEqual(1);
 });
 
-test('uses a visually separated, classic board grid without obscuring move highlights', async ({
+test('uses a zero-gap tournament board with layered framing and visible move highlights', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -132,7 +132,41 @@ test('uses a visually separated, classic board grid without obscuring move highl
 
   const board = page.getByRole('grid', { name: 'Chess board' });
   await expect(board).toBeVisible();
-  expect(await board.evaluate((element) => getComputedStyle(element).gap)).toBe('1px');
+  expect(await board.evaluate((element) => getComputedStyle(element).gap)).toBe('0px');
+  expect(await board.evaluate((element) => getComputedStyle(element).padding)).toBe('0px');
+  const presentation = await page.locator('.chessboard-frame').evaluate((element) => ({
+    shadow: getComputedStyle(element).boxShadow,
+    highlight: getComputedStyle(element, '::after').boxShadow,
+    pointerEvents: getComputedStyle(element, '::after').pointerEvents,
+    seams: [...element.querySelectorAll('[data-square]')].flatMap((square, index, squares) => {
+      const box = square.getBoundingClientRect();
+      return [
+        ...(index % 8 < 7 ? [squares[index + 1]!.getBoundingClientRect().left - box.right] : []),
+        ...(index < 56 ? [squares[index + 8]!.getBoundingClientRect().top - box.bottom] : []),
+      ];
+    }),
+  }));
+  expect(presentation.shadow).not.toBe('none');
+  expect(presentation.highlight).toContain('inset');
+  expect(presentation.pointerEvents).toBe('none');
+  for (const seam of presentation.seams) expect(Math.abs(seam)).toBeLessThan(0.02);
+  for (const theme of ['dark', 'light']) {
+    await page
+      .locator('html')
+      .evaluate((element, value) => element.setAttribute('data-theme', value), theme);
+    expect(
+      await page
+        .locator('.square-dark')
+        .first()
+        .evaluate((element) => getComputedStyle(element).backgroundColor)
+    ).toBe('rgb(119, 149, 86)');
+    expect(
+      await page
+        .locator('.square-light')
+        .first()
+        .evaluate((element) => getComputedStyle(element).backgroundColor)
+    ).toBe('rgb(235, 236, 208)');
+  }
   expect(
     await page
       .locator('[data-square="d7"]')

@@ -1,6 +1,6 @@
 'use client';
 
-import type { JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 
 import { AppIcon } from '@/components/ui/AppIcon';
 
@@ -9,6 +9,7 @@ export interface MoveHistoryControlsProps {
   totalPlies: number;
   onPlyChange(ply: number): void;
   onFlipOrientation?: (() => void) | undefined;
+  autoplayIntervalMs?: number | undefined;
 }
 
 export function MoveHistoryControls({
@@ -16,7 +17,67 @@ export function MoveHistoryControls({
   totalPlies,
   onPlyChange,
   onFlipOrientation,
+  autoplayIntervalMs = 1000,
 }: MoveHistoryControlsProps): JSX.Element {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const onPlyChangeRef = useRef(onPlyChange);
+
+  useEffect(() => {
+    onPlyChangeRef.current = onPlyChange;
+  }, [onPlyChange]);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    if (currentPly >= totalPlies) {
+      setIsPlaying(false);
+      return;
+    }
+
+    const timer = setInterval(() => {
+      onPlyChangeRef.current(currentPly + 1);
+    }, autoplayIntervalMs);
+
+    return () => clearInterval(timer);
+  }, [isPlaying, currentPly, totalPlies, autoplayIntervalMs]);
+
+  useEffect(() => {
+    if (isPlaying && currentPly >= totalPlies) {
+      setIsPlaying(false);
+    }
+  }, [currentPly, totalPlies, isPlaying]);
+
+  const handleFirst = () => {
+    setIsPlaying(false);
+    onPlyChange(0);
+  };
+
+  const handlePrevious = () => {
+    setIsPlaying(false);
+    onPlyChange(Math.max(0, currentPly - 1));
+  };
+
+  const handleToggleAutoplay = () => {
+    if (isPlaying) {
+      setIsPlaying(false);
+    } else {
+      if (currentPly >= totalPlies) {
+        onPlyChange(0);
+      }
+      setIsPlaying(true);
+    }
+  };
+
+  const handleNext = () => {
+    setIsPlaying(false);
+    onPlyChange(Math.min(totalPlies, currentPly + 1));
+  };
+
+  const handleLast = () => {
+    setIsPlaying(false);
+    onPlyChange(totalPlies);
+  };
+
   const visibleLabel =
     currentPly === 0
       ? 'Start'
@@ -24,25 +85,66 @@ export function MoveHistoryControls({
 
   return (
     <div className="move-history-controls" aria-label="Move history controls">
-      <button
-        type="button"
-        className="move-history-controls__btn"
-        aria-label="First position"
-        onClick={() => onPlyChange(0)}
-        disabled={currentPly === 0}
+      <div
+        className="move-history-controls__group"
+        role="group"
+        aria-label="Move playback controls"
       >
-        <AppIcon name="first" className="move-history-controls__icon" />
-      </button>
+        <button
+          type="button"
+          className="move-history-controls__btn"
+          aria-label="First position"
+          title="First move"
+          onClick={handleFirst}
+          disabled={currentPly === 0}
+        >
+          <AppIcon name="first" className="move-history-controls__icon" />
+        </button>
 
-      <button
-        type="button"
-        className="move-history-controls__btn"
-        aria-label="Previous move"
-        onClick={() => onPlyChange(Math.max(0, currentPly - 1))}
-        disabled={currentPly === 0}
-      >
-        <AppIcon name="previous" className="move-history-controls__icon" />
-      </button>
+        <button
+          type="button"
+          className="move-history-controls__btn"
+          aria-label="Previous move"
+          title="Previous move"
+          onClick={handlePrevious}
+          disabled={currentPly === 0}
+        >
+          <AppIcon name="previous" className="move-history-controls__icon" />
+        </button>
+
+        <button
+          type="button"
+          className={`move-history-controls__btn move-history-controls__btn--autoplay${isPlaying ? ' is-playing' : ''}`}
+          aria-label={isPlaying ? 'Pause' : 'Autoplay'}
+          title={isPlaying ? 'Pause' : 'Autoplay'}
+          onClick={handleToggleAutoplay}
+          disabled={totalPlies === 0}
+        >
+          <AppIcon name={isPlaying ? 'pause' : 'play'} className="move-history-controls__icon" />
+        </button>
+
+        <button
+          type="button"
+          className="move-history-controls__btn"
+          aria-label="Next move"
+          title="Next move"
+          onClick={handleNext}
+          disabled={currentPly >= totalPlies}
+        >
+          <AppIcon name="next" className="move-history-controls__icon" />
+        </button>
+
+        <button
+          type="button"
+          className="move-history-controls__btn"
+          aria-label="Last position"
+          title="Last move"
+          onClick={handleLast}
+          disabled={currentPly >= totalPlies}
+        >
+          <AppIcon name="last" className="move-history-controls__icon" />
+        </button>
+      </div>
 
       <span
         className="move-history-controls__ply tabular-nums"
@@ -55,28 +157,9 @@ export function MoveHistoryControls({
 
       <button
         type="button"
-        className="move-history-controls__btn"
-        aria-label="Next move"
-        onClick={() => onPlyChange(Math.min(totalPlies, currentPly + 1))}
-        disabled={currentPly >= totalPlies}
-      >
-        <AppIcon name="next" className="move-history-controls__icon" />
-      </button>
-
-      <button
-        type="button"
-        className="move-history-controls__btn"
-        aria-label="Last position"
-        onClick={() => onPlyChange(totalPlies)}
-        disabled={currentPly >= totalPlies}
-      >
-        <AppIcon name="last" className="move-history-controls__icon" />
-      </button>
-
-      <button
-        type="button"
         className="move-history-controls__btn move-history-controls__flip-btn"
         aria-label="Flip board"
+        title="Flip board"
         onClick={onFlipOrientation}
         disabled={!onFlipOrientation}
       >

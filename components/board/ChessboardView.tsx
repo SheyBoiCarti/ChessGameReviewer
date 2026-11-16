@@ -1,10 +1,19 @@
 'use client';
 
-import { useEffect, useId, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+} from 'react';
 import type { Square } from 'chess.js';
 
 import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
 import { Piece } from '@/components/board/Piece';
+import { getBoardTransitionMoves, type AnimationPosition } from '@/features/board/animation';
 import { PromotionDialog } from '@/components/board/PromotionDialog';
 import {
   applyBoardMove,
@@ -88,6 +97,7 @@ export function ChessboardView({
   } | null>(null);
 
   const boardRef = useRef<HTMLDivElement | null>(null);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     setSelectedSquare(null);
@@ -96,6 +106,62 @@ export function ChessboardView({
     setPendingPromotion(null);
     setAnnouncement('');
   }, [fen, orientation, isInteractive]);
+
+  const previousPositionRef = useRef<
+    (AnimationPosition & { orientation: 'white' | 'black' }) | null
+  >(null);
+  const moveFrom = lastMove?.from;
+  const moveTo = lastMove?.to;
+
+  useLayoutEffect(() => {
+    const previous = previousPositionRef.current;
+    const next = {
+      fen,
+      orientation,
+      lastMove: moveFrom && moveTo ? { from: moveFrom, to: moveTo } : undefined,
+    };
+    previousPositionRef.current = next;
+    if (
+      !previous ||
+      previous.fen === fen ||
+      previous.orientation !== orientation ||
+      prefersReducedMotion()
+    ) {
+      return;
+    }
+
+    const cleanups: Array<() => void> = [];
+    for (const move of getBoardTransitionMoves(previous, next)) {
+      const squareEl = boardRef.current?.querySelector<HTMLElement>(`[data-square="${move.to}"]`);
+      const pieceEl = squareEl?.querySelector<HTMLElement>('.chess-piece');
+      if (!squareEl || !pieceEl || typeof pieceEl.animate !== 'function') continue;
+
+      const { deltaX, deltaY } = calculateMoveDelta(move.from, move.to, orientation);
+      squareEl.style.zIndex = '10';
+      pieceEl.style.willChange = 'transform';
+      const animation = pieceEl.animate(
+        [
+          { transform: `translate3d(${deltaX}%, ${deltaY}%, 0)` },
+          { transform: 'translate3d(0, 0, 0)' },
+        ],
+        { duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
+      );
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        animation.cancel();
+        squareEl.style.zIndex = '';
+        pieceEl.style.willChange = '';
+      };
+      // Animation completion follows its real start, including delayed frames.
+      // Cancellation is handled too, without allowing an old promise to clear
+      // styles belonging to a newer transition.
+      void animation.finished.then(cleanup, cleanup);
+      cleanups.push(cleanup);
+    }
+    return () => cleanups.forEach((cleanup) => cleanup());
+  }, [fen, orientation, moveFrom, moveTo]);
 
   let mover: PlayerColor = 'white';
   try {
@@ -340,11 +406,11 @@ export function ChessboardView({
       ) : null}
       <div className="board-region">
         <div className={`board-stage${evaluationScore ? ' board-stage--with-evaluation' : ''}`}>
-          {evaluationScore ? (
-            <EvaluationBar score={evaluationScore} orientation={orientation} />
-          ) : (
+          {evaluationScore && !isMobile ? (
+            <EvaluationBar score={evaluationScore} orientation={orientation} mode="vertical" />
+          ) : !isMobile ? (
             <div className="evaluation-bar-placeholder" aria-hidden="true" />
-          )}
+          ) : null}
           <div className="chessboard-frame">
             <div
               ref={boardRef}
@@ -423,6 +489,13 @@ export function ChessboardView({
             ) : null}
             {pvArrow ? <BoardArrow move={pvArrow} orientation={orientation} /> : null}
           </div>
+          {isMobile ? (
+            evaluationScore ? (
+              <EvaluationBar score={evaluationScore} orientation={orientation} mode="horizontal" />
+            ) : (
+              <div className="evaluation-bar-placeholder" aria-hidden="true" />
+            )
+          ) : null}
         </div>
         <PromotionDialog
           isOpen={pendingPromotion !== null}
@@ -473,6 +546,69 @@ export function ChessboardView({
   );
 }
 
+export interface ArrowPathResult {
+  d: string;
+  isKnight: boolean;
+  shortenedTo: { x: number; y: number };
+  corner?: { x: number; y: number };
+}
+
+export function computeArrowPath(
+  from: { x: number; y: number; col: number; row: number },
+  to: { x: number; y: number; col: number; row: number }
+): ArrowPathResult {
+  const deltaCol = to.col - from.col;
+  const deltaRow = to.row - from.row;
+  const absCol = Math.abs(deltaCol);
+  const absRow = Math.abs(deltaRow);
+  const isKnight = (absCol === 1 && absRow === 2) || (absCol === 2 && absRow === 1);
+
+  if (isKnight) {
+    const cornerX = absRow > absCol ? from.x : to.x;
+    const cornerY = absRow > absCol ? to.y : from.y;
+    const legDx = to.x - cornerX;
+    const legDy = to.y - cornerY;
+    const legDist = Math.hypot(legDx, legDy);
+    const shortenedToX = legDist > 0 ? to.x - (legDx / legDist) * 48 : to.x;
+    const shortenedToY = legDist > 0 ? to.y - (legDy / legDist) * 48 : to.y;
+    return {
+      d: `M ${from.x},${from.y} L ${cornerX},${cornerY} L ${shortenedToX},${shortenedToY}`,
+      isKnight: true,
+      corner: { x: cornerX, y: cornerY },
+      shortenedTo: { x: shortenedToX, y: shortenedToY },
+    };
+  }
+
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const d = Math.hypot(dx, dy);
+  const shortenedToX = d > 0 ? to.x - (dx / d) * 48 : to.x;
+  const shortenedToY = d > 0 ? to.y - (dy / d) * 48 : to.y;
+  return {
+    d: `M ${from.x},${from.y} L ${shortenedToX},${shortenedToY}`,
+    isKnight: false,
+    shortenedTo: { x: shortenedToX, y: shortenedToY },
+  };
+}
+
+function getOpeningArrowColor(arrow: OpeningArrow): string {
+  if (arrow.active) return '#0284c7';
+  const palette = arrow.palette ?? 'neutral';
+  if (palette === 'own') {
+    if (arrow.band === 'strong') return '#16a34a';
+    if (arrow.band === 'medium') return '#22c55e';
+    return '#86efac';
+  }
+  if (palette === 'opponent') {
+    if (arrow.band === 'strong') return '#ea580c';
+    if (arrow.band === 'medium') return '#f97316';
+    return '#fdba74';
+  }
+  if (arrow.band === 'strong') return '#2563eb';
+  if (arrow.band === 'medium') return '#3b82f6';
+  return '#93c5fd';
+}
+
 function BoardArrow({
   move,
   orientation,
@@ -485,27 +621,38 @@ function BoardArrow({
   const to = squareCenter(move.to, orientation);
   if (!from || !to) return null;
   const markerId = `${prefix}-pv-arrow-head`;
+  const { d } = computeArrowPath(from, to);
+  const color = 'rgb(255 170 0 / 78%)';
+
   return (
     <svg
       className="board-arrow"
-      viewBox="0 0 100 100"
+      viewBox="0 0 2048 2048"
       aria-label={`Principal variation ${move.from} to ${move.to}`}
       role="img"
+      pointerEvents="none"
     >
       <defs>
         <marker
           id={markerId}
-          markerUnits="userSpaceOnUse"
-          markerWidth="5"
-          markerHeight="5"
-          refX="5"
-          refY="2.5"
+          markerWidth="2"
+          markerHeight="2.5"
+          refX="1.25"
+          refY="1.25"
           orient="auto"
         >
-          <path d="M0,0 L5,2.5 L0,5 Z" />
+          <polygon points="0.3 0, 2 1.25, 0.3 2.5" fill={color} />
         </marker>
       </defs>
-      <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} markerEnd={`url(#${markerId})`} />
+      <path
+        d={d}
+        fill="none"
+        stroke={color}
+        strokeWidth={51.2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        markerEnd={`url(#${markerId})`}
+      />
     </svg>
   );
 }
@@ -521,23 +668,24 @@ function OpeningArrows({
   if (arrows.length === 0) return null;
 
   return (
-    <svg className="opening-arrows" viewBox="0 0 100 100" pointerEvents="none" aria-hidden="true">
+    <svg className="opening-arrows" viewBox="0 0 2048 2048" pointerEvents="none" aria-hidden="true">
       <defs>
         {arrows.map((arrow) => {
           const markerId = `${prefix}-${arrow.uci}-arrow`;
+          const color = getOpeningArrowColor(arrow);
           return (
             <marker
               key={arrow.uci}
               id={markerId}
-              markerUnits="userSpaceOnUse"
-              markerWidth="5"
-              markerHeight="5"
-              refX="5"
-              refY="2.5"
+              markerWidth="2"
+              markerHeight="2.5"
+              refX="1.25"
+              refY="1.25"
               orient="auto"
             >
-              <path
-                d="M0,0 L5,2.5 L0,5 Z"
+              <polygon
+                points="0.3 0, 2 1.25, 0.3 2.5"
+                fill={color}
                 className={`arrow-head arrow-head--${arrow.band} arrow-head--${arrow.palette ?? 'neutral'} ${arrow.active ? 'arrow-head--active' : ''}`}
               />
             </marker>
@@ -549,21 +697,18 @@ function OpeningArrows({
         const to = squareCenter(arrow.to, orientation);
         if (!from || !to) return null;
         const markerId = `${prefix}-${arrow.uci}-arrow`;
-
-        const dx = to.x - from.x;
-        const dy = to.y - from.y;
-        const dist = Math.hypot(dx, dy);
-        const shorten = dist > 0 ? Math.min(2.0, dist * 0.15) : 0;
-        const x2 = to.x - (dx / dist) * shorten;
-        const y2 = to.y - (dy / dist) * shorten;
+        const { d } = computeArrowPath(from, to);
+        const color = getOpeningArrowColor(arrow);
 
         return (
-          <line
+          <path
             key={arrow.uci}
-            x1={from.x}
-            y1={from.y}
-            x2={x2}
-            y2={y2}
+            d={d}
+            fill="none"
+            stroke={color}
+            strokeWidth={51.2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
             markerEnd={`url(#${markerId})`}
             className={`opening-arrow opening-arrow--${arrow.band} opening-arrow--${arrow.palette ?? 'neutral'} ${arrow.active ? 'opening-arrow--active' : ''}`}
           />
@@ -575,9 +720,61 @@ function OpeningArrows({
 
 export function squareCenter(square: string, orientation: 'white' | 'black') {
   if (!/^[a-h][1-8]$/.test(square)) return null;
-  const file = square.charCodeAt(0) - 97;
-  const rank = Number(square[1]) - 1;
-  const column = orientation === 'white' ? file : 7 - file;
-  const row = orientation === 'white' ? 7 - rank : rank;
-  return { x: (column + 0.5) * 12.5, y: (row + 0.5) * 12.5 };
+  const fileIndex = square.charCodeAt(0) - 97;
+  const rankIndex = Number(square[1]) - 1;
+  const col = orientation === 'white' ? fileIndex : 7 - fileIndex;
+  const row = orientation === 'white' ? 7 - rankIndex : rankIndex;
+  const x = col * 256 + 128;
+  const y = row * 256 + 128;
+  return { x, y, col, row };
+}
+
+export function calculateMoveDelta(
+  from: Square,
+  to: Square,
+  orientation: 'white' | 'black'
+): { deltaX: number; deltaY: number } {
+  const fromFile = from.charCodeAt(0) - 97;
+  const fromRank = Number(from[1]) - 1;
+  const toFile = to.charCodeAt(0) - 97;
+  const toRank = Number(to[1]) - 1;
+
+  const fromCol = orientation === 'white' ? fromFile : 7 - fromFile;
+  const fromRow = orientation === 'white' ? 7 - fromRank : fromRank;
+  const toCol = orientation === 'white' ? toFile : 7 - toFile;
+  const toRow = orientation === 'white' ? 7 - toRank : toRank;
+
+  const deltaX = (fromCol - toCol) * 100;
+  const deltaY = (fromRow - toRow) * 100;
+
+  return { deltaX, deltaY };
+}
+
+export { getCastlingRookMove } from '@/features/board/animation';
+
+export function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+export function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window.matchMedia === 'function') {
+      const media = window.matchMedia('(width < 768px)');
+      const update = () => setIsMobile(media.matches);
+      update();
+      media.addEventListener('change', update);
+      return () => media.removeEventListener('change', update);
+    }
+    const update = () => setIsMobile(window.innerWidth < 768);
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  return isMobile;
 }
