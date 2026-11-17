@@ -1,10 +1,21 @@
 'use client';
 
-import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
+import { createPortal } from 'react-dom';
 import type { Square } from 'chess.js';
 
 import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
 import { Piece } from '@/components/board/Piece';
+import { getBoardTransitionMoves, type AnimationPosition } from '@/features/board/animation';
 import { PromotionDialog } from '@/components/board/PromotionDialog';
 import {
   applyBoardMove,
@@ -13,7 +24,12 @@ import {
   type AppliedBoardMove,
   type PromotionPiece,
 } from '@/features/board/moves';
-import { boardSquares, InvalidBoardPositionError } from '@/features/board/position';
+import {
+  boardSquares,
+  InvalidBoardPositionError,
+  type BoardPiece,
+} from '@/features/board/position';
+import type { OpeningArrow } from '@/features/opening-tree/selectors';
 import type { PlayerMetadata } from '@/lib/api/contracts';
 import type { MoveQuality } from '@/lib/engine/accuracy';
 import {
@@ -36,10 +52,13 @@ export interface ChessboardViewProps {
   fen: string;
   orientation: 'white' | 'black';
   isInteractive?: boolean | undefined;
+  /** Keep square focus navigation available when opening piece input is disabled. */
+  squareNavigation?: boolean | undefined;
   onMove?: ((move: AppliedBoardMove) => boolean) | undefined;
   lastMove?: { from: Square; to: Square } | undefined;
   lastMoveBadge?: { square: Square; quality: MoveQuality } | undefined;
   pvArrow?: { from: Square; to: Square } | undefined;
+  openingArrows?: readonly OpeningArrow[] | undefined;
   history?: MoveHistoryModel | undefined;
   evaluationScore?: EvaluationScore | undefined;
   currentPly?: number | undefined;
@@ -59,10 +78,12 @@ export function ChessboardView({
   fen,
   orientation,
   isInteractive = false,
+  squareNavigation = isInteractive,
   onMove,
   lastMove,
   lastMoveBadge,
   pvArrow,
+  openingArrows,
   history,
   evaluationScore,
   currentPly,
@@ -82,14 +103,119 @@ export function ChessboardView({
   } | null>(null);
 
   const boardRef = useRef<HTMLDivElement | null>(null);
+  const dragPreviewRef = useRef<HTMLDivElement | null>(null);
+  const pointerDragRef = useRef<{
+    pointerId: number;
+    source: HTMLDivElement;
+    square: Square;
+    piece: BoardPiece;
+    startX: number;
+    startY: number;
+    x: number;
+    y: number;
+    size: number;
+    active: boolean;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
+  const draggedMoveRef = useRef<{ from: Square; to: Square } | null>(null);
+  const [draggedPiece, setDraggedPiece] = useState<{
+    square: Square;
+    piece: BoardPiece;
+    size: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const isMobile = useIsMobile();
+
+  useLayoutEffect(() => {
+    const drag = pointerDragRef.current;
+    // Pointer events can arrive before React mounts the preview, especially in Safari.
+    if (drag && dragPreviewRef.current) {
+      dragPreviewRef.current.style.transform = `translate3d(${drag.x - drag.size / 2}px, ${drag.y - drag.size / 2}px, 0)`;
+    }
+  }, [draggedPiece]);
+
+  const clearDrag = useCallback(() => {
+    const drag = pointerDragRef.current;
+    pointerDragRef.current = null;
+    if (drag?.source.hasPointerCapture(drag.pointerId)) {
+      drag.source.releasePointerCapture(drag.pointerId);
+    }
+    setDraggedPiece(null);
+  }, []);
 
   useEffect(() => {
+    clearDrag();
     setSelectedSquare(null);
     setFocusedSquare(null);
     setLegalTargets([]);
     setPendingPromotion(null);
     setAnnouncement('');
-  }, [fen, orientation, isInteractive]);
+  }, [fen, orientation, isInteractive, clearDrag]);
+
+  useEffect(() => {
+    window.addEventListener('blur', clearDrag);
+    return () => window.removeEventListener('blur', clearDrag);
+  }, [clearDrag]);
+
+  const previousPositionRef = useRef<
+    (AnimationPosition & { orientation: 'white' | 'black' }) | null
+  >(null);
+  const moveFrom = lastMove?.from;
+  const moveTo = lastMove?.to;
+
+  useLayoutEffect(() => {
+    const previous = previousPositionRef.current;
+    const next = {
+      fen,
+      orientation,
+      lastMove: moveFrom && moveTo ? { from: moveFrom, to: moveTo } : undefined,
+    };
+    previousPositionRef.current = next;
+    const draggedMove = draggedMoveRef.current;
+    draggedMoveRef.current = null;
+    if (
+      !previous ||
+      previous.fen === fen ||
+      previous.orientation !== orientation ||
+      prefersReducedMotion()
+    ) {
+      return;
+    }
+
+    const cleanups: Array<() => void> = [];
+    for (const move of getBoardTransitionMoves(previous, next)) {
+      if (move.from === draggedMove?.from && move.to === draggedMove.to) continue;
+      const squareEl = boardRef.current?.querySelector<HTMLElement>(`[data-square="${move.to}"]`);
+      const pieceEl = squareEl?.querySelector<HTMLElement>('.chess-piece');
+      if (!squareEl || !pieceEl || typeof pieceEl.animate !== 'function') continue;
+
+      const { deltaX, deltaY } = calculateMoveDelta(move.from, move.to, orientation);
+      squareEl.style.zIndex = '10';
+      pieceEl.style.willChange = 'transform';
+      const animation = pieceEl.animate(
+        [
+          { transform: `translate3d(${deltaX}%, ${deltaY}%, 0)` },
+          { transform: 'translate3d(0, 0, 0)' },
+        ],
+        { duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
+      );
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        animation.cancel();
+        squareEl.style.zIndex = '';
+        pieceEl.style.willChange = '';
+      };
+      // Animation completion follows its real start, including delayed frames.
+      // Cancellation is handled too, without allowing an old promise to clear
+      // styles belonging to a newer transition.
+      void animation.finished.then(cleanup, cleanup);
+      cleanups.push(cleanup);
+    }
+    return () => cleanups.forEach((cleanup) => cleanup());
+  }, [fen, orientation, moveFrom, moveTo]);
 
   let mover: PlayerColor = 'white';
   try {
@@ -200,7 +326,26 @@ export function ChessboardView({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (
+      event.defaultPrevented ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      pendingPromotion ||
+      target?.closest(
+        'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"]'
+      ) ||
+      document.querySelector('[role="dialog"][aria-modal="true"], dialog[open]')
+    ) {
+      return;
+    }
+
     if (event.key === 'Escape') {
+      if (pointerDragRef.current) {
+        event.preventDefault();
+        clearDrag();
+      }
       if (selectedSquare) {
         event.preventDefault();
         setSelectedSquare(null);
@@ -210,7 +355,21 @@ export function ChessboardView({
       return;
     }
 
-    if (isInteractive && !event.altKey) {
+    // T39: inside the board, Alt+Left/Right traverses history; plain arrows
+    // retain square navigation. Editable fields and dialogs never see this.
+    if (event.altKey) {
+      if (historyModel && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        event.preventDefault();
+        const next =
+          event.key === 'ArrowLeft'
+            ? Math.max(0, historyModel.currentPly - 1)
+            : Math.min(historyModel.totalPlies, historyModel.currentPly + 1);
+        historyModel.onPlyChange(next);
+      }
+      return;
+    }
+
+    if (squareNavigation && !event.altKey) {
       const current = focusedSquare ?? (orientation === 'white' ? 'e2' : 'e7');
       const fileStep = orientation === 'white' ? 1 : -1;
       const rankStep = orientation === 'white' ? 1 : -1;
@@ -239,7 +398,7 @@ export function ChessboardView({
         setFocusedSquare(next);
         return;
       }
-      if (event.key === 'Enter' || event.key === ' ') {
+      if (isInteractive && (event.key === 'Enter' || event.key === ' ')) {
         event.preventDefault();
         handleSquareClick(current);
         return;
@@ -260,22 +419,70 @@ export function ChessboardView({
     }
   };
 
-  const handleDragStart = (e: DragEvent<HTMLDivElement>, squareName: Square) => {
-    if (!isInteractive) return;
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>, squareName: Square) => {
+    if (!isInteractive || event.button !== 0 || !event.isPrimary || pointerDragRef.current) return;
+    suppressClickRef.current = false;
     const squareObj = squares.find((s) => s.name === squareName);
     if (!squareObj?.piece || squareObj.piece.color !== mover) return;
-    e.dataTransfer.setData('text/plain', squareName);
-    setSelectedSquare(squareName);
-    setFocusedSquare(squareName);
-    setLegalTargets(legalDestinations(fen, squareName));
+    const source = event.currentTarget;
+    pointerDragRef.current = {
+      pointerId: event.pointerId,
+      source,
+      square: squareName,
+      piece: squareObj.piece,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      size: source.getBoundingClientRect().width,
+      active: false,
+    };
+    source.setPointerCapture(event.pointerId);
+    boardRef.current?.focus({ preventScroll: true });
   };
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>, targetSquare: Square) => {
-    if (!isInteractive) return;
-    e.preventDefault();
-    const from = e.dataTransfer.getData('text/plain') as Square;
-    if (!from || from === targetSquare) return;
-    executeMove(from, targetSquare);
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = pointerDragRef.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+    if (!drag.active) {
+      if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 4) return;
+      drag.active = true;
+      suppressClickRef.current = true;
+      setSelectedSquare(drag.square);
+      setFocusedSquare(drag.square);
+      setLegalTargets(legalDestinations(fen, drag.square));
+      setDraggedPiece({
+        square: drag.square,
+        piece: drag.piece,
+        size: drag.size,
+        x: event.clientX,
+        y: event.clientY,
+      });
+    }
+    // Only move the preview; don't rerender all 64 squares on every pointer event.
+    if (dragPreviewRef.current) {
+      dragPreviewRef.current.style.transform = `translate3d(${event.clientX - drag.size / 2}px, ${event.clientY - drag.size / 2}px, 0)`;
+    }
+  };
+
+  const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = pointerDragRef.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (!drag.active) {
+      clearDrag();
+      return;
+    }
+    const target = document
+      .elementFromPoint(event.clientX, event.clientY)
+      ?.closest('[data-square]');
+    clearDrag();
+    if (!target || !boardRef.current?.contains(target)) return;
+    const to = target.getAttribute('data-square') as Square;
+    if (to === drag.square) return;
+    draggedMoveRef.current = { from: drag.square, to };
+    executeMove(drag.square, to);
   };
 
   const handlePromotionSelect = (promotion: PromotionPiece) => {
@@ -305,11 +512,11 @@ export function ChessboardView({
       ) : null}
       <div className="board-region">
         <div className={`board-stage${evaluationScore ? ' board-stage--with-evaluation' : ''}`}>
-          {evaluationScore ? (
-            <EvaluationBar score={evaluationScore} orientation={orientation} />
-          ) : (
+          {evaluationScore && !isMobile ? (
+            <EvaluationBar score={evaluationScore} orientation={orientation} mode="vertical" />
+          ) : !isMobile ? (
             <div className="evaluation-bar-placeholder" aria-hidden="true" />
-          )}
+          ) : null}
           <div className="chessboard-frame">
             <div
               ref={boardRef}
@@ -319,8 +526,19 @@ export function ChessboardView({
               data-orientation={orientation}
               tabIndex={0}
               onKeyDown={handleKeyDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={clearDrag}
+              onLostPointerCapture={clearDrag}
+              onClickCapture={(event) => {
+                if (suppressClickRef.current) {
+                  suppressClickRef.current = false;
+                  event.stopPropagation();
+                }
+              }}
+              aria-activedescendant={focusedSquare ? `square-${focusedSquare}` : undefined}
               aria-describedby={
-                isInteractive
+                squareNavigation
                   ? 'board-keyboard-interactive-help'
                   : historyModel
                     ? 'board-keyboard-help'
@@ -335,25 +553,22 @@ export function ChessboardView({
                       isSelected || square.name === lastMove?.from || square.name === lastMove?.to;
                     const isLegalTarget = legalTargets.includes(square.name as Square);
                     const isFocused = square.name === focusedSquare;
+                    const isDragSource = draggedPiece?.square === square.name;
+                    const canDrag = isInteractive && square.piece?.color === mover;
                     const hasBadge = Boolean(lastMoveBadge && lastMoveBadge.square === square.name);
 
                     return (
                       <div
-                        className={`board-square ${square.isLight ? 'square-light' : 'square-dark'}${isHighlighted ? ' square-highlighted' : ''}${isSelected ? ' square-selected' : ''}${isFocused ? ' square-focused' : ''}`}
+                        id={`square-${square.name}`}
+                        className={`board-square ${square.isLight ? 'square-light' : 'square-dark'}${isHighlighted ? ' square-highlighted' : ''}${isSelected ? ' square-selected' : ''}${isFocused ? ' square-focused' : ''}${canDrag ? ' square-draggable' : ''}${isDragSource ? ' square-drag-source' : ''}`}
                         role="gridcell"
                         aria-label={square.name}
                         aria-selected={isSelected}
                         data-square={square.name}
                         key={square.name}
                         onClick={() => handleSquareClick(square.name as Square)}
-                        draggable={
-                          isInteractive && Boolean(square.piece && square.piece.color === mover)
-                        }
-                        onDragStart={(e) => handleDragStart(e, square.name as Square)}
-                        onDragOver={(e) => {
-                          if (isInteractive) e.preventDefault();
-                        }}
-                        onDrop={(e) => handleDrop(e, square.name as Square)}
+                        draggable={false}
+                        onPointerDown={(event) => handlePointerDown(event, square.name as Square)}
                       >
                         {column === 0 ? (
                           <span className="board-rank-label" aria-hidden="true">
@@ -381,24 +596,52 @@ export function ChessboardView({
                 </div>
               ))}
             </div>
+            {openingArrows && openingArrows.length > 0 ? (
+              <OpeningArrows arrows={openingArrows} orientation={orientation} />
+            ) : null}
             {pvArrow ? <BoardArrow move={pvArrow} orientation={orientation} /> : null}
           </div>
+          {isMobile ? (
+            evaluationScore ? (
+              <EvaluationBar score={evaluationScore} orientation={orientation} mode="horizontal" />
+            ) : (
+              <div className="evaluation-bar-placeholder" aria-hidden="true" />
+            )
+          ) : null}
         </div>
+        {draggedPiece
+          ? createPortal(
+              <div
+                ref={dragPreviewRef}
+                className="chess-piece-drag-preview"
+                aria-hidden="true"
+                style={{
+                  width: draggedPiece.size,
+                  height: draggedPiece.size,
+                  transform: `translate3d(${draggedPiece.x - draggedPiece.size / 2}px, ${draggedPiece.y - draggedPiece.size / 2}px, 0)`,
+                }}
+              >
+                <Piece piece={draggedPiece.piece} square={draggedPiece.square} />
+              </div>,
+              document.body
+            )
+          : null}
         <PromotionDialog
           isOpen={pendingPromotion !== null}
           color={mover}
           onSelect={handlePromotionSelect}
           onCancel={handlePromotionCancel}
         />
-        {announcement ? (
-          <span className="sr-only" role="status" aria-live="polite">
-            {announcement}
-          </span>
-        ) : null}
+        <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {announcement}
+        </div>
         <p id="board-keyboard-interactive-help" className="sr-only">
-          Use Arrow keys to navigate squares across files and ranks. Press Enter or Space to select
-          a piece and choose a legal destination. Press Escape to clear selection. Press Alt+Arrow
-          keys or Home/End to navigate history.
+          Use Arrow keys to navigate squares across files and ranks.{' '}
+          {isInteractive
+            ? 'Press Enter or Space to select a piece and choose a legal destination. Press Escape to clear selection. '
+            : 'Piece input is disabled at this position. '}
+          Press Alt+ArrowLeft or Alt+ArrowRight to navigate history; Home and End also move through
+          history.
         </p>
       </div>
       {players ? (
@@ -432,6 +675,69 @@ export function ChessboardView({
   );
 }
 
+export interface ArrowPathResult {
+  d: string;
+  isKnight: boolean;
+  shortenedTo: { x: number; y: number };
+  corner?: { x: number; y: number };
+}
+
+export function computeArrowPath(
+  from: { x: number; y: number; col: number; row: number },
+  to: { x: number; y: number; col: number; row: number }
+): ArrowPathResult {
+  const deltaCol = to.col - from.col;
+  const deltaRow = to.row - from.row;
+  const absCol = Math.abs(deltaCol);
+  const absRow = Math.abs(deltaRow);
+  const isKnight = (absCol === 1 && absRow === 2) || (absCol === 2 && absRow === 1);
+
+  if (isKnight) {
+    const cornerX = absRow > absCol ? from.x : to.x;
+    const cornerY = absRow > absCol ? to.y : from.y;
+    const legDx = to.x - cornerX;
+    const legDy = to.y - cornerY;
+    const legDist = Math.hypot(legDx, legDy);
+    const shortenedToX = legDist > 0 ? to.x - (legDx / legDist) * 48 : to.x;
+    const shortenedToY = legDist > 0 ? to.y - (legDy / legDist) * 48 : to.y;
+    return {
+      d: `M ${from.x},${from.y} L ${cornerX},${cornerY} L ${shortenedToX},${shortenedToY}`,
+      isKnight: true,
+      corner: { x: cornerX, y: cornerY },
+      shortenedTo: { x: shortenedToX, y: shortenedToY },
+    };
+  }
+
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const d = Math.hypot(dx, dy);
+  const shortenedToX = d > 0 ? to.x - (dx / d) * 48 : to.x;
+  const shortenedToY = d > 0 ? to.y - (dy / d) * 48 : to.y;
+  return {
+    d: `M ${from.x},${from.y} L ${shortenedToX},${shortenedToY}`,
+    isKnight: false,
+    shortenedTo: { x: shortenedToX, y: shortenedToY },
+  };
+}
+
+function getOpeningArrowColor(arrow: OpeningArrow): string {
+  if (arrow.active) return '#0284c7';
+  const palette = arrow.palette ?? 'neutral';
+  if (palette === 'own') {
+    if (arrow.band === 'strong') return '#16a34a';
+    if (arrow.band === 'medium') return '#22c55e';
+    return '#86efac';
+  }
+  if (palette === 'opponent') {
+    if (arrow.band === 'strong') return '#ea580c';
+    if (arrow.band === 'medium') return '#f97316';
+    return '#fdba74';
+  }
+  if (arrow.band === 'strong') return '#2563eb';
+  if (arrow.band === 'medium') return '#3b82f6';
+  return '#93c5fd';
+}
+
 function BoardArrow({
   move,
   orientation,
@@ -439,38 +745,165 @@ function BoardArrow({
   move: { from: string; to: string };
   orientation: 'white' | 'black';
 }) {
+  const prefix = useId();
   const from = squareCenter(move.from, orientation);
   const to = squareCenter(move.to, orientation);
   if (!from || !to) return null;
+  const markerId = `${prefix}-pv-arrow-head`;
+  const { d } = computeArrowPath(from, to);
+  const color = 'rgb(255 170 0 / 78%)';
+
   return (
     <svg
       className="board-arrow"
-      viewBox="0 0 100 100"
+      viewBox="0 0 2048 2048"
       aria-label={`Principal variation ${move.from} to ${move.to}`}
       role="img"
+      pointerEvents="none"
     >
       <defs>
         <marker
-          id="pv-arrow-head"
-          markerWidth="5"
-          markerHeight="5"
-          refX="4"
-          refY="2.5"
+          id={markerId}
+          markerWidth="2"
+          markerHeight="2.5"
+          refX="1.25"
+          refY="1.25"
           orient="auto"
         >
-          <path d="M0,0 L5,2.5 L0,5 Z" />
+          <polygon points="0.3 0, 2 1.25, 0.3 2.5" fill={color} />
         </marker>
       </defs>
-      <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} markerEnd="url(#pv-arrow-head)" />
+      <path
+        d={d}
+        fill="none"
+        stroke={color}
+        strokeWidth={51.2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        markerEnd={`url(#${markerId})`}
+      />
     </svg>
   );
 }
 
-function squareCenter(square: string, orientation: 'white' | 'black') {
+function OpeningArrows({
+  arrows,
+  orientation,
+}: {
+  arrows: readonly OpeningArrow[];
+  orientation: 'white' | 'black';
+}) {
+  const prefix = useId();
+  if (arrows.length === 0) return null;
+
+  return (
+    <svg className="opening-arrows" viewBox="0 0 2048 2048" pointerEvents="none" aria-hidden="true">
+      <defs>
+        {arrows.map((arrow) => {
+          const markerId = `${prefix}-${arrow.uci}-arrow`;
+          const color = getOpeningArrowColor(arrow);
+          return (
+            <marker
+              key={arrow.uci}
+              id={markerId}
+              markerWidth="2"
+              markerHeight="2.5"
+              refX="1.25"
+              refY="1.25"
+              orient="auto"
+            >
+              <polygon
+                points="0.3 0, 2 1.25, 0.3 2.5"
+                fill={color}
+                className={`arrow-head arrow-head--${arrow.band} arrow-head--${arrow.palette ?? 'neutral'} ${arrow.active ? 'arrow-head--active' : ''}`}
+              />
+            </marker>
+          );
+        })}
+      </defs>
+      {arrows.map((arrow) => {
+        const from = squareCenter(arrow.from, orientation);
+        const to = squareCenter(arrow.to, orientation);
+        if (!from || !to) return null;
+        const markerId = `${prefix}-${arrow.uci}-arrow`;
+        const { d } = computeArrowPath(from, to);
+        const color = getOpeningArrowColor(arrow);
+
+        return (
+          <path
+            key={arrow.uci}
+            d={d}
+            fill="none"
+            stroke={color}
+            strokeWidth={51.2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            markerEnd={`url(#${markerId})`}
+            className={`opening-arrow opening-arrow--${arrow.band} opening-arrow--${arrow.palette ?? 'neutral'} ${arrow.active ? 'opening-arrow--active' : ''}`}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+export function squareCenter(square: string, orientation: 'white' | 'black') {
   if (!/^[a-h][1-8]$/.test(square)) return null;
-  const file = square.charCodeAt(0) - 97;
-  const rank = Number(square[1]) - 1;
-  const column = orientation === 'white' ? file : 7 - file;
-  const row = orientation === 'white' ? 7 - rank : rank;
-  return { x: (column + 0.5) * 12.5, y: (row + 0.5) * 12.5 };
+  const fileIndex = square.charCodeAt(0) - 97;
+  const rankIndex = Number(square[1]) - 1;
+  const col = orientation === 'white' ? fileIndex : 7 - fileIndex;
+  const row = orientation === 'white' ? 7 - rankIndex : rankIndex;
+  const x = col * 256 + 128;
+  const y = row * 256 + 128;
+  return { x, y, col, row };
+}
+
+export function calculateMoveDelta(
+  from: Square,
+  to: Square,
+  orientation: 'white' | 'black'
+): { deltaX: number; deltaY: number } {
+  const fromFile = from.charCodeAt(0) - 97;
+  const fromRank = Number(from[1]) - 1;
+  const toFile = to.charCodeAt(0) - 97;
+  const toRank = Number(to[1]) - 1;
+
+  const fromCol = orientation === 'white' ? fromFile : 7 - fromFile;
+  const fromRow = orientation === 'white' ? 7 - fromRank : fromRank;
+  const toCol = orientation === 'white' ? toFile : 7 - toFile;
+  const toRow = orientation === 'white' ? 7 - toRank : toRank;
+
+  const deltaX = (fromCol - toCol) * 100;
+  const deltaY = (fromRow - toRow) * 100;
+
+  return { deltaX, deltaY };
+}
+
+export { getCastlingRookMove } from '@/features/board/animation';
+
+export function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+export function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window.matchMedia === 'function') {
+      const media = window.matchMedia('(width < 768px)');
+      const update = () => setIsMobile(media.matches);
+      update();
+      media.addEventListener('change', update);
+      return () => media.removeEventListener('change', update);
+    }
+    const update = () => setIsMobile(window.innerWidth < 768);
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  return isMobile;
 }

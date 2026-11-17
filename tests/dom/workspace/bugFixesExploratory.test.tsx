@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -185,6 +185,7 @@ function makeMockServices(games: GameRecord[] = [sampleGame]): WorkspaceServices
       dispose: vi.fn(),
     },
     engine: {
+      retryInitialize: vi.fn(),
       initialize: vi.fn().mockResolvedValue({
         mode: 'single-thread',
         threads: 1,
@@ -210,6 +211,45 @@ function makeMockServices(games: GameRecord[] = [sampleGame]): WorkspaceServices
 describe('Bug fixes exploratory verification', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    // T28 URL sync persists view params in this shared jsdom window; reset so
+    // each test mounts from a clean address bar.
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('keeps the selected board mounted when Openings is entered before its graph is ready', async () => {
+    const user = userEvent.setup();
+    const services = makeMockServices();
+    vi.mocked(services.graph.build).mockImplementation(() => new Promise(() => {}));
+    render(<ChessWorkspace createServices={() => services} />);
+    await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
+    await user.click(screen.getByRole('button', { name: 'Find games' }));
+    await user.click(await screen.findByRole('button', { name: /^Preview .*opponent/i }));
+    const board = screen.getByRole('grid', { name: 'Chess board' });
+    await user.click(screen.getByRole('button', { name: 'Openings' }));
+    expect(board.isConnected).toBe(true);
+    expect(screen.getByRole('grid', { name: 'Chess board' })).toBe(board);
+    await user.click(screen.getByRole('button', { name: 'Games' }));
+    expect(screen.getByRole('grid', { name: 'Chess board' })).toBe(board);
+  });
+
+  it('keeps a card with no legal moves in preview instead of reviewing the previous game', async () => {
+    const user = userEvent.setup();
+    const emptyGame = {
+      ...sampleGame,
+      id: 'empty-game',
+      endedAt: sampleGame.endedAt - 1,
+      pgn: '[Result "1-0"]\n\n1-0',
+    };
+    const services = makeMockServices([sampleGame, emptyGame]);
+    render(<ChessWorkspace createServices={() => services} />);
+    await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
+    await user.click(screen.getByRole('button', { name: 'Find games' }));
+    const rows = (await screen.findByRole('list', { name: 'Games' })).children;
+    await user.click(within(rows[1] as HTMLElement).getByRole('button', { name: /^Review / }));
+    expect(screen.queryByRole('button', { name: 'Back to games' })).not.toBeInTheDocument();
+    expect(screen.getAllByText('This game has no reviewable moves.')[0]).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Review game' })).toBeDisabled();
+    expect(services.analysis.analyze).not.toHaveBeenCalled();
   });
 
   it('Bug 3: retains existing active games when a re-import query fails and provides recovery', async () => {
@@ -220,10 +260,10 @@ describe('Bug fixes exploratory verification', () => {
 
     // Initial successful load
     await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
 
     // Verify game is loaded in the list
-    expect(screen.getByRole('button', { name: /opponent/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^Preview .*opponent/i })).toBeInTheDocument();
 
     // Now open Import games utility drawer
     const importBtn = screen.getByRole('button', { name: /import games/i });
@@ -233,7 +273,7 @@ describe('Bug fixes exploratory verification', () => {
     const drawerUsernameInput = screen.getByLabelText(/^username$/i);
     await user.clear(drawerUsernameInput);
     await user.type(drawerUsernameInput, 'nonexistent_user_404');
-    const drawerSubmit = screen.getByRole('button', { name: /load games/i });
+    const drawerSubmit = screen.getByRole('button', { name: /find games/i });
     await user.click(drawerSubmit);
 
     // Close the drawer using its close button
@@ -241,21 +281,21 @@ describe('Bug fixes exploratory verification', () => {
     fireEvent.click(closeBtn);
 
     // User should still see their previously loaded game in the list!
-    expect(screen.getByRole('button', { name: /opponent/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Preview .*opponent/i })).toBeInTheDocument();
 
     // An alert banner informing them of the failure is shown with "Keep current games"
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    expect(screen.getByText(/User not found \(404\)/i)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/User not found \(404\)/i);
     const keepGamesBtn = screen.getByRole('button', { name: /keep current games/i });
     expect(keepGamesBtn).toBeInTheDocument();
 
     // Clicking "Keep current games" dismisses the failure banner
     await user.click(keepGamesBtn);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /opponent/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Preview .*opponent/i })).toBeInTheDocument();
   });
 
-  it('Bug 4: draws best move arrow (before.bestMove) for inaccuracies instead of opponent response', async () => {
+  it('draws the legal reply on the selected after-position', async () => {
     const user = userEvent.setup();
     const services = makeMockServices([sampleGame]);
 
@@ -263,15 +303,13 @@ describe('Bug fixes exploratory verification', () => {
 
     // Load games
     await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
 
     // Switch to Analysis tab directly and start review
-    const reviewBtn = screen.getByRole('button', { name: /review game/i });
+    const reviewBtn = await screen.findByRole('button', { name: /review game/i });
     await user.click(reviewBtn);
 
-    // Start analysis
-    const startAnalysisBtn = await screen.findByRole('button', { name: /run review/i });
-    await user.click(startAnalysisBtn);
+    // The explicit Review game action starts analysis.
 
     // Wait for analysis to complete and navigate to ply 3 (an inaccuracy)
     const ply3Button = await screen.findByRole('button', { name: /ply 3/i });
@@ -279,11 +317,11 @@ describe('Bug fixes exploratory verification', () => {
 
     // Move 3 is Nf3?! (inaccuracy). Best move was d2d4 (d4).
     // Opponent's response in after.pv[0] was b8c6.
-    // The PV arrow on the board must show d2 to d4 (the best move), NOT b8 to c6!
-    const arrow = screen.getByRole('img', { name: /principal variation d2 to d4/i });
+    // The board shows the position after Nf3, so only Black's legal reply belongs here.
+    const arrow = screen.getByRole('img', { name: /principal variation b8 to c6/i });
     expect(arrow).toBeInTheDocument();
     expect(
-      screen.queryByRole('img', { name: /principal variation b8 to c6/i })
+      screen.queryByRole('img', { name: /principal variation d2 to d4/i })
     ).not.toBeInTheDocument();
   });
 
@@ -295,7 +333,9 @@ describe('Bug fixes exploratory verification', () => {
 
     // Load games
     await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
+
+    await screen.findByLabelText('Position 0 of 6');
 
     // Focus on an element outside the chessboard (e.g. Games nav item)
     const gamesNav = screen.getByRole('button', { name: /^games$/i });
@@ -303,7 +343,7 @@ describe('Bug fixes exploratory verification', () => {
     expect(document.activeElement).toBe(gamesNav);
 
     // Initial ply should be 0 (Position 0 of 6)
-    expect(screen.getByLabelText('Position 0 of 6')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Position 0 of 6')).toBeInTheDocument();
 
     // Press ArrowRight while focused on the nav button
     await user.keyboard('{ArrowRight}');

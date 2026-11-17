@@ -8,17 +8,87 @@ import {
   serializedGraphFits,
   type SerializedOpeningGraph,
 } from '../lib/chess/graph/serialization';
-import type { GraphBuildOptions, GraphStructuralLimits } from '../lib/chess/graph/types';
+import {
+  OPENING_PROJECTION_VERSION,
+  PGN_PARSER_VERSION,
+  POSITION_KEY_VERSION,
+  type GraphBuildOptions,
+  type GraphStructuralLimits,
+  type OpeningGameProjection,
+} from '../lib/chess/graph/types';
 import { parseGamePgn, type ParsedGame } from '../lib/chess/pgnParser';
-import type { Diagnostic } from '../lib/api/contracts';
+import type { Diagnostic, NormalizedGameSummary } from '../lib/api/contracts';
+import { computePgnDigest } from '../features/stockfish-analysis/reviewIdentity';
 import type { WorkerRequest, WorkerResponse } from './protocol';
-import { isWorkerRequest, PROTOCOL_VERSION } from './protocol';
+import { isOpeningGameProjection, isWorkerRequest, PROTOCOL_VERSION } from './protocol';
 
 const cancelledJobs = new Set<string>();
+const completedJobs = new Set<string>();
+const MAX_JOB_TOMBSTONES = 1000;
 const PROGRESS_INTERVAL_MS = 50;
 const PARSE_YIELD_EVERY_GAMES = 25;
 const MAX_DIAGNOSTICS = 100;
 const MAX_DIAGNOSTIC_CODES = 20;
+
+const MAX_PARSED_CACHE_ENTRIES = 1000;
+const MAX_PARSED_CACHE_BYTES = 64 * 1024 * 1024;
+interface CachedParsedEntry {
+  parsed: ParsedGame;
+  projection: OpeningGameProjection;
+  byteSize: number;
+}
+const parsedCache = new Map<string, CachedParsedEntry>();
+let totalCachedBytes = 0;
+
+export function clearParsedCache(): void {
+  parsedCache.clear();
+  totalCachedBytes = 0;
+}
+
+function parsedGameCacheKey(game: NormalizedGameSummary, pgnDigest: string): string {
+  return JSON.stringify([
+    game.id,
+    pgnDigest,
+    PGN_PARSER_VERSION,
+    POSITION_KEY_VERSION,
+    game.usernameKey,
+    game.userColor,
+    game.result,
+    game.endedAt,
+    game.timeClass,
+    game.rated,
+    game.userRating,
+    game.opponentRating,
+    game.timeControl,
+    game.rules,
+    game.whitePlayer,
+    game.blackPlayer,
+    game.accuracies,
+  ]);
+}
+
+function storeInParsedCache(
+  key: string,
+  parsed: ParsedGame,
+  projection: OpeningGameProjection
+): void {
+  const byteSize = (JSON.stringify(projection).length + JSON.stringify(parsed).length) * 2;
+  if (parsedCache.has(key)) {
+    totalCachedBytes -= parsedCache.get(key)!.byteSize;
+    parsedCache.delete(key);
+  }
+  while (
+    (parsedCache.size >= MAX_PARSED_CACHE_ENTRIES ||
+      totalCachedBytes + byteSize > MAX_PARSED_CACHE_BYTES) &&
+    parsedCache.size > 0
+  ) {
+    const oldestKey = parsedCache.keys().next().value!;
+    totalCachedBytes -= parsedCache.get(oldestKey)!.byteSize;
+    parsedCache.delete(oldestKey);
+  }
+  parsedCache.set(key, { parsed, projection, byteSize });
+  totalCachedBytes += byteSize;
+}
 
 if (typeof self !== 'undefined') {
   self.addEventListener('message', (event: MessageEvent<unknown>) => {
@@ -31,14 +101,30 @@ export async function handleRequest(
   request: WorkerRequest,
   post: (response: WorkerResponse) => void
 ): Promise<void> {
-  if (request.type === 'DISPOSE') {
-    cancelledJobs.add(request.jobId);
+  if (request.type === 'CANCEL_JOB' || request.type === 'DISPOSE') {
+    // A cancel may arrive after the terminal response was posted. Do not retain it.
+    if (!completedJobs.has(request.jobId)) {
+      cancelledJobs.add(request.jobId);
+      while (cancelledJobs.size > MAX_JOB_TOMBSTONES)
+        cancelledJobs.delete(cancelledJobs.values().next().value!);
+    }
     return;
   }
-  if (request.type === 'CANCEL_JOB') {
-    cancelledJobs.add(request.jobId);
-    return;
+  completedJobs.delete(request.jobId);
+  try {
+    await runDataJob(request, post);
+  } finally {
+    cancelledJobs.delete(request.jobId);
+    completedJobs.add(request.jobId);
+    while (completedJobs.size > MAX_JOB_TOMBSTONES)
+      completedJobs.delete(completedJobs.values().next().value!);
   }
+}
+
+async function runDataJob(
+  request: Exclude<WorkerRequest, { type: 'CANCEL_JOB' | 'DISPOSE' }>,
+  post: (response: WorkerResponse) => void
+): Promise<void> {
   post({ protocolVersion: PROTOCOL_VERSION, jobId: request.jobId, type: 'JOB_ACCEPTED' });
   let lastProgressAt = Number.NEGATIVE_INFINITY;
   let parsedGameCount = 0;
@@ -102,7 +188,7 @@ export async function handleRequest(
       post({ protocolVersion: PROTOCOL_VERSION, jobId: request.jobId, type: 'CANCELLED' });
       return;
     }
-    const excludedGameCount = request.games.length - parsedGames.length;
+    let excludedGameCount = request.games.length - parsedGames.length;
     const graph = await buildGraphWithinByteBudget(
       parsedGames,
       request.options,
@@ -113,6 +199,10 @@ export async function handleRequest(
         buildTimestamp: Date.now(),
       },
       {
+        ...(request.options.maxBytes !== undefined ? { maxBytes: request.options.maxBytes } : {}),
+        ...(request.options.structuralLimits
+          ? { structuralLimits: request.options.structuralLimits }
+          : {}),
         shouldCancel: () => cancelledJobs.has(request.jobId),
         onProgress: (includedGameCount) => reportProgress(includedGameCount),
       }
@@ -122,6 +212,10 @@ export async function handleRequest(
       return;
     }
     const snapshot = graph.snapshot;
+    excludedGameCount = snapshot.excludedGameCount;
+    if (excludedGameCount > request.games.length - parsedGames.length) {
+      diagnosticCodes = [...diagnosticCodes, 'GRAPH_GAME_SKIPPED'].slice(0, MAX_DIAGNOSTIC_CODES);
+    }
     if (graph.status === 'limited')
       post({
         protocolVersion: PROTOCOL_VERSION,
@@ -190,7 +284,7 @@ export interface GraphBudgetResult {
 }
 
 export async function buildGraphWithinByteBudget(
-  games: readonly ParsedGame[],
+  games: readonly (ParsedGame | OpeningGameProjection)[],
   options: GraphBuildOptions,
   metadata: GraphBudgetMetadata,
   runtime: GraphBudgetRuntime = {}
@@ -221,7 +315,7 @@ export async function buildGraphWithinByteBudget(
         status: 'limited',
         reachedLimit: 'maxSnapshotBytes',
         includedGameCount: graph.includedGameCount,
-        remainingGameCount: orderedGames.length - graph.includedGameCount,
+        remainingGameCount: orderedGames.length - graph.includedGameCount - graph.excludedGameCount,
       };
     }
     return {
@@ -265,6 +359,7 @@ async function validatePgnsInWorker(
 ): Promise<
   | {
       validGameIds: readonly string[];
+      projections: readonly OpeningGameProjection[];
       diagnostics: readonly Diagnostic[];
       totalInvalid: number;
       diagnosticCodes: readonly string[];
@@ -272,23 +367,50 @@ async function validatePgnsInWorker(
   | undefined
 > {
   const validGameIds: string[] = [];
+  const projections: OpeningGameProjection[] = [];
   const diagnostics: Diagnostic[] = [];
   const diagnosticCodes: string[] = [];
   let totalInvalid = 0;
 
   for (let index = 0; index < games.length; index += 1) {
     if (cancelledJobs.has(jobId)) return undefined;
-    const result = parseGamePgn({ game: games[index]! });
-    if (result.ok) validGameIds.push(games[index]!.id);
-    else {
-      totalInvalid += 1;
-      for (const diagnostic of result.errors) {
-        if (diagnostics.length < MAX_DIAGNOSTICS) diagnostics.push(diagnostic);
-        if (
-          diagnosticCodes.length < MAX_DIAGNOSTIC_CODES &&
-          !diagnosticCodes.includes(diagnostic.code)
-        ) {
-          diagnosticCodes.push(diagnostic.code);
+    const game = games[index]!;
+    const pgn = game.pgn?.trim() ?? '';
+    const pgnDigest = pgn ? await computePgnDigest(game.pgn!) : '';
+    const cacheKey = pgnDigest ? parsedGameCacheKey(game, pgnDigest) : null;
+    const cached = cacheKey ? parsedCache.get(cacheKey) : undefined;
+
+    if (cached) {
+      parsedCache.delete(cacheKey!);
+      parsedCache.set(cacheKey!, cached);
+      validGameIds.push(game.id);
+      projections.push(cached.projection);
+    } else {
+      const result = parseGamePgn({ game });
+      if (result.ok) {
+        validGameIds.push(game.id);
+        const projection: OpeningGameProjection = {
+          ...result.game,
+          plies: result.game.plies.slice(0, 40),
+          projectionVersion: OPENING_PROJECTION_VERSION,
+          parserVersion: PGN_PARSER_VERSION,
+          positionVersion: POSITION_KEY_VERSION,
+          pgnDigest,
+        };
+        projections.push(projection);
+        if (cacheKey) {
+          storeInParsedCache(cacheKey, result.game, projection);
+        }
+      } else {
+        totalInvalid += 1;
+        for (const diagnostic of result.errors) {
+          if (diagnostics.length < MAX_DIAGNOSTICS) diagnostics.push(diagnostic);
+          if (
+            diagnosticCodes.length < MAX_DIAGNOSTIC_CODES &&
+            !diagnosticCodes.includes(diagnostic.code)
+          ) {
+            diagnosticCodes.push(diagnostic.code);
+          }
         }
       }
     }
@@ -297,7 +419,7 @@ async function validatePgnsInWorker(
     }
   }
 
-  return { validGameIds, diagnostics, totalInvalid, diagnosticCodes };
+  return { validGameIds, projections, diagnostics, totalInvalid, diagnosticCodes };
 }
 
 async function parseGamesInWorker(
@@ -308,22 +430,56 @@ async function parseGamesInWorker(
     diagnosticsCount: number,
     diagnosticCodes: readonly string[]
   ) => void
-): Promise<ParsedGame[] | undefined> {
-  const parsedGames: ParsedGame[] = [];
+): Promise<(ParsedGame | OpeningGameProjection)[] | undefined> {
+  const parsedGames: (ParsedGame | OpeningGameProjection)[] = [];
   let diagnosticsCount = 0;
   const diagnosticCodes: string[] = [];
+
   for (let index = 0; index < games.length; index += 1) {
     if (cancelledJobs.has(jobId)) return undefined;
-    const result = parseGamePgn({ game: games[index]! });
-    if (result.ok) parsedGames.push(result.game);
-    else {
-      diagnosticsCount = Math.min(MAX_DIAGNOSTICS, diagnosticsCount + result.errors.length);
-      for (const diagnostic of result.errors) {
-        if (
-          diagnosticCodes.length < MAX_DIAGNOSTIC_CODES &&
-          !diagnosticCodes.includes(diagnostic.code)
-        ) {
-          diagnosticCodes.push(diagnostic.code);
+    const game = games[index]!;
+    if (isOpeningGameProjection(game)) {
+      parsedGames.push(game);
+      onProgress(parsedGames.length, diagnosticsCount, diagnosticCodes);
+      if ((index + 1) % PARSE_YIELD_EVERY_GAMES === 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+      continue;
+    }
+
+    const pgn = game.pgn?.trim() ?? '';
+    const pgnDigest = pgn ? await computePgnDigest(game.pgn!) : '';
+    const cacheKey = pgnDigest ? parsedGameCacheKey(game, pgnDigest) : null;
+    const cached = cacheKey ? parsedCache.get(cacheKey) : undefined;
+
+    if (cached) {
+      parsedCache.delete(cacheKey!);
+      parsedCache.set(cacheKey!, cached);
+      parsedGames.push(cached.projection);
+    } else {
+      const result = parseGamePgn({ game });
+      if (result.ok) {
+        const projection: OpeningGameProjection = {
+          ...result.game,
+          plies: result.game.plies.slice(0, 40),
+          projectionVersion: OPENING_PROJECTION_VERSION,
+          parserVersion: PGN_PARSER_VERSION,
+          positionVersion: POSITION_KEY_VERSION,
+          pgnDigest,
+        };
+        parsedGames.push(projection);
+        if (cacheKey) {
+          storeInParsedCache(cacheKey, result.game, projection);
+        }
+      } else {
+        diagnosticsCount = Math.min(MAX_DIAGNOSTICS, diagnosticsCount + result.errors.length);
+        for (const diagnostic of result.errors) {
+          if (
+            diagnosticCodes.length < MAX_DIAGNOSTIC_CODES &&
+            !diagnosticCodes.includes(diagnostic.code)
+          ) {
+            diagnosticCodes.push(diagnostic.code);
+          }
         }
       }
     }
@@ -332,5 +488,6 @@ async function parseGamesInWorker(
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
   }
+
   return parsedGames;
 }

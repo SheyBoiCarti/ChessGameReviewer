@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   openDatabase,
+  DatabaseBlockedError,
   closeDatabase,
   initializeDatabaseMetadata,
   QuotaExceededError,
@@ -118,4 +119,21 @@ describe('openDatabase', () => {
     } as unknown as IDBDatabase;
     expect(() => closeDatabase(db)).not.toThrow();
   });
+});
+
+it('recovers after a blocked upgrade without leaking its eventual rejected connection', async () => {
+  const name = `${DB_NAME}-blocked-upgrade`;
+  const legacy = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(name, 3);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const onBlocked = vi.fn();
+  await expect(openDatabase({ name, onBlocked })).rejects.toBeInstanceOf(DatabaseBlockedError);
+  expect(onBlocked).toHaveBeenCalledOnce();
+  legacy.close();
+  const recovered = await openDatabase({ name });
+  expect(recovered.version).toBe(4);
+  expect(recovered.objectStoreNames.contains(STORES.NORMALIZED_MONTHS)).toBe(true);
+  recovered.close();
 });

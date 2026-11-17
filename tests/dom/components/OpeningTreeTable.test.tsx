@@ -1,10 +1,64 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Chess } from 'chess.js';
 import { describe, expect, it, vi } from 'vitest';
 
 import { OpeningTreeTable } from '@/components/tree/OpeningTreeTable';
-import { createGraphNavigation } from '@/features/opening-tree/navigation';
-import { openingGraphFixture } from '@/tests/helpers/openingGraphFixture';
+import {
+  createGraphNavigation,
+  navigateCandidate,
+  navigateToHistoryIndex,
+  type GraphNavigationState,
+} from '@/features/opening-tree/navigation';
+import { openingGraphFixture, fixtureKeyAfter } from '@/tests/helpers/openingGraphFixture';
+import { normalizePositionKey } from '@/lib/chess/fen';
+import scopeGames from '@/tests/fixtures/openingScopeGames.json';
+import { OpeningGraphBuilder } from '@/lib/chess/graph/openingGraph';
+import { parseGamePgn } from '@/lib/chess/pgnParser';
+
+function buildAuditScopeGraph(color: 'white' | 'black') {
+  const filtered = scopeGames.filter((g) =>
+    color === 'white' ? g.white.username === 'audit-player' : g.black.username === 'audit-player'
+  );
+  const parsed = filtered.map((g) => {
+    const res = parseGamePgn({
+      game: {
+        id: g.uuid,
+        url: g.url,
+        usernameKey: 'audit-player',
+        userColor: color,
+        result:
+          g.white.result === 'win'
+            ? color === 'white'
+              ? 'win'
+              : 'loss'
+            : g.black.result === 'win'
+              ? color === 'black'
+                ? 'win'
+                : 'loss'
+              : 'draw',
+        endedAt: g.end_time,
+        timeClass: g.time_class as import('@/lib/api/contracts').TimeClass,
+        rated: g.rated,
+        userRating: 1800,
+        opponentRating: 1750,
+        whitePlayer: { username: g.white.username, rating: 1800 },
+        blackPlayer: { username: g.black.username, rating: 1750 },
+        rules: 'chess',
+        pgn: g.pgn,
+      },
+    });
+    if (!res.ok) throw new Error('Failed to parse scope game');
+    return res.game;
+  });
+  return new OpeningGraphBuilder({ maxOpeningPlies: 6 }).build(parsed);
+}
+
+function startFenAfter(uci: string): string {
+  const chess = new Chess();
+  chess.move(uci);
+  return chess.fen();
+}
 
 describe('OpeningTreeTable', () => {
   it('navigates candidates by target position while preserving the selected path', async () => {
@@ -28,15 +82,15 @@ describe('OpeningTreeTable', () => {
       screen.getByRole('table', { name: 'Opening candidates' })
     );
     expect(candidateResults).not.toContainElement(screen.getByLabelText(/sort candidate moves/i));
-    expect(screen.getByRole('columnheader', { name: /sample size/i })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /sample size/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /play e4/i }));
 
     expect(onNavigate).toHaveBeenCalledWith(
-      expect.objectContaining({ positionKey: 'after-e4', pathId: 1 })
+      expect.objectContaining({ positionKey: fixtureKeyAfter('e4'), pathId: 9 })
     );
   });
 
-  it('keeps a persistent exact resource-limit notice with horizon help', () => {
+  it('keeps a persistent exact resource-limit notice with horizon help', async () => {
     const graph = openingGraphFixture('limited');
     render(
       <OpeningTreeTable
@@ -48,8 +102,56 @@ describe('OpeningTreeTable', () => {
     );
 
     expect(screen.getByRole('status')).toHaveTextContent(/edge resource limit/i);
-    expect(screen.getByRole('status')).toHaveTextContent(/5 included.*2 remaining/i);
+    expect(screen.getByRole('status')).toHaveTextContent(/3 included.*2 remaining/i);
+    await userEvent.setup().click(screen.getByText('More statistics', { exact: true }));
     expect(screen.getByText(/maximum is 40 plies/i)).toBeInTheDocument();
+  });
+
+  it('mounts extended statistics only while expanded', async () => {
+    const user = userEvent.setup();
+    const graph = openingGraphFixture();
+    render(
+      <OpeningTreeTable
+        graph={graph}
+        navigation={createGraphNavigation(graph)}
+        perspective="user"
+        onNavigate={vi.fn()}
+      />
+    );
+    expect(
+      screen.queryByRole('table', { name: 'Detailed opening statistics' })
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByText('More statistics', { exact: true }));
+    expect(screen.getByRole('table', { name: 'Detailed opening statistics' })).toBeVisible();
+    await user.click(screen.getByText('More statistics', { exact: true }));
+    expect(
+      screen.queryByRole('table', { name: 'Detailed opening statistics' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('uses visited breadcrumbs without duplicating the board playback controls', async () => {
+    const graph = openingGraphFixture();
+    let navigation = createGraphNavigation(graph);
+    for (const uci of ['e2e4', 'e7e5']) {
+      navigation = navigateCandidate(
+        graph,
+        navigation,
+        graph.positions.get(navigation.positionKey)!.outgoing.get(uci)!
+      );
+    }
+    const onNavigate = vi.fn();
+    render(
+      <OpeningTreeTable
+        graph={graph}
+        navigation={navigation}
+        perspective="user"
+        onNavigate={onNavigate}
+      />
+    );
+    expect(screen.queryByRole('button', { name: 'Back one move' })).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: /^e4$/ }));
+    expect(onNavigate).toHaveBeenCalledWith(navigateToHistoryIndex(navigation, 1));
+    expect(onNavigate.mock.calls[0]![0].history).toHaveLength(3);
   });
 
   it('names the serialized snapshot-size resource limit', () => {
@@ -89,14 +191,15 @@ describe('OpeningTreeTable', () => {
 
   it('shows terminal messaging without an empty fixed-height candidate region', () => {
     const graph = openingGraphFixture();
+    let navigation = createGraphNavigation(graph);
+    for (const uci of ['e2e4', 'e7e5', 'g1f3']) {
+      const edge = graph.positions.get(navigation.positionKey)!.outgoing.get(uci)!;
+      navigation = navigateCandidate(graph, navigation, edge);
+    }
     render(
       <OpeningTreeTable
         graph={graph}
-        navigation={{
-          positionKey: 'transposed-target',
-          pathId: 3,
-          history: [{ positionKey: 'transposed-target', pathId: 3 }],
-        }}
+        navigation={navigation}
         perspective="user"
         onNavigate={vi.fn()}
       />
@@ -106,5 +209,171 @@ describe('OpeningTreeTable', () => {
     expect(
       screen.queryByRole('region', { name: 'Opening candidate results' })
     ).not.toBeInTheDocument();
+  });
+
+  it('clears candidates and memberships for an unobserved visited entry (T38)', () => {
+    const graph = openingGraphFixture();
+    const navigation: GraphNavigationState = {
+      ...createGraphNavigation(graph),
+      positionKey: normalizePositionKey(startFenAfter('a2a3')),
+      fen: startFenAfter('a2a3'),
+      pathId: null,
+      uci: 'a2a3',
+      san: 'a3',
+      observed: false,
+    };
+    render(
+      <OpeningTreeTable
+        graph={graph}
+        navigation={navigation}
+        perspective="user"
+        moveOrdersAction={<button type="button">View move orders</button>}
+        onNavigate={vi.fn()}
+      />
+    );
+
+    // Neither root candidates nor root statistics leak into the unknown position.
+    expect(screen.queryByRole('table', { name: 'Opening candidates' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /play e4/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/no observed games reach this position/i);
+  });
+
+  it('T52: displays continuation share and verifies White (58.3/25.0/16.7%) and Black (50/25/25%) root shares', async () => {
+    const whiteGraph = buildAuditScopeGraph('white');
+    const { rerender } = render(
+      <OpeningTreeTable
+        graph={whiteGraph}
+        navigation={createGraphNavigation(whiteGraph)}
+        perspective="user"
+        onNavigate={vi.fn()}
+      />
+    );
+
+    // White root: e4 (7 / 12 = 58.3%), d4 (3 / 12 = 25.0%), c4 (2 / 12 = 16.7%)
+    const candidateTable = screen.getByRole('table', { name: 'Opening candidates' });
+    expect(candidateTable).toHaveTextContent('58.3%');
+    expect(candidateTable).toHaveTextContent('25.0%');
+    expect(candidateTable).toHaveTextContent('16.7%');
+
+    // Position sample size is labeled
+    const sampleContext = screen.getByLabelText(/position sample context/i);
+    expect(sampleContext).toHaveTextContent(/position sample:\s*12/i);
+
+    // Detailed stats for e4: 3W / 2D / 2L across 7 games -> win rate 42.9%, expected score 57.1%
+    await userEvent.setup().click(screen.getByText('More statistics', { exact: true }));
+    const detailedTable = screen.getByRole('table', { name: 'Detailed opening statistics' });
+    expect(detailedTable).toHaveTextContent('42.9%');
+    expect(detailedTable).toHaveTextContent('57.1%');
+
+    // Black root: d4 (4 / 8 = 50.0%), e4 (2 / 8 = 25.0%), Nf3 (2 / 8 = 25.0%)
+    const blackGraph = buildAuditScopeGraph('black');
+    rerender(
+      <OpeningTreeTable
+        graph={blackGraph}
+        navigation={createGraphNavigation(blackGraph)}
+        perspective="user"
+        onNavigate={vi.fn()}
+      />
+    );
+
+    const blackTable = screen.getByRole('table', { name: 'Opening candidates' });
+    expect(blackTable).toHaveTextContent('50.0%');
+    expect(blackTable).toHaveTextContent('25.0%');
+  });
+
+  it('T52: toggles perspective locally without modifying dataset membership', async () => {
+    const user = userEvent.setup();
+    const whiteGraph = buildAuditScopeGraph('white');
+    const onPerspectiveChange = vi.fn();
+    render(
+      <OpeningTreeTable
+        graph={whiteGraph}
+        navigation={createGraphNavigation(whiteGraph)}
+        perspective="user"
+        onPerspectiveChange={onPerspectiveChange}
+        onNavigate={vi.fn()}
+      />
+    );
+
+    const yourResultsBtn = screen.getByRole('button', { name: 'Your results' });
+    const whiteBlackBtn = screen.getByRole('button', { name: 'White / Black' });
+    expect(yourResultsBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(whiteBlackBtn).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(whiteBlackBtn);
+    expect(onPerspectiveChange).toHaveBeenCalledWith('board');
+  });
+
+  it('T54: triggers hover callbacks on row mouse enter/leave and focus', async () => {
+    const user = userEvent.setup();
+    const whiteGraph = buildAuditScopeGraph('white');
+    const onHoverCandidate = vi.fn();
+    render(
+      <OpeningTreeTable
+        graph={whiteGraph}
+        navigation={createGraphNavigation(whiteGraph)}
+        perspective="user"
+        onHoverCandidate={onHoverCandidate}
+        onNavigate={vi.fn()}
+      />
+    );
+
+    const playBtn = screen.getByRole('button', { name: /play e4/i });
+    const row = playBtn.closest('tr')!;
+
+    await user.hover(row);
+    expect(onHoverCandidate).toHaveBeenCalledWith('e2e4');
+
+    await user.unhover(row);
+    expect(onHoverCandidate).toHaveBeenCalledWith(null);
+
+    playBtn.focus();
+    expect(onHoverCandidate).toHaveBeenCalledWith('e2e4');
+  });
+
+  it('T54: navigates candidate when clicking on noninteractive cells, but ignores nested buttons', async () => {
+    const user = userEvent.setup();
+    const whiteGraph = buildAuditScopeGraph('white');
+    const onNavigate = vi.fn();
+    render(
+      <OpeningTreeTable
+        graph={whiteGraph}
+        navigation={createGraphNavigation(whiteGraph)}
+        perspective="user"
+        onNavigate={onNavigate}
+      />
+    );
+
+    const playBtn = screen.getByRole('button', { name: /play e4/i });
+    const row = playBtn.closest('tr')!;
+    const gamesCell = row.querySelector('.opening-cell--games')!;
+
+    // Clicking non-interactive games cell navigates
+    await user.click(gamesCell);
+    expect(onNavigate).toHaveBeenCalledWith(
+      expect.objectContaining({ positionKey: fixtureKeyAfter('e4') })
+    );
+
+    // Clicking Play button also navigates directly through button
+    onNavigate.mockClear();
+    await user.click(playBtn);
+    expect(onNavigate).toHaveBeenCalledWith(
+      expect.objectContaining({ positionKey: fixtureKeyAfter('e4') })
+    );
+  });
+
+  it('T55: labels position sample context clearly for transposed/shared positions', () => {
+    const whiteGraph = buildAuditScopeGraph('white');
+    render(
+      <OpeningTreeTable
+        graph={whiteGraph}
+        navigation={createGraphNavigation(whiteGraph)}
+        perspective="user"
+        onNavigate={vi.fn()}
+      />
+    );
+    const sampleContext = screen.getByLabelText(/position sample context/i);
+    expect(sampleContext).toHaveTextContent(/position sample:\s*12\s*games/i);
+    expect(sampleContext).toHaveTextContent(/continuations/i);
   });
 });

@@ -3,6 +3,57 @@ import type { PositionNode } from '../../lib/chess/graph/types';
 import type { OutcomeAggregate } from '../../lib/chess/graph/types';
 import { PathStore } from '../../lib/chess/graph/pathStore';
 import type { ParsedGame } from '../../lib/chess/pgnParser';
+import type { Square } from 'chess.js';
+
+export type FrequencyBand = 'strong' | 'medium' | 'rare';
+export type ArrowPalette = 'own' | 'opponent' | 'neutral';
+
+export function openingFrequencyBand(count: number, max: number): FrequencyBand {
+  const ratio = max > 0 ? count / max : 0;
+  return ratio > 0.8 ? 'strong' : ratio > 0.3 ? 'medium' : 'rare';
+}
+
+export function arrowPaletteForScope(
+  scope: 'white' | 'black' | 'both' | null | undefined,
+  sideToMove: 'white' | 'black'
+): ArrowPalette {
+  if (!scope || scope === 'both') return 'neutral';
+  return scope === sideToMove ? 'own' : 'opponent';
+}
+
+export interface OpeningArrow {
+  from: Square;
+  to: Square;
+  uci: string;
+  band: FrequencyBand;
+  palette?: ArrowPalette;
+  active: boolean;
+}
+
+export function selectOpeningArrows(
+  candidates: readonly CandidateMove[],
+  activeUci: string | null = null,
+  scope?: 'white' | 'black' | 'both' | null,
+  sideToMove?: 'white' | 'black'
+): readonly OpeningArrow[] {
+  const maxGames = candidates.reduce((max, c) => Math.max(max, c.metrics.sampleSize), 0);
+  const palette = arrowPaletteForScope(scope, sideToMove ?? 'white');
+  return candidates.flatMap((c) => {
+    if (c.uci.length < 4) return [];
+    const from = c.uci.slice(0, 2) as Square;
+    const to = c.uci.slice(2, 4) as Square;
+    return [
+      {
+        from,
+        to,
+        uci: c.uci,
+        band: openingFrequencyBand(c.metrics.sampleSize, maxGames),
+        palette,
+        active: activeUci === c.uci,
+      },
+    ];
+  });
+}
 
 export type MoveSort = 'games' | 'score' | 'san';
 export interface CandidateMove {
@@ -10,6 +61,7 @@ export interface CandidateMove {
   san: string;
   targetKey: string;
   metrics: DescriptiveMetrics;
+  continuationShare: number | null;
 }
 
 export type OutcomePerspective = 'user' | 'board';
@@ -90,12 +142,17 @@ export function selectCandidateMoves(
   sort: MoveSort = 'games',
   perspective: OutcomePerspective = 'user'
 ): CandidateMove[] {
+  const continuationTotal = [...node.outgoing.values()].reduce(
+    (n, edge) => n + edge.aggregate.games,
+    0
+  );
   return [...node.outgoing.values()]
     .map((edge) => ({
       uci: edge.uci,
       san: edge.san,
       targetKey: edge.targetKey,
       metrics: describeOutcome(edge.aggregate),
+      continuationShare: continuationTotal === 0 ? null : edge.aggregate.games / continuationTotal,
     }))
     .sort((left, right) => {
       if (sort === 'games') {
@@ -129,4 +186,55 @@ export function selectArrivalOrders(
           .join(' ')
           .localeCompare(right.moves.map((move) => move.uci).join(' '))
     );
+}
+
+// Weak identity cache: one index build per serialized revision, without retaining old graphs.
+const membershipIndexes = new WeakMap<
+  import('../../lib/chess/graph/serialization').SerializedOpeningGraph,
+  {
+    positions: Map<string, string[]>;
+    prefixes: Map<number, string[]>;
+  }
+>();
+function membershipIndexesFor(
+  snapshot: import('../../lib/chess/graph/serialization').SerializedOpeningGraph
+) {
+  let indexes = membershipIndexes.get(snapshot);
+  if (!indexes) {
+    indexes = {
+      positions: new Map(snapshot.positionGameIds),
+      prefixes: new Map(snapshot.prefixGameIds),
+    };
+    membershipIndexes.set(snapshot, indexes);
+  }
+  return indexes;
+}
+const EMPTY_MEMBERSHIP: readonly string[] = [];
+export function selectPositionGameIds(
+  snapshot: import('../../lib/chess/graph/serialization').SerializedOpeningGraph,
+  key: string
+): readonly string[] {
+  return membershipIndexesFor(snapshot).positions.get(key) ?? EMPTY_MEMBERSHIP;
+}
+export function selectPrefixGameIds(
+  snapshot: import('../../lib/chess/graph/serialization').SerializedOpeningGraph,
+  pathId: number | null
+): readonly string[] {
+  return pathId === null
+    ? EMPTY_MEMBERSHIP
+    : (membershipIndexesFor(snapshot).prefixes.get(pathId) ?? EMPTY_MEMBERSHIP);
+}
+
+export function selectLatestGameEndedAt(
+  ids: readonly string[],
+  gamesById: ReadonlyMap<string, { endedAt: number }>
+): number | null {
+  let latest: number | null = null;
+  for (const id of ids) {
+    const game = gamesById.get(id);
+    if (game && (latest === null || game.endedAt > latest)) {
+      latest = game.endedAt;
+    }
+  }
+  return latest;
 }

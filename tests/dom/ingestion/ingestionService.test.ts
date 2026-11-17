@@ -35,6 +35,7 @@ function fakeDependencies(overrides: Partial<IngestionDependencies> = {}): Inges
     writeArchiveList: vi.fn().mockResolvedValue(undefined),
     readArchiveSyncs: vi.fn().mockResolvedValue([]),
     readMonthGames: vi.fn().mockResolvedValue([]),
+    readNormalizedMonth: vi.fn().mockResolvedValue(null),
     validatePgns: vi.fn(async (games: readonly { id: string }[]) => ({
       validGameIds: games.map(({ id }) => id),
       diagnostics: [],
@@ -78,6 +79,124 @@ function deferred<T>(): {
 }
 
 describe('runIngestion', () => {
+  it('restores stale local games for a URL without any external request', async () => {
+    const cachedGame = makeGameRecord();
+    const deps = fakeDependencies({
+      readArchiveList: vi
+        .fn()
+        .mockResolvedValue({ username: 'janedoe', months: ['2026-08'], fetchedAt: 0 }),
+      readArchiveSyncs: vi.fn().mockResolvedValue([makeArchiveSync({ lastSuccessfulFetchAt: 0 })]),
+      readMonthGames: vi.fn().mockResolvedValue([cachedGame]),
+    });
+    const loaded = await runIngestion(makeQuery(), { deps, now: () => NOW, cacheOnly: true });
+    expect(loaded.games.map((game) => game.id)).toEqual([cachedGame.id]);
+    expect(deps.fetchArchives).not.toHaveBeenCalled();
+    expect(deps.fetchMonthlyGames).not.toHaveBeenCalled();
+  });
+
+  it('keeps a missing local URL dataset empty instead of fetching it', async () => {
+    const deps = fakeDependencies();
+    const loaded = await runIngestion(makeQuery(), { deps, now: () => NOW, cacheOnly: true });
+    expect(loaded.games).toEqual([]);
+    expect(deps.fetchArchives).not.toHaveBeenCalled();
+    expect(deps.fetchMonthlyGames).not.toHaveBeenCalled();
+  });
+
+  it.each(['live', 'warm', 'offline'] as const)(
+    'selects newest eligible games before limits 1 and 5 from unsorted two-month %s archives',
+    async (mode) => {
+      const august = Date.UTC(2026, 7, 1) / 1000;
+      const july = Date.UTC(2026, 6, 1) / 1000;
+      const months = ['2026-07', '2026-08'];
+      const rawByMonth: Record<string, RawChesscomGame[]> = {
+        '2026-08': [
+          makeRawGame({ uuid: 'invalid', end_time: august + 99, pgn: 'invalid PGN' }),
+          makeRawGame({ uuid: 'g8-a', end_time: august + 20 }),
+          makeRawGame({ uuid: 'g8-a', end_time: august + 20 }),
+          makeRawGame({ uuid: 'filtered', end_time: august + 100, rated: false }),
+          makeRawGame({ uuid: 'g8-c', end_time: august + 30 }),
+          makeRawGame({ uuid: 'g8-b', end_time: august + 20 }),
+        ],
+        '2026-07': [
+          makeRawGame({ uuid: 'g8-a', end_time: july }),
+          makeRawGame({ uuid: 'g7-a', end_time: july + 1 }),
+          makeRawGame({ uuid: 'g7-c', end_time: july + 5 }),
+          makeRawGame({ uuid: 'g7-b', end_time: july + 5 }),
+        ],
+      };
+      for (const maxGames of [1, 5]) {
+        const cached = new Map<string, Parameters<IngestionDependencies['persistMonth']>[0]>();
+        const markers = new Map<string, Parameters<IngestionDependencies['persistMonth']>[1]>();
+        const coverage = new Map<string, import('@/lib/db/schema').NormalizedMonthRecord>();
+        const persistMonth = vi.fn<IngestionDependencies['persistMonth']>(
+          async (games, marker, _signal, normalized) => {
+            if (normalized) coverage.set(marker.month, normalized);
+            cached.set(
+              marker.month,
+              [...games].sort((a, b) => a.endedAt - b.endedAt)
+            );
+            markers.set(marker.month, marker);
+          }
+        );
+        const deps = fakeDependencies({
+          fetchArchives: vi.fn(async () =>
+            months.map(
+              (month) => `https://api.chess.com/pub/player/janedoe/games/${month.replace('-', '/')}`
+            )
+          ),
+          fetchMonthlyGames: vi.fn(async (_user, year, month) => rawByMonth[`${year}-${month}`]!),
+          persistMonth,
+          readNormalizedMonth: vi.fn(async (_user, month) => coverage.get(month) ?? null),
+          validatePgns: vi.fn<IngestionDependencies['validatePgns']>(async (games) => ({
+            validGameIds: games.filter((game) => game.id !== 'invalid').map((game) => game.id),
+            totalInvalid: games.filter((game) => game.id === 'invalid').length,
+            diagnostics: [],
+            diagnosticCodes: [],
+          })),
+        });
+        if (mode !== 'live') {
+          await runIngestion(makeQuery(), { deps, now: () => NOW });
+          deps.readMonthGames = vi.fn(async (_user, month) => [...cached.get(month)!]);
+          deps.readArchiveSyncs = vi.fn(async () =>
+            [...markers.values()].map((marker) => ({
+              ...marker,
+              lastSuccessfulFetchAt: mode === 'offline' ? NOW - 40 * 24 * 60 * 60_000 : NOW,
+            }))
+          );
+          deps.readArchiveList = vi.fn(async () => ({
+            username: 'janedoe',
+            months,
+            fetchedAt: mode === 'offline' ? 0 : NOW,
+          }));
+          if (mode === 'offline')
+            deps.fetchArchives = vi.fn().mockRejectedValue(createOfflineError());
+          deps.fetchMonthlyGames = vi.fn().mockRejectedValue(new Error('Must use cached month'));
+        }
+        const loaded = await runIngestion(makeQuery({ maxGames, rated: true }), {
+          deps,
+          now: () => NOW,
+        });
+        expect(loaded.status).toBe('complete');
+        expect(loaded.games.map((game) => game.id)).toEqual(
+          maxGames === 1 ? ['g8-c'] : ['g8-c', 'g8-a', 'g8-b', 'g7-b', 'g7-c']
+        );
+        expect(loaded.offlineCacheOnly).toBe(mode === 'offline');
+        expect(coverage.get('2026-08')!.candidates.map((c) => c.game.id)).toEqual(
+          expect.arrayContaining(['g8-a', 'g8-b', 'g8-c', 'filtered'])
+        );
+        expect(cached.get('2026-08')!.map((game) => game.id)).toEqual(
+          expect.arrayContaining(maxGames === 1 ? ['g8-c'] : ['g8-a', 'g8-b', 'g8-c'])
+        );
+        expect(cached.get('2026-08')!.some((game) => game.id === 'invalid')).toBe(false);
+        expect(markers.get('2026-08')!.observedGameCount).toBe(cached.get('2026-08')!.length);
+        expect(coverage.get('2026-08')!.completeFetch).toBe(true);
+        if (maxGames === 5)
+          expect(coverage.get('2026-07')!.candidates.some((c) => c.game.id === 'g7-a')).toBe(true);
+        if (mode !== 'live') expect(deps.fetchMonthlyGames).not.toHaveBeenCalled();
+      }
+    }
+  );
+
   it('uses fresh cached archive metadata and normalized games without a browser fetch', async () => {
     const cachedGame = makeGameRecord();
     const deps = fakeDependencies({
@@ -131,7 +250,8 @@ describe('runIngestion', () => {
     expect(persistMonth).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ id: 'recovered-game', result: 'draw' })]),
       expect.objectContaining({ normalizerVersion: NORMALIZER_VERSION }),
-      expect.anything()
+      expect.anything(),
+      expect.objectContaining({ completeFetch: true })
     );
     expect(NORMALIZER_VERSION).toBe(5);
   });
@@ -237,8 +357,16 @@ describe('runIngestion', () => {
     ]);
 
     expect(result.games).toHaveLength(2);
-    expect(result.games[0]).toMatchObject({ id: 'white-tvi', result: 'draw', userColor: 'white' });
-    expect(result.games[1]).toMatchObject({ id: 'black-tvi', result: 'draw', userColor: 'black' });
+    expect(result.games.find((game) => game.id === 'white-tvi')).toMatchObject({
+      id: 'white-tvi',
+      result: 'draw',
+      userColor: 'white',
+    });
+    expect(result.games.find((game) => game.id === 'black-tvi')).toMatchObject({
+      id: 'black-tvi',
+      result: 'draw',
+      userColor: 'black',
+    });
     expect(result.diagnostics).toEqual([]);
   });
 
@@ -877,4 +1005,269 @@ describe('IngestionManager', () => {
       vi.unstubAllGlobals();
     }
   });
+});
+
+it('T45: persists current validation and performs zero strict replays on an unchanged warm import', async () => {
+  let normalized: import('@/lib/db/schema').NormalizedMonthRecord | null = null;
+  let cached: import('@/lib/db/schema').GameRecord[] = [];
+  let marker: import('@/lib/db/schema').ArchiveSyncRecord | null = null;
+  const deps = fakeDependencies({
+    fetchMonthlyGames: vi.fn().mockResolvedValue([makeRawGame()]),
+    readMonthGames: vi.fn(async () => cached),
+    readArchiveSyncs: vi.fn(async () => (marker ? [marker] : [])),
+    readArchiveList: vi.fn(async () => ({
+      username: 'janedoe',
+      months: ['2026-08'],
+      fetchedAt: NOW,
+    })),
+    readNormalizedMonth: vi.fn(async () => normalized),
+    persistMonth: vi.fn(async (games, sync, _signal, coverage) => {
+      cached = games;
+      marker = sync;
+      normalized = coverage ?? null;
+    }),
+  });
+  expect((await runIngestion(makeQuery(), { deps, now: () => NOW })).games).toHaveLength(1);
+  vi.mocked(deps.validatePgns).mockClear();
+  expect((await runIngestion(makeQuery(), { deps, now: () => NOW })).games).toHaveLength(1);
+  expect(deps.validatePgns).not.toHaveBeenCalled();
+});
+
+it.each(['unknown', 'parser', 'position', 'normalizer', 'digest', 'corrupt', 'pgn'] as const)(
+  'T45: revalidates %s cached validation before acceptance',
+  async (reason) => {
+    const { makeNormalizedMonth } = await import('../../helpers/normalizedMonthFixture');
+    const { computePgnDigest } = await import('@/features/stockfish-analysis/reviewIdentity');
+    const game = makeGameRecord();
+    const coverage = makeNormalizedMonth();
+    const envelope = coverage.candidates[0]!.validation;
+    Object.assign(envelope, { state: 'valid', pgnDigest: await computePgnDigest(game.pgn) });
+    if (reason === 'unknown') envelope.state = 'unknown';
+    if (reason === 'parser') envelope.parserVersion = 'old';
+    if (reason === 'position') envelope.positionVersion = 'old';
+    if (reason === 'normalizer') envelope.normalizerVersion--;
+    if (reason === 'digest') envelope.pgnDigest = '0'.repeat(64);
+    if (reason === 'corrupt') Object.assign(envelope, { diagnosticCodes: null });
+    if (reason === 'pgn') game.pgn = '1. d4 d5 1/2-1/2';
+    const deps = fakeDependencies({
+      readArchiveSyncs: vi.fn().mockResolvedValue([makeArchiveSync()]),
+      readArchiveList: vi
+        .fn()
+        .mockResolvedValue({ username: 'janedoe', months: ['2026-08'], fetchedAt: NOW }),
+      readMonthGames: vi.fn().mockResolvedValue([game]),
+      readNormalizedMonth: vi.fn().mockResolvedValue(coverage),
+    });
+    expect((await runIngestion(makeQuery(), { deps, now: () => NOW })).games).toHaveLength(1);
+    expect(deps.validatePgns).toHaveBeenCalledTimes(1);
+    expect(deps.validatePgns).toHaveBeenCalledWith([game], expect.anything());
+  }
+);
+
+it('T45: excludes compatible invalid candidates without replay, retains diagnostics, and does not refresh fetched coverage', async () => {
+  const { makeNormalizedMonth } = await import('../../helpers/normalizedMonthFixture');
+  const { computePgnDigest } = await import('@/features/stockfish-analysis/reviewIdentity');
+  const coverage = makeNormalizedMonth({ fetchedAt: 1 });
+  const game = coverage.candidates[0]!.game;
+  Object.assign(coverage.candidates[0]!.validation, {
+    state: 'invalid',
+    pgnDigest: await computePgnDigest(game.pgn),
+    diagnosticCodes: ['ILLEGAL_PGN'],
+  });
+  const deps = fakeDependencies({
+    readArchiveSyncs: vi.fn().mockResolvedValue([makeArchiveSync({ lastSuccessfulFetchAt: 1 })]),
+    readArchiveList: vi
+      .fn()
+      .mockResolvedValue({ username: 'janedoe', months: ['2026-08'], fetchedAt: NOW }),
+    readNormalizedMonth: vi.fn().mockResolvedValue(coverage),
+  });
+  const result = await runIngestion(makeQuery(), { deps, now: () => NOW, cacheOnly: true });
+  expect(result.games).toEqual([]);
+  expect(result.diagnostics).toContainEqual(
+    expect.objectContaining({ code: 'ILLEGAL_PGN', gameId: game.id })
+  );
+  expect(deps.validatePgns).not.toHaveBeenCalled();
+  expect(deps.persistMonth).not.toHaveBeenCalled();
+  // Validation freshness is insufficient to skip a stale monthly fetch.
+  await runIngestion(makeQuery(), { deps, now: () => NOW });
+  expect(deps.fetchMonthlyGames).toHaveBeenCalledTimes(1);
+});
+
+it('T47: filters metadata before expensive cold replay and retains unselected candidates in normalized coverage', async () => {
+  const scopeGames = (await import('../../fixtures/openingScopeGames.json')).default;
+  const rawGames = scopeGames as unknown as RawChesscomGame[];
+  const strictReplayIds: string[] = [];
+  let persistedCoverage: import('@/lib/db/schema').NormalizedMonthRecord | null = null;
+  const deps = fakeDependencies({
+    fetchArchives: vi
+      .fn()
+      .mockResolvedValue(['https://api.chess.com/pub/player/audit-player/games/2024/01']),
+    fetchMonthlyGames: vi.fn().mockResolvedValue(rawGames),
+    validatePgns: vi.fn<IngestionDependencies['validatePgns']>(async (games) => {
+      strictReplayIds.push(...games.map((g) => g.id));
+      return {
+        validGameIds: games.map((g) => g.id),
+        diagnostics: [],
+        totalInvalid: 0,
+        diagnosticCodes: [],
+      };
+    }),
+    persistMonth: vi.fn(async (_games, _sync, _signal, coverage) => {
+      persistedCoverage = coverage ?? null;
+    }),
+  });
+
+  const loaded = await runIngestion(
+    makeQuery({
+      username: 'audit-player',
+      colors: ['white'],
+      dateFrom: '2024-01-01',
+      dateTo: '2024-01-31',
+    }),
+    { deps, now: () => NOW }
+  );
+
+  expect(loaded.games.every((g) => g.userColor === 'white')).toBe(true);
+  expect(strictReplayIds).toHaveLength(12);
+  expect(new Set(strictReplayIds).size).toBe(12);
+  expect(persistedCoverage).not.toBeNull();
+  expect(persistedCoverage!.candidates).toHaveLength(20);
+
+  // Black's eight remain available without a new fresh-month fetch and validate when selected.
+  vi.mocked(deps.fetchMonthlyGames).mockClear();
+  strictReplayIds.length = 0;
+  let savedGames: import('@/lib/db/schema').GameRecord[] = loaded.games;
+  let savedSync: import('@/lib/db/schema').ArchiveSyncRecord = {
+    key: 'audit-player:2024-01',
+    username: 'audit-player',
+    month: '2024-01',
+    lastSuccessfulFetchAt: NOW,
+    status: 'success',
+    observedGameIds: loaded.games.map((g) => g.id),
+    observedGameCount: loaded.games.length,
+    normalizerVersion: NORMALIZER_VERSION,
+  };
+  deps.readArchiveSyncs = vi.fn(async () => [savedSync]);
+  deps.readArchiveList = vi.fn(async () => ({
+    username: 'audit-player',
+    months: ['2024-01'],
+    fetchedAt: NOW,
+  }));
+  deps.readMonthGames = vi.fn(async () => savedGames);
+  deps.readNormalizedMonth = vi.fn(async () => persistedCoverage);
+  deps.persistMonth = vi.fn(async (games, sync, _signal, coverage) => {
+    savedGames = [...games];
+    savedSync = sync;
+    persistedCoverage = coverage ?? null;
+  });
+
+  const loadedBlack = await runIngestion(
+    makeQuery({
+      username: 'audit-player',
+      colors: ['black'],
+      dateFrom: '2024-01-01',
+      dateTo: '2024-01-31',
+    }),
+    { deps, now: () => NOW }
+  );
+
+  expect(loadedBlack.games.every((g) => g.userColor === 'black')).toBe(true);
+  expect(loadedBlack.games).toHaveLength(8);
+  expect(strictReplayIds).toHaveLength(8);
+  expect(deps.fetchMonthlyGames).not.toHaveBeenCalled();
+});
+
+it('T51: emits completed-month batches with monotonic sequence and cumulative accepted games', async () => {
+  const august = Date.UTC(2026, 7, 1) / 1000;
+  const july = Date.UTC(2026, 6, 1) / 1000;
+  const rawByMonth: Record<string, RawChesscomGame[]> = {
+    '2026-08': [makeRawGame({ uuid: 'g8-1', end_time: august + 20 })],
+    '2026-07': [makeRawGame({ uuid: 'g7-1', end_time: july + 20 })],
+  };
+  const deps = fakeDependencies({
+    fetchArchives: vi.fn(async () => [
+      'https://api.chess.com/pub/player/janedoe/games/2026/07',
+      'https://api.chess.com/pub/player/janedoe/games/2026/08',
+    ]),
+    fetchMonthlyGames: vi.fn(async (_user, year, month) => rawByMonth[`${year}-${month}`]!),
+  });
+
+  const batches: import('@/features/ingestion/types').IngestionBatch[] = [];
+  const result = await runIngestion(makeQuery({ maxGames: 10 }), {
+    deps,
+    now: () => NOW,
+    onBatch: (b) => batches.push(b),
+  });
+
+  expect(result.status).toBe('complete');
+  expect(batches.length).toBeGreaterThanOrEqual(2);
+  const firstBatch = batches[0]!;
+  const secondBatch = batches[1]!;
+  expect(firstBatch.sequence).toBe(1);
+  expect(secondBatch.sequence).toBe(2);
+  expect(firstBatch.games.length).toBeLessThan(secondBatch.games.length);
+  expect(secondBatch.games.map((g) => g.id)).toContain('g8-1');
+  expect(secondBatch.games.map((g) => g.id)).toContain('g7-1');
+  expect(firstBatch.datasetRevision).toBeTruthy();
+  expect(secondBatch.datasetRevision).toBeTruthy();
+  expect(firstBatch.datasetRevision).not.toBe(secondBatch.datasetRevision);
+});
+
+it('R01: accepts only the validated content of conflicting duplicate IDs', async () => {
+  const deps = fakeDependencies({
+    fetchMonthlyGames: vi
+      .fn()
+      .mockResolvedValue([
+        makeRawGame({ uuid: 'conflict', end_time: 1787000002, pgn: '1. e4 INVALID' }),
+        makeRawGame({ uuid: 'conflict', end_time: 1787000001, pgn: '1. d4 d5 1/2-1/2' }),
+      ]),
+    validatePgns: vi.fn<IngestionDependencies['validatePgns']>(async (games) => {
+      const { parseGamePgn } = await import('@/lib/chess/pgnParser');
+      const { toNormalizedSummary } = await import(
+        '@/features/workspace/createWorkspaceController'
+      );
+      return {
+        validGameIds: games
+          .filter((g) => parseGamePgn({ game: toNormalizedSummary(g) }).ok)
+          .map((g) => g.id),
+        diagnostics: [],
+        totalInvalid: 0,
+        diagnosticCodes: [],
+      };
+    }),
+  });
+  const result = await runIngestion(makeQuery({ maxGames: 1 }), { deps, now: () => NOW });
+  expect(result.games).toHaveLength(1);
+  expect(result.games[0]!.pgn).toBe('1. d4 d5 1/2-1/2');
+  expect(vi.mocked(deps.persistMonth).mock.calls[0]![0]).toEqual(result.games);
+});
+
+it('R09: skips casual games and stops replay at the newest valid cap, continuing past invalids', async () => {
+  const deps = fakeDependencies({
+    fetchMonthlyGames: vi
+      .fn()
+      .mockResolvedValue([
+        makeRawGame({ uuid: 'casual', end_time: 1787000004, rated: false }),
+        makeRawGame({ uuid: 'invalid', end_time: 1787000003 }),
+        makeRawGame({ uuid: 'newest', end_time: 1787000002 }),
+        makeRawGame({ uuid: 'older', end_time: 1787000001 }),
+      ]),
+    validatePgns: vi.fn<IngestionDependencies['validatePgns']>(async (games) => ({
+      validGameIds: games.filter((g) => g.id !== 'invalid').map((g) => g.id),
+      diagnostics: [],
+      totalInvalid: games.filter((g) => g.id === 'invalid').length,
+      diagnosticCodes: [],
+    })),
+  });
+  const result = await runIngestion(makeQuery({ maxGames: 1, rated: true }), {
+    deps,
+    now: () => NOW,
+  });
+  expect(result.games.map((g) => g.id)).toEqual(['newest']);
+  expect(
+    vi.mocked(deps.validatePgns).mock.calls.flatMap(([games]) => games.map((g) => g.id))
+  ).toEqual(['invalid', 'newest']);
+  const coverage = vi.mocked(deps.persistMonth).mock.calls[0]![3]!;
+  expect(coverage.completeFetch).toBe(true);
+  expect(coverage.candidates).toHaveLength(4);
+  expect(coverage.candidates.find((c) => c.game.id === 'older')!.validation.state).toBe('unknown');
 });

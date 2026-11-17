@@ -87,6 +87,12 @@ export interface GameAnalysisResult {
   error?: string;
 }
 
+export interface AnalysisUpdate {
+  annotation: GameAnnotation;
+  analyzedPlies: number;
+  totalPlies: number;
+}
+
 export interface AnalyzeGameInput {
   game: ParsedGame;
   settings: AnalysisSettings;
@@ -97,6 +103,7 @@ export interface AnalyzeGameInput {
   repertoireMoveKeys?: ReadonlySet<string>;
   bookMoveKeys?: ReadonlySet<string>;
   signal?: AbortSignal;
+  onUpdate?: (update: AnalysisUpdate) => void;
   onProgress?: (progress: { analyzedPlies: number; totalPlies: number }) => void;
 }
 
@@ -149,6 +156,11 @@ export async function analyzeGame(input: AnalyzeGameInput): Promise<GameAnalysis
         after,
         accuracy,
         settings: input.settings,
+      });
+      input.onUpdate?.({
+        annotation: structuredClone(annotations[annotations.length - 1]!),
+        analyzedPlies: annotations.length,
+        totalPlies: plies.length,
       });
       input.onProgress?.({ analyzedPlies: annotations.length, totalPlies: plies.length });
     } catch (error) {
@@ -309,12 +321,12 @@ function result(
     annotations,
     analyzedPlies: annotations.length,
     totalPlies,
-    summary: summarize(annotations),
+    summary: summarizeAnnotations(annotations),
     warnings,
   };
 }
 
-function summarize(annotations: readonly GameAnnotation[]): GameAnalysisSummary {
+export function summarizeAnnotations(annotations: readonly GameAnnotation[]): GameAnalysisSummary {
   return {
     white: summarizeColor(annotations, 'white'),
     black: summarizeColor(annotations, 'black'),

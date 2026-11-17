@@ -193,3 +193,55 @@ describe('ingestion feedback', () => {
     expect(onViewGames).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('contextual recovery (T31)', () => {
+  it.each([
+    ['PLAYER_NOT_FOUND', /could not be found/, 'Edit username'],
+    ['UPSTREAM_RATE_LIMITED', /limiting requests/, 'Retry import'],
+    ['TIMEOUT', /timed out/, 'Retry import'],
+    ['STORAGE_UNAVAILABLE', /could not be saved/, 'Retry import'],
+  ])('explains %s and offers a relevant action', async (code, copy, action) => {
+    const retry = vi.fn(),
+      edit = vi.fn();
+    render(
+      <DiagnosticSummary
+        result={{
+          jobId: 'failed',
+          fingerprint: 'failed',
+          status: 'failed',
+          games: [],
+          failedMonths: [],
+          diagnostics: [{ code, message: 'Raw diagnostic', severity: 'error' }],
+          offlineCacheOnly: false,
+        }}
+        onRetry={retry}
+        onEditUsername={edit}
+      />
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(copy);
+    await userEvent.setup().click(screen.getByRole('button', { name: action }));
+    expect(action === 'Edit username' ? edit : retry).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Raw diagnostic')).not.toBeVisible();
+  });
+  it('offers a broader date range for a successful empty query without calling it complete', async () => {
+    const dates = vi.fn();
+    render(
+      <DiagnosticSummary
+        result={{
+          jobId: 'empty',
+          fingerprint: 'empty',
+          status: 'complete',
+          games: [],
+          failedMonths: [],
+          diagnostics: [],
+          offlineCacheOnly: false,
+        }}
+        onRetry={vi.fn()}
+        onExpandDates={dates}
+      />
+    );
+    expect(screen.queryByText('Complete data')).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Try all available dates' }));
+    expect(dates).toHaveBeenCalledTimes(1);
+  });
+});

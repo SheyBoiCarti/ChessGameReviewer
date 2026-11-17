@@ -16,7 +16,14 @@ export class PathStore {
 
   static fromNodes(nodes: readonly PathNode[]): PathStore {
     const store = new PathStore();
-    if (nodes.length === 0 || nodes[0]?.id !== 0 || nodes[0].parentId !== null)
+    if (
+      nodes.length === 0 ||
+      nodes[0]?.id !== 0 ||
+      nodes[0].parentId !== null ||
+      nodes[0].ply !== 0 ||
+      nodes[0].uci !== null ||
+      nodes[0].san !== null
+    )
       throw new Error('INVALID_PATH_STORE');
     for (const node of [...nodes].sort((left, right) => left.id - right.id).slice(1)) {
       if (
@@ -24,7 +31,9 @@ export class PathStore {
         !store.paths.has(node.parentId) ||
         node.id !== store.paths.size ||
         node.uci === null ||
-        node.san === null
+        node.san === null ||
+        node.ply !== store.paths.get(node.parentId)?.ply! + 1 ||
+        store.idsByPrefix.has(`${node.parentId}\u0000${node.uci}`)
       )
         throw new Error('INVALID_PATH_STORE');
       store.paths.set(node.id, { ...node });

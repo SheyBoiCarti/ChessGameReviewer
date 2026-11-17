@@ -13,3 +13,7 @@ next-env.d.ts
 # Captured browser evidence is preserved in its original format.
 docs/exploratory-evidence/
 docs/fix-verification-evidence/
+
+docs/ux-analysis/evidence/
+docs/opening-tree-evidence/
+docs/implementation-evidence/

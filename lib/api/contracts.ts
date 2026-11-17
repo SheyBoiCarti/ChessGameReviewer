@@ -82,6 +82,7 @@ export interface PlayerMetadata {
 }
 
 export interface NormalizedGameSummary {
+  openingProjection?: import('../chess/graph/types').OpeningGameProjection;
   id: string; // stable identifier: game URL or UUID
   url: string;
   uuid?: string | undefined;

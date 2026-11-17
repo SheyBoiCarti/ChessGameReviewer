@@ -1,4 +1,8 @@
+import { reviewResultKey } from '../stockfish-analysis/reviewIdentity';
+import { summarizeAnnotations } from '../stockfish-analysis/analyzeGame';
 import type { GameQuery } from '@/lib/api/contracts';
+import type { GameRecord } from '@/lib/db/schema';
+import type { IngestionResult } from '../ingestion/types';
 
 import type { WorkspaceAction, WorkspaceState } from './types';
 
@@ -16,10 +20,19 @@ const emptySelection = {
   ply: 0,
 } as const;
 
-const idleGraph = { status: 'idle', snapshot: null, diagnosticCodes: [], error: null } as const;
+const idleGraph = {
+  status: 'idle',
+  snapshot: null,
+  diagnosticCodes: [],
+  error: null,
+  scope: null,
+  datasetRevision: null,
+  requestId: 0,
+} as const;
 const idleAnalysis = {
   status: 'idle',
   capability: null,
+  identity: null,
   result: null,
   progress: null,
   error: null,
@@ -30,6 +43,7 @@ export const initialWorkspaceState: WorkspaceState = {
   query: { draft: defaultQuery, active: null, token: 0 },
   ingestion: { status: 'idle', progress: null, result: null, error: null },
   graph: idleGraph,
+  repertoire: null,
   dataMaintenance: { status: 'idle', error: null },
   selection: emptySelection,
   analysis: idleAnalysis,
@@ -38,6 +52,7 @@ export const initialWorkspaceState: WorkspaceState = {
     resultPerspective: 'user',
     theme: 'system',
     openingHorizon: 30,
+    openingScope: 'both',
     analysisStrength: 'balanced',
   },
 };
@@ -61,15 +76,13 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         ...state,
         query: {
           draft: action.query,
-          active: action.query,
-          previousActive:
-            state.ingestion.status === 'loading'
-              ? (state.query.previousActive ?? state.query.active)
-              : state.query.active,
+          active: hasExistingGames ? state.query.active : null,
+          requested: action.query,
           token: action.token,
         },
         ingestion: {
           status: 'loading',
+          lastAttempt: null,
           progress: null,
           result: hasExistingGames ? state.ingestion.result : null,
           error: null,
@@ -81,6 +94,53 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
     }
     case 'ingestion/progress':
       return { ...state, ingestion: { ...state.ingestion, progress: action.progress } };
+    case 'ingestion/batch': {
+      if (action.token !== state.query.token) return state;
+      const currentSequence = state.ingestion.batchSequence ?? 0;
+      if (action.batch.sequence <= currentSequence) return state;
+
+      const previousResult = state.ingestion.result;
+      const updatedResult: IngestionResult = {
+        jobId: action.batch.jobId,
+        fingerprint: action.batch.fingerprint,
+        status: 'partial',
+        games: [...action.batch.games],
+        failedMonths: previousResult?.failedMonths ?? [],
+        diagnostics: previousResult?.diagnostics ?? [],
+        offlineCacheOnly: previousResult?.offlineCacheOnly ?? false,
+      };
+
+      const oldSelected =
+        state.ingestion.result?.games.find((g) => g.id === state.selection.gameId) ??
+        state.retainedReviewGame;
+      const requested = state.query.requested ?? state.query.active;
+      const replacement = updatedResult.games.find((g) => g.id === state.selection.gameId);
+      const retained =
+        oldSelected && !replacement && oldSelected.username === requested?.username
+          ? oldSelected
+          : null;
+      // Reuse the same content reconciliation as terminal installation. An older selected
+      // record remains Review-only until its month arrives; it never enters new statistics.
+      const reconciled = reduceWorkspace(state, {
+        type: 'ingestion/terminal',
+        token: action.token,
+        result: retained
+          ? { ...updatedResult, games: [...updatedResult.games, retained] }
+          : updatedResult,
+      });
+      return {
+        ...reconciled,
+        query: { ...reconciled.query, active: requested },
+        retainedReviewGame: retained,
+        ingestion: {
+          ...state.ingestion,
+          status: 'loading',
+          result: updatedResult,
+          batchSequence: action.batch.sequence,
+          datasetRevision: action.batch.datasetRevision,
+        },
+      };
+    }
     case 'ingestion/terminal': {
       const hasExistingGames = (state.ingestion.result?.games.length ?? 0) > 0;
       const isFailed =
@@ -88,24 +148,11 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         (action.result.status === 'cancelled' && action.result.games.length === 0);
 
       if (isFailed && hasExistingGames) {
-        const previousUsername = state.ingestion.result?.games[0]?.username;
         return {
           ...state,
-          query: {
-            ...state.query,
-            active:
-              (state.query.previousActive
-                ? {
-                    ...state.query.previousActive,
-                    username: previousUsername ?? state.query.previousActive.username,
-                  }
-                : null) ??
-              (previousUsername && state.query.active
-                ? { ...state.query.active, username: previousUsername }
-                : state.query.active),
-          },
           ingestion: {
             ...state.ingestion,
+            lastAttempt: action.result,
             status: action.result.status === 'cancelled' ? 'cancelled' : 'failed',
             error:
               action.result.status === 'cancelled'
@@ -121,56 +168,116 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         action.result.status === 'complete' && action.result.games.length === 0
           ? 'empty'
           : action.result.status;
-      const gameId =
+      const selectedGameId = state.selection.gameId;
+      const previousGames = new Map(
+        state.ingestion.result?.games.map((game) => [game.id, game]) ?? []
+      );
+      if (state.retainedReviewGame)
+        previousGames.set(state.retainedReviewGame.id, state.retainedReviewGame);
+      const selectedGame = selectedGameId
+        ? action.result.games.find(
+            (game) =>
+              game.id === selectedGameId &&
+              previousGames.get(selectedGameId)?.username === game.username &&
+              previousGames.get(selectedGameId)?.pgn === game.pgn
+          )
+        : null;
+
+      const newestGame =
         action.result.games.length > 0
           ? action.result.games.reduce((newest, game) =>
               game.endedAt > newest.endedAt ? game : newest
-            ).id
+            )
           : null;
-      const cached = gameId ? (state.analysis.resultsByGameId[gameId] ?? null) : null;
-      return {
-        ...state,
-        analysis: {
-          ...state.analysis,
-          status:
-            cached?.status ??
-            (state.analysis.capability?.mode === 'unavailable' ? 'unavailable' : 'idle'),
-          result: cached,
-          progress: cached
-            ? { analyzedPlies: cached.analyzedPlies, totalPlies: cached.totalPlies }
-            : null,
-          error: null,
-        },
-        ingestion: {
-          status,
-          progress: state.ingestion.progress,
-          result: action.result,
-          error: null,
-        },
-        graph: action.result.games.length === 0 ? idleGraph : state.graph,
-        selection: { ...emptySelection, gameId },
-      };
-    }
-    case 'ingestion/failed': {
-      const hasExistingGames = (state.ingestion.result?.games.length ?? 0) > 0;
-      const previousUsername = state.ingestion.result?.games[0]?.username;
+
+      const gameId = selectedGame ? selectedGame.id : (newestGame?.id ?? null);
+      const ply = selectedGame ? state.selection.ply : Math.max(0, action.ply ?? 0);
+
+      const resultsByGameId = Object.fromEntries(
+        Object.entries(state.analysis.resultsByGameId).filter(([id]) => {
+          const oldGame = previousGames.get(id);
+          const newGame = action.result.games.find((game) => game.id === id);
+          return (
+            oldGame &&
+            newGame &&
+            oldGame.username === newGame.username &&
+            oldGame.pgn === newGame.pgn
+          );
+        })
+      );
+      const cached = gameId ? (resultsByGameId[gameId] ?? null) : null;
+
+      const preserveAnalysis =
+        selectedGame &&
+        (state.analysis.status === 'running' ||
+          state.analysis.status === 'stopping' ||
+          (state.analysis.identity !== null &&
+            state.analysis.identity !== undefined &&
+            state.analysis.identity.gameId === selectedGame.id) ||
+          state.analysis.result !== null);
+
+      const analysis: WorkspaceState['analysis'] = preserveAnalysis
+        ? {
+            ...state.analysis,
+            resultsByGameId,
+          }
+        : {
+            ...state.analysis,
+            resultsByGameId,
+            resultStrength:
+              cached && gameId ? (state.analysis.resultStrengthsByGameId?.[gameId] ?? null) : null,
+            identity: null,
+            previousResult: null,
+            previousStrength: null,
+            showingPrevious: false,
+            status: (cached?.status ??
+              (state.analysis.capability?.mode === 'unavailable'
+                ? 'unavailable'
+                : 'idle')) as WorkspaceState['analysis']['status'],
+            result: cached,
+            progress: cached
+              ? { analyzedPlies: cached.analyzedPlies, totalPlies: cached.totalPlies }
+              : null,
+            error: null,
+          };
+
       return {
         ...state,
         query: {
           ...state.query,
-          active:
-            hasExistingGames && state.query.previousActive
-              ? {
-                  ...state.query.previousActive,
-                  username: previousUsername ?? state.query.previousActive.username,
-                }
-              : hasExistingGames && previousUsername && state.query.active
-                ? { ...state.query.active, username: previousUsername }
-                : state.query.active,
+          active: isFailed ? state.query.active : (state.query.requested ?? state.query.active),
         },
-        ingestion: { ...state.ingestion, status: 'failed', error: action.error },
+        analysis,
+        retainedReviewGame: null,
+        ingestion: {
+          status,
+          progress: state.ingestion.progress,
+          result: action.result,
+          lastAttempt: action.result,
+          error: null,
+          batchSequence: state.ingestion.batchSequence,
+          datasetRevision: state.ingestion.datasetRevision,
+        },
+        graph: idleGraph,
+        repertoire: null,
+        selection: selectedGame
+          ? {
+              ...state.selection,
+              gameId,
+              ply,
+            }
+          : {
+              ...emptySelection,
+              gameId,
+              ply,
+            },
       };
     }
+    case 'ingestion/failed':
+      return {
+        ...state,
+        ingestion: { ...state.ingestion, status: 'failed', error: action.error, lastAttempt: null },
+      };
     case 'ingestion/errorDismissed': {
       const currentResult = state.ingestion.result;
       const recoveredStatus = currentResult
@@ -192,9 +299,30 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
     case 'graph/started':
       return {
         ...state,
-        graph: { status: 'building', snapshot: null, diagnosticCodes: [], error: null },
+        graph: {
+          status: 'building',
+          snapshot: state.graph.snapshot,
+          diagnosticCodes: [],
+          error: null,
+          scope: state.graph.scope,
+          datasetRevision: state.graph.datasetRevision,
+          requestId: action.requestId,
+        },
       };
-    case 'graph/terminal':
+    case 'graph/rebuildStarted':
+      // T40: a scope/horizon rebuild preserves current content until success.
+      return {
+        ...state,
+        graph: {
+          ...state.graph,
+          status: 'building',
+          diagnosticCodes: [],
+          error: null,
+          requestId: action.requestId,
+        },
+      };
+    case 'graph/terminal': {
+      if (action.requestId !== state.graph.requestId) return state;
       return {
         ...state,
         graph: {
@@ -202,6 +330,9 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           snapshot: action.snapshot,
           diagnosticCodes: action.diagnosticCodes,
           error: null,
+          scope: action.scope,
+          datasetRevision: action.datasetRevision,
+          requestId: action.requestId,
         },
         selection: {
           ...state.selection,
@@ -209,10 +340,26 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
           pathId: 0,
         },
       };
-    case 'graph/failed':
+    }
+    case 'repertoire/installed':
       return {
         ...state,
-        graph: { status: 'failed', snapshot: null, diagnosticCodes: [], error: action.error },
+        repertoire: {
+          datasetRevision: action.datasetRevision,
+          horizon: action.horizon,
+          moveKeys: action.moveKeys,
+        },
+      };
+    case 'graph/failed':
+      if (action.requestId !== state.graph.requestId) return state;
+      return {
+        ...state,
+        graph: {
+          ...state.graph,
+          status: 'failed',
+          diagnosticCodes: [],
+          error: action.error,
+        },
       };
     case 'selection/game': {
       const cached = action.gameId
@@ -220,11 +367,24 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         : null;
       return {
         ...state,
-        selection: { ...state.selection, gameId: action.gameId, ply: 0 },
+        retainedReviewGame: null,
+        // A retained last-reviewed ply (T27) is installed atomically with the selection;
+        // without one, explicit selection starts at position zero.
+        selection: {
+          ...state.selection,
+          gameId: action.gameId,
+          ply: Math.max(0, action.ply ?? 0),
+        },
         analysis: {
           ...idleAnalysis,
           capability: state.analysis.capability,
           resultsByGameId: state.analysis.resultsByGameId,
+          reviewEntries: state.analysis.reviewEntries ?? {},
+          resultStrengthsByGameId: state.analysis.resultStrengthsByGameId ?? {},
+          resultStrength:
+            cached && action.gameId
+              ? (state.analysis.resultStrengthsByGameId?.[action.gameId] ?? null)
+              : null,
           status: cached
             ? cached.status
             : state.analysis.capability?.mode === 'unavailable'
@@ -252,6 +412,16 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
       };
     case 'selection/ply':
       return { ...state, selection: { ...state.selection, ply: Math.max(0, action.ply) } };
+    case 'analysis/preparationCancelled':
+      return {
+        ...state,
+        analysis: {
+          ...state.analysis,
+          status:
+            state.analysis.result?.status ??
+            (state.analysis.capability?.mode === 'unavailable' ? 'unavailable' : 'idle'),
+        },
+      };
     case 'analysis/probing':
       return { ...state, analysis: { ...state.analysis, status: 'probing' } };
     case 'analysis/capability':
@@ -273,28 +443,141 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
         analysis: {
           ...state.analysis,
           status: 'running',
-          result: null,
+          identity: action.identity ?? null,
+          previousResult: state.analysis.result,
+          previousStrength: state.analysis.resultStrength ?? null,
+          showingPrevious: !!state.analysis.result,
+          result: state.analysis.result,
           progress: null,
           error: null,
         },
       };
+    case 'analysis/update': {
+      const identity = state.analysis.identity;
+      if (
+        !identity ||
+        state.analysis.status !== 'running' ||
+        identity.jobId !== action.identity.jobId ||
+        JSON.stringify(identity) !== JSON.stringify(action.identity) ||
+        state.selection.gameId !== identity.gameId
+      )
+        return state;
+      const byPly = new Map(
+        (state.analysis.showingPrevious ? [] : (state.analysis.result?.annotations ?? [])).map(
+          (item) => [item.ply, item]
+        )
+      );
+      if (byPly.has(action.update.annotation.ply)) return state;
+      byPly.set(action.update.annotation.ply, action.update.annotation);
+      const annotations = [...byPly.values()].sort((a, b) => a.ply - b.ply);
+      const result = {
+        status: 'partial' as const,
+        annotations,
+        analyzedPlies: annotations.length,
+        totalPlies: action.update.totalPlies,
+        summary: summarizeAnnotations(annotations),
+        warnings: [],
+      };
+      const key = reviewResultKey(
+        identity.username,
+        identity.gameId,
+        identity.pgnDigest,
+        identity.strength
+      );
+      const previous = state.analysis.reviewEntries?.[key];
+      return {
+        ...state,
+        analysis: {
+          ...state.analysis,
+          reviewEntries: {
+            ...state.analysis.reviewEntries,
+            [key]: { lastComplete: previous?.lastComplete ?? null, latestAttempt: result },
+          },
+          result,
+          resultStrength: identity.strength,
+          showingPrevious: false,
+          progress: { analyzedPlies: annotations.length, totalPlies: result.totalPlies },
+        },
+      };
+    }
+    case 'analysis/stopping':
+      if (
+        state.analysis.status !== 'running' ||
+        JSON.stringify(state.analysis.identity) !== JSON.stringify(action.identity)
+      )
+        return state;
+      return { ...state, analysis: { ...state.analysis, status: 'stopping' } };
     case 'analysis/progress':
       return { ...state, analysis: { ...state.analysis, progress: action.progress } };
     case 'analysis/terminal': {
+      if (
+        action.identity &&
+        state.selection.gameId === action.identity.gameId &&
+        (state.analysis.identity?.jobId !== action.identity.jobId ||
+          !['running', 'stopping'].includes(state.analysis.status))
+      )
+        return state;
       const gameId = action.gameId ?? state.selection.gameId;
+      const key =
+        action.reviewKey ??
+        (action.identity
+          ? reviewResultKey(
+              action.identity.username,
+              action.identity.gameId,
+              action.identity.pgnDigest,
+              action.identity.strength
+            )
+          : null);
+      const previousEntry = key ? state.analysis.reviewEntries?.[key] : undefined;
+      const reviewEntries = key
+        ? {
+            ...state.analysis.reviewEntries,
+            [key]: {
+              lastComplete:
+                action.result.status === 'complete'
+                  ? action.result
+                  : (previousEntry?.lastComplete ?? null),
+              latestAttempt: action.result,
+            },
+          }
+        : (state.analysis.reviewEntries ?? {});
+      const existing = gameId ? state.analysis.resultsByGameId[gameId] : null;
+      const projected =
+        existing?.status === 'complete' && action.result.status !== 'complete'
+          ? existing
+          : action.result;
       const resultsByGameId = gameId
-        ? { ...state.analysis.resultsByGameId, [gameId]: action.result }
+        ? { ...state.analysis.resultsByGameId, [gameId]: projected }
         : state.analysis.resultsByGameId;
       return {
         ...state,
         analysis: {
           ...state.analysis,
           resultsByGameId,
+          reviewEntries,
+          resultStrengthsByGameId:
+            gameId && projected === action.result && (action.identity?.strength ?? action.strength)
+              ? {
+                  ...state.analysis.resultStrengthsByGameId,
+                  [gameId]: (action.identity?.strength ?? action.strength)!,
+                }
+              : (state.analysis.resultStrengthsByGameId ?? {}),
           ...(gameId !== state.selection.gameId
             ? {}
             : {
                 status: action.result.status,
-                result: action.result,
+                resultStrength:
+                  action.result.annotations.length === 0 && state.analysis.previousResult
+                    ? state.analysis.previousStrength
+                    : (action.identity?.strength ??
+                      action.strength ??
+                      state.analysis.resultStrength),
+                result:
+                  action.result.annotations.length === 0 && state.analysis.previousResult
+                    ? state.analysis.previousResult
+                    : action.result,
+                showingPrevious:
+                  action.result.annotations.length === 0 && !!state.analysis.previousResult,
                 error: action.result.error ?? null,
                 progress: {
                   analyzedPlies: action.result.analyzedPlies,
@@ -349,7 +632,23 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
       ) {
         return state;
       }
-      const next = matchesActiveUser ? resetLoadedData(state) : state;
+      const next = matchesActiveUser
+        ? resetLoadedData(state)
+        : {
+            ...state,
+            analysis: {
+              ...state.analysis,
+              reviewEntries: Object.fromEntries(
+                Object.entries(state.analysis.reviewEntries ?? {}).filter(([key]) => {
+                  try {
+                    return JSON.parse(key)[0] !== action.username.toLowerCase();
+                  } catch {
+                    return false;
+                  }
+                })
+              ),
+            },
+          };
       return { ...next, dataMaintenance: { status: 'idle', error: null } };
     }
     case 'data/allCleared':
@@ -363,11 +662,13 @@ export function reduceWorkspace(state: WorkspaceState, action: WorkspaceAction):
 function resetLoadedData(state: WorkspaceState): WorkspaceState {
   return {
     ...state,
-    query: { ...state.query, active: null },
+    query: { ...state.query, active: null, requested: null },
     ingestion: { status: 'idle', progress: null, result: null, error: null },
     graph: idleGraph,
+    repertoire: null,
     dataMaintenance: state.dataMaintenance,
     selection: emptySelection,
+    retainedReviewGame: null,
     analysis: idleAnalysis,
   };
 }

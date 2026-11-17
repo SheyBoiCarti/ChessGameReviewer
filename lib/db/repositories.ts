@@ -1,5 +1,8 @@
+import { retainNormalizedMonths } from './retention';
 import {
   STORES,
+  type NormalizedMonthRecord,
+  isValidNormalizedMonthRecord,
   ArchiveSyncRecord,
   GameRecord,
   EvaluationRecord,
@@ -193,7 +196,8 @@ export async function saveSyncBatch(
   db: IDBDatabase,
   games: GameRecord[],
   syncRecord: ArchiveSyncRecord,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  normalized?: NormalizedMonthRecord
 ): Promise<void> {
   throwIfAborted(signal);
   // Pre-validate inputs before initiating transaction
@@ -206,8 +210,28 @@ export async function saveSyncBatch(
     }
   }
 
+  if (
+    normalized &&
+    (!isValidNormalizedMonthRecord(normalized) ||
+      normalized.username !== syncRecord.username ||
+      normalized.month !== syncRecord.month ||
+      games.some(
+        (game) =>
+          !normalized.candidates.some(
+            (candidate) =>
+              candidate.game.id === game.id &&
+              candidate.game.pgn === game.pgn &&
+              candidate.validation.state === 'valid'
+          )
+      ))
+  ) {
+    throw new TypeError('Invalid validation coverage in saveSyncBatch');
+  }
   try {
-    const tx = db.transaction([STORES.GAMES, STORES.ARCHIVE_SYNC], 'readwrite');
+    const tx = db.transaction(
+      [STORES.GAMES, STORES.ARCHIVE_SYNC, ...(normalized ? [STORES.NORMALIZED_MONTHS] : [])],
+      'readwrite'
+    );
     const gamesStore = tx.objectStore(STORES.GAMES);
     const syncStore = tx.objectStore(STORES.ARCHIVE_SYNC);
 
@@ -215,13 +239,19 @@ export async function saveSyncBatch(
       gamesStore.put(game);
     }
     syncStore.put(syncRecord);
+    if (normalized) {
+      tx.objectStore(STORES.NORMALIZED_MONTHS).put(normalized);
+      for (const candidate of normalized.candidates) {
+        if (candidate.validation.state !== 'valid') gamesStore.delete(candidate.game.id);
+      }
+    }
 
     const abortHandler = () => tx.abort();
     if (signal) {
       signal.addEventListener('abort', abortHandler, { once: true });
     }
 
-    await new Promise<void>((resolve, reject) => {
+    const done = new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => {
         if (signal) signal.removeEventListener('abort', abortHandler);
         resolve();
@@ -235,6 +265,7 @@ export async function saveSyncBatch(
         reject(wrapIDBError(tx.error));
       };
     });
+    await Promise.all([done, ...(normalized ? [retainNormalizedMonths(tx)] : [])]);
   } catch (err) {
     throw wrapIDBError(err);
   }
@@ -488,4 +519,41 @@ export async function putPlayerProfile(
     throw new Error('Invalid CachedProfileRecord provided to putPlayerProfile.');
   }
   await setMeta(db, `profile:${record.username.toLowerCase()}`, record);
+}
+
+export async function readNormalizedMonth(
+  db: IDBDatabase,
+  username: string,
+  month: string
+): Promise<NormalizedMonthRecord | null> {
+  const tx = db.transaction([STORES.NORMALIZED_MONTHS], 'readwrite');
+  const done = transactionDone(tx);
+  const store = tx.objectStore(STORES.NORMALIZED_MONTHS);
+  const result: unknown = await reqToPromise(store.get([username.toLowerCase(), month]));
+  if (!isValidNormalizedMonthRecord(result)) {
+    await done;
+    return null;
+  }
+  const record = { ...result, lastUsedAt: Date.now() };
+  store.put(record);
+  await done;
+  return record;
+}
+export async function putNormalizedMonth(
+  db: IDBDatabase,
+  record: NormalizedMonthRecord,
+  signal?: AbortSignal
+): Promise<void> {
+  throwIfAborted(signal);
+  if (!isValidNormalizedMonthRecord(record)) throw new TypeError('Invalid normalized month');
+  const tx = db.transaction([STORES.NORMALIZED_MONTHS, STORES.ARCHIVE_SYNC], 'readwrite');
+  const done = transactionDone(tx);
+  const abort = () => tx.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    tx.objectStore(STORES.NORMALIZED_MONTHS).put(record);
+    await Promise.all([retainNormalizedMonths(tx), done]);
+  } finally {
+    signal?.removeEventListener('abort', abort);
+  }
 }

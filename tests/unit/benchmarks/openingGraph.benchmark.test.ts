@@ -7,6 +7,7 @@ import { serializeOpeningGraph, serializedGraphByteSize } from '@/lib/chess/grap
 import { parseGamePgn } from '@/lib/chess/pgnParser';
 import type { NormalizedGameSummary } from '@/lib/api/contracts';
 import { buildGraphWithinByteBudget, handleRequest } from '@/workers/analysis-data.worker';
+import { PROTOCOL_VERSION } from '@/workers/protocol';
 
 const SOURCE_GAME = parseGamePgn({
   game: {
@@ -99,7 +100,7 @@ describe('opening graph recorded benchmark', () => {
     const startedAt = performance.now();
     await handleRequest(
       {
-        protocolVersion: 1,
+        protocolVersion: PROTOCOL_VERSION,
         jobId: 'worker-benchmark',
         type: 'BUILD_GRAPH',
         games: rawGames,

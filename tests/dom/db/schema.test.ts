@@ -1,3 +1,5 @@
+import { makeNormalizedMonth } from '../../helpers/normalizedMonthFixture';
+import { isValidNormalizedMonthRecord } from '@/lib/db/schema';
 import { describe, it, expect } from 'vitest';
 import {
   DB_NAME,
@@ -19,7 +21,8 @@ import {
 describe('Schema & Runtime Validation', () => {
   it('exports schema version and store name constants', () => {
     expect(DB_NAME).toBe('ChessGameAnalyzerDB');
-    expect(SCHEMA_VERSION).toBe(3);
+    expect(SCHEMA_VERSION).toBe(4);
+    expect(STORES.NORMALIZED_MONTHS).toBe('normalizedMonths');
     expect(NORMALIZER_VERSION).toBe(5);
     expect(STORES.ARCHIVE_SYNC).toBe('archiveSync');
     expect(STORES.GAMES).toBe('games');
@@ -262,4 +265,22 @@ describe('Schema & Runtime Validation', () => {
       expect(isValidMetaRecord({ name: 'n', value: 1, updatedAt: Number.NaN })).toBe(false);
     });
   });
+});
+
+it('guards validation state independently of fetch coverage and rejects corrupt envelopes', () => {
+  const month = makeNormalizedMonth();
+  expect(isValidNormalizedMonthRecord(month)).toBe(true);
+  for (const validation of [
+    null,
+    {},
+    { ...month.candidates[0]!.validation, state: 'accepted' },
+    { ...month.candidates[0]!.validation, pgnDigest: 'wrong' },
+  ]) {
+    expect(
+      isValidNormalizedMonthRecord({
+        ...month,
+        candidates: [{ ...month.candidates[0], validation }],
+      })
+    ).toBe(false);
+  }
 });

@@ -12,6 +12,7 @@ export interface AnalysisMoveListProps {
   moves?: readonly MovePly[] | undefined;
   annotations?: readonly GameAnnotation[] | undefined;
   selectedPly: number;
+  reviewPlies?: readonly number[] | undefined;
   onSelectPly(ply: number): void;
   id?: string | undefined;
   tableLabel?: string | undefined;
@@ -35,6 +36,7 @@ export function AnalysisMoveList({
   moves,
   annotations = [],
   selectedPly,
+  reviewPlies,
   onSelectPly,
   id,
   tableLabel = 'Move list',
@@ -160,18 +162,44 @@ export function AnalysisMoveList({
 
     const titleText = annotation ? `${evalLabel} (${qualityText})` : 'Not analysed';
 
+    const handleCellKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      const totalMoves = effectiveMoves.length;
+      let nextPly: number | null = null;
+      if (event.key === 'ArrowRight') {
+        nextPly = Math.min(totalMoves, move.ply + 1);
+      } else if (event.key === 'ArrowLeft') {
+        nextPly = Math.max(0, move.ply - 1);
+      } else if (event.key === 'ArrowDown') {
+        nextPly = Math.min(totalMoves, move.ply + 2);
+      } else if (event.key === 'ArrowUp') {
+        nextPly = Math.max(1, move.ply - 2);
+      } else if (event.key === 'Home') {
+        nextPly = 1;
+      } else if (event.key === 'End') {
+        nextPly = totalMoves;
+      }
+      if (nextPly !== null) {
+        event.preventDefault();
+        onSelectPly(nextPly);
+      }
+    };
+
     return (
       <button
         ref={isSelected ? selectedRef : null}
         type="button"
         className={`analysis-move-cell${isSelected ? ' analysis-move-cell--selected' : ''}`}
         onClick={() => onSelectPly(move.ply)}
+        onKeyDown={handleCellKeyDown}
         aria-current={isSelected ? 'true' : undefined}
         data-selected={isSelected ? 'true' : undefined}
         aria-label={accessibleLabel}
         title={titleText}
       >
         <span className="visually-hidden">{movePrefix} </span>
+        {reviewPlies?.includes(move.ply) ? (
+          <span className="visually-hidden">Key moment · </span>
+        ) : null}
         <span className="analysis-move-cell__san">{move.san}</span>
         {quality ? (
           <span className="analysis-move-cell__badge">

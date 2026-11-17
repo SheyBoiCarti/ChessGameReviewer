@@ -17,13 +17,29 @@ export async function deleteUserData(db: IDBDatabase, username: string): Promise
 
   return new Promise<DeletionResult>((resolve, reject) => {
     const tx = db.transaction(
-      [STORES.GAMES, STORES.ARCHIVE_SYNC, STORES.GRAPH_SNAPSHOTS, STORES.META],
+      [
+        STORES.GAMES,
+        STORES.ARCHIVE_SYNC,
+        STORES.NORMALIZED_MONTHS,
+        STORES.GRAPH_SNAPSHOTS,
+        STORES.META,
+      ],
       'readwrite'
     );
 
     let gamesDeleted = 0;
     let archiveSyncDeleted = 0;
     let graphSnapshotsDeleted = 0;
+
+    const normalizedStore = tx.objectStore(STORES.NORMALIZED_MONTHS);
+    const normalizedReq = normalizedStore.index('username').openKeyCursor(normUsername);
+    normalizedReq.onsuccess = () => {
+      const cursor = normalizedReq.result;
+      if (cursor) {
+        normalizedStore.delete(cursor.primaryKey);
+        cursor.continue();
+      }
+    };
 
     // Delete matching games
     const gamesStore = tx.objectStore(STORES.GAMES);
@@ -95,6 +111,7 @@ export async function deleteUserData(db: IDBDatabase, username: string): Promise
 export async function clearAllData(db: IDBDatabase): Promise<ClearAllResult> {
   const storeNames = [
     STORES.ARCHIVE_SYNC,
+    STORES.NORMALIZED_MONTHS,
     STORES.GAMES,
     STORES.EVALUATIONS,
     STORES.GRAPH_SNAPSHOTS,

@@ -1,9 +1,15 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { GameSelector } from '@/components/analysis/GameSelector';
+import {
+  defaultGameListState,
+  GameSelector,
+  type GameListState,
+} from '@/components/analysis/GameSelector';
 import type { GameRecord } from '@/lib/db/schema';
+
+import { makeGameRecord } from '../../helpers/phase1Fixtures';
 
 const games: GameRecord[] = [
   game('older', 1_700_000_000, 'Magnus Carlsen', 'loss'),
@@ -11,13 +17,87 @@ const games: GameRecord[] = [
 ];
 
 describe('GameSelector', () => {
+  it('mounts 20 of 500 cards and paginates without changing selection', async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <GameSelector
+        games={Array.from({ length: 500 }, (_, i) =>
+          makeGameRecord({ id: `g-${i}`, endedAt: 1700000000 + i })
+        )}
+        selectedGameId={null}
+        onSelect={onSelect}
+        hasLoaded
+      />
+    );
+    expect(screen.getByRole('list', { name: 'Games' }).children).toHaveLength(20);
+    expect(screen.getByText('Page 1 of 25')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.getByText('Page 2 of 25')).toBeVisible();
+    expect(onSelect).not.toHaveBeenCalled();
+    await user.selectOptions(screen.getByLabelText('Sort games'), 'oldest');
+    expect(screen.getByText('Page 1 of 25')).toBeVisible();
+  });
+
+  it('identifies same-opponent games with UTC time, side, time control and cheap opening headers', async () => {
+    const onReview = vi.fn();
+    const user = userEvent.setup();
+    const record = makeGameRecord({
+      timeControl: '180+2',
+      pgn: '[Opening "Sicilian Defense"]\n[ECO "B20"]\n\n1. e4 c5 *',
+    });
+    render(
+      <GameSelector games={[record]} selectedGameId={null} onSelect={vi.fn()} onReview={onReview} />
+    );
+    const row = screen.getByRole('list', { name: 'Games' }).children[0] as HTMLElement;
+    expect(row).toHaveTextContent(/UTC/);
+    expect(row).toHaveTextContent(/180\+2/);
+    expect(row).toHaveTextContent(/Sicilian Defense/);
+    expect(row).toHaveTextContent(/White/i);
+    await user.click(within(row).getByRole('button', { name: /^Review/ }));
+    expect(onReview).toHaveBeenCalledWith(record.id);
+  });
+
+  it('clears an unmatched UI filter without selecting or fetching a game', async () => {
+    const select = vi.fn();
+    const user = userEvent.setup();
+    render(<GameSelector games={games} selectedGameId="older" onSelect={select} />);
+    await user.type(screen.getByLabelText('Filter games'), 'no-such-opponent');
+    await user.click(screen.getByRole('button', { name: 'Clear filter' }));
+    expect(screen.getByLabelText('Filter games')).toHaveValue('');
+    expect(screen.getByRole('list', { name: 'Games' }).children).toHaveLength(2);
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it('resets the actual viewport on filter, sort and page changes before leaving the list', async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 45 }, (_, index) =>
+      makeGameRecord({ id: `scroll-${index}`, endedAt: 1700000000 + index })
+    );
+    render(<GameSelector games={many} selectedGameId={null} onSelect={vi.fn()} />);
+    const viewport = screen.getByRole('region', { name: 'Game results' });
+    const scroll = () => {
+      viewport.scrollTop = 160;
+      viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    };
+    scroll();
+    await user.selectOptions(screen.getByLabelText('Sort games'), 'oldest');
+    expect(viewport.scrollTop).toBe(0);
+    scroll();
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(viewport.scrollTop).toBe(0);
+    scroll();
+    await user.type(screen.getByLabelText('Filter games'), 'opponent');
+    expect(viewport.scrollTop).toBe(0);
+  });
+
   it('sorts a copy, displays required metadata, and selects by stable game id without starting analysis', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
-    const onAnalyze = vi.fn();
+    const onReview = vi.fn();
     const originalOrder = games.map(({ id }) => id);
     render(
-      <GameSelector games={games} selectedGameId={null} onSelect={onSelect} onAnalyze={onAnalyze} />
+      <GameSelector games={games} selectedGameId={null} onSelect={onSelect} onReview={onReview} />
     );
 
     const gameResults = screen.getByRole('region', { name: 'Game results' });
@@ -34,10 +114,10 @@ describe('GameSelector', () => {
     expect(screen.getAllByText(/rated/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/not reviewed/i).length).toBeGreaterThan(0);
 
-    // Clicking row calls onSelect but NOT onAnalyze
-    await user.click(screen.getByRole('button', { name: /magnus carlsen/i }));
+    // Clicking row calls onSelect but NOT onReview
+    await user.click(screen.getByRole('button', { name: /^Preview .*magnus carlsen/i }));
     expect(onSelect).toHaveBeenCalledWith('older');
-    expect(onAnalyze).not.toHaveBeenCalled();
+    expect(onReview).not.toHaveBeenCalled();
     expect(games.map(({ id }) => id)).toEqual(originalOrder);
   });
 
@@ -58,61 +138,142 @@ describe('GameSelector', () => {
 
     await user.type(screen.getByLabelText(/filter games/i), 'Judit');
     expect(screen.getByRole('list', { name: 'Games' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /magnus/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Preview .*magnus/i })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Games (1 of 2)');
     window.matchMedia = originalMatchMedia;
   });
 
-  it('updates heading and auto-selects first visible game when filter omits currently selected game', async () => {
+  it('keeps the original selection stable when a filter omits it and explains the out-of-filter preview', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
-    const onAnalyze = vi.fn();
+    const onReview = vi.fn();
+    render(
+      <GameSelector games={games} selectedGameId="older" onSelect={onSelect} onReview={onReview} />
+    );
+
+    // Initial heading
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Games (2)');
+    expect(screen.getByText('player-one (1800) vs Magnus Carlsen (1850)')).toBeInTheDocument();
+
+    // Filter to Judit (which filters out the selected 'older' game)
+    await user.type(screen.getByLabelText(/filter games/i), 'Judit');
+
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Games (1 of 2)');
+    // Typing a filter must not silently replace the selected game.
+    expect(onSelect).not.toHaveBeenCalled();
+    // The selected game stays selected, and its preview explains that it is outside the filter.
+    expect(screen.getByText('player-one (1800) vs Magnus Carlsen (1850)')).toBeInTheDocument();
+    expect(screen.getByText('Selected game is outside this filter.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review game' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /^Preview .*judit polgar/i })).toBeInTheDocument();
+  });
+
+  it('accepts controlled list state and resets page without touching the selection on filter changes', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const onListStateChange = vi.fn();
+    const initial: GameListState = { filter: '', sort: 'newest', page: 3, scrollTop: 240 };
     const { rerender } = render(
       <GameSelector
         games={games}
         selectedGameId="older"
         onSelect={onSelect}
-        onAnalyze={onAnalyze}
+        listState={initial}
+        onListStateChange={onListStateChange}
       />
     );
 
-    // Initial heading
-    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Games (2)');
-    // Initial selection is 'older' (vs Magnus Carlsen)
-    expect(screen.getByText('player-one (1800) vs Magnus Carlsen (1850)')).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/filter games/i), 'a');
+    expect(onListStateChange).toHaveBeenLastCalledWith({
+      filter: 'a',
+      sort: 'newest',
+      page: 1,
+      scrollTop: 0,
+    });
+    expect(onSelect).not.toHaveBeenCalled();
 
-    // Filter to Judit (which filters out 'older')
-    await user.type(screen.getByLabelText(/filter games/i), 'Judit');
-
-    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Games (1 of 2)');
-    // onSelect should be called with 'newer' (Judit Polgar)
-    expect(onSelect).toHaveBeenCalledWith('newer');
-
-    // When rerendered with updated selectedGameId
     rerender(
       <GameSelector
         games={games}
-        selectedGameId="newer"
+        selectedGameId="older"
         onSelect={onSelect}
-        onAnalyze={onAnalyze}
+        listState={{ filter: 'a', sort: 'newest', page: 1, scrollTop: 0 }}
+        onListStateChange={onListStateChange}
       />
     );
-    expect(screen.getByText('player-one (1800) vs Judit Polgar (1850)')).toBeInTheDocument();
+    expect(onListStateChange).toHaveBeenCalledTimes(2); // initial out-of-range page clamps before editing
+  });
+
+  it('does not select a game merely from typing a filter (representative regression)', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <GameSelector
+        games={[makeGameRecord()]}
+        selectedGameId={null}
+        onSelect={onSelect}
+        hasLoaded
+      />
+    );
+    await user.type(screen.getByLabelText('Filter games'), 'opponent');
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('saves list viewport scroll on leave and restores it after the matching rows mount', async () => {
+    const manyGames: GameRecord[] = Array.from({ length: 40 }, (_, index) =>
+      game(`bulk-${index}`, 1_700_000_000 + index, `Bulk Opponent ${index}`, 'win')
+    );
+    const onListStateChange = vi.fn();
+    const { unmount } = render(
+      <GameSelector
+        games={manyGames}
+        selectedGameId={null}
+        onSelect={vi.fn()}
+        listState={defaultGameListState}
+        onListStateChange={onListStateChange}
+      />
+    );
+    const viewport = screen.getByRole('region', { name: 'Game results' });
+    viewport.scrollTop = 320;
+    viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    unmount();
+    expect(onListStateChange).toHaveBeenLastCalledWith({
+      filter: '',
+      sort: 'newest',
+      page: 1,
+      scrollTop: 320,
+    });
+
+    const restored = vi.fn();
+    render(
+      <GameSelector
+        games={manyGames}
+        selectedGameId={null}
+        onSelect={vi.fn()}
+        listState={{ filter: '', sort: 'newest', page: 1, scrollTop: 320 }}
+        onListStateChange={restored}
+      />
+    );
+    expect(screen.getByRole('region', { name: 'Game results' }).scrollTop).toBe(320);
   });
 
   it('shows an unbounded empty state when the filter matches no games', async () => {
     const user = userEvent.setup();
     render(
-      <GameSelector games={games} selectedGameId="older" onSelect={vi.fn()} onAnalyze={vi.fn()} />
+      <GameSelector games={games} selectedGameId="older" onSelect={vi.fn()} onReview={vi.fn()} />
     );
 
     await user.type(screen.getByLabelText(/filter games/i), 'No such opponent');
 
     expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Games (0 of 2)');
-    expect(screen.queryByText(/magnus carlsen/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^Preview .*magnus carlsen/i })
+    ).not.toBeInTheDocument();
     expect(
       screen.getByText('No games match this filter. Try another opponent name.')
     ).toBeInTheDocument();
+    // The selected game remains selected and its preview explains it is outside this filter.
+    expect(screen.getByText('Selected game is outside this filter.')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Game results' })).not.toBeInTheDocument();
   });
 
@@ -135,14 +296,16 @@ describe('GameSelector', () => {
     };
 
     render(<GameSelector games={[customGame]} selectedGameId={null} onSelect={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /displaycasedopponent/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /^Preview .*displaycasedopponent/i })
+    ).toBeInTheDocument();
   });
 
-  it('displays matchup detail line and calls onAnalyze exactly once on Review game click', async () => {
+  it('displays matchup detail line and calls onReview exactly once on Review game click', async () => {
     const user = userEvent.setup();
-    const onAnalyze = vi.fn();
+    const onReview = vi.fn();
     render(
-      <GameSelector games={games} selectedGameId="newer" onSelect={vi.fn()} onAnalyze={onAnalyze} />
+      <GameSelector games={games} selectedGameId="newer" onSelect={vi.fn()} onReview={onReview} />
     );
 
     expect(screen.getByText('player-one (1800) vs Judit Polgar (1850)')).toBeInTheDocument();
@@ -150,19 +313,19 @@ describe('GameSelector', () => {
     expect(reviewButton).toBeEnabled();
 
     await user.click(reviewButton);
-    expect(onAnalyze).toHaveBeenCalledTimes(1);
-    expect(onAnalyze).toHaveBeenCalledWith('newer');
+    expect(onReview).toHaveBeenCalledTimes(1);
+    expect(onReview).toHaveBeenCalledWith('newer');
   });
 
   it('disables Review game and shows warning when reviewDisabledReason is provided', async () => {
     const user = userEvent.setup();
-    const onAnalyze = vi.fn();
+    const onReview = vi.fn();
     render(
       <GameSelector
         games={games}
         selectedGameId="newer"
         onSelect={vi.fn()}
-        onAnalyze={onAnalyze}
+        onReview={onReview}
         reviewDisabledReason="This game has no reviewable moves."
       />
     );
@@ -172,7 +335,7 @@ describe('GameSelector', () => {
     expect(screen.getByText('This game has no reviewable moves.')).toBeInTheDocument();
 
     await user.click(reviewButton);
-    expect(onAnalyze).not.toHaveBeenCalled();
+    expect(onReview).not.toHaveBeenCalled();
   });
 
   it('distinguishes analysis result statuses: Reviewed, Partial review, Review failed, Analysing…', () => {

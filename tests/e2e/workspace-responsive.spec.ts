@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
+import { installEngineFixtures } from './helpers/engineFixtures';
 
 import {
   installLongGameWorkspaceFixtures,
+  installLongNameWorkspaceFixtures,
   installOverflowWorkspaceFixtures,
   installWorkspaceFixtures,
   loadFixtureGames,
@@ -52,7 +54,7 @@ test('keeps the board and its move controls visible without document overflow ac
     }
 
     await loadFixtureGames(page);
-    await page.getByRole('button', { name: /opponent-two/i }).click();
+    await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
     await page.getByRole('grid', { name: 'Chess board' }).scrollIntoViewIfNeeded();
 
     await expect(page.getByRole('grid', { name: 'Chess board' })).toBeInViewport();
@@ -70,10 +72,10 @@ test('uses the compact workspace before a three-column desktop layout crowds the
 
   await loadFixtureGames(page);
 
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await expect(page.getByRole('list', { name: 'Games' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Games' })).toHaveCount(0);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
 
   const board = await page.getByRole('grid', { name: 'Chess board' }).boundingBox();
@@ -119,18 +121,52 @@ test('keeps the product identity and workspace tabs readable on a phone', async 
   expect(await overflow(page)).toBeLessThanOrEqual(1);
 });
 
-test('uses a visually separated, classic board grid without obscuring move highlights', async ({
+test('uses a zero-gap tournament board with layered framing and visible move highlights', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
 
   const board = page.getByRole('grid', { name: 'Chess board' });
   await expect(board).toBeVisible();
-  expect(await board.evaluate((element) => getComputedStyle(element).gap)).toBe('1px');
+  expect(await board.evaluate((element) => getComputedStyle(element).gap)).toBe('0px');
+  expect(await board.evaluate((element) => getComputedStyle(element).padding)).toBe('0px');
+  const presentation = await page.locator('.chessboard-frame').evaluate((element) => ({
+    shadow: getComputedStyle(element).boxShadow,
+    highlight: getComputedStyle(element, '::after').boxShadow,
+    pointerEvents: getComputedStyle(element, '::after').pointerEvents,
+    seams: [...element.querySelectorAll('[data-square]')].flatMap((square, index, squares) => {
+      const box = square.getBoundingClientRect();
+      return [
+        ...(index % 8 < 7 ? [squares[index + 1]!.getBoundingClientRect().left - box.right] : []),
+        ...(index < 56 ? [squares[index + 8]!.getBoundingClientRect().top - box.bottom] : []),
+      ];
+    }),
+  }));
+  expect(presentation.shadow).not.toBe('none');
+  expect(presentation.highlight).toContain('inset');
+  expect(presentation.pointerEvents).toBe('none');
+  for (const seam of presentation.seams) expect(Math.abs(seam)).toBeLessThan(0.02);
+  for (const theme of ['dark', 'light']) {
+    await page
+      .locator('html')
+      .evaluate((element, value) => element.setAttribute('data-theme', value), theme);
+    expect(
+      await page
+        .locator('.square-dark')
+        .first()
+        .evaluate((element) => getComputedStyle(element).backgroundColor)
+    ).toBe('rgb(119, 149, 86)');
+    expect(
+      await page
+        .locator('.square-light')
+        .first()
+        .evaluate((element) => getComputedStyle(element).backgroundColor)
+    ).toBe('rgb(235, 236, 208)');
+  }
   expect(
     await page
       .locator('[data-square="d7"]')
@@ -145,7 +181,7 @@ test('keeps every board square equal before and after piece occupancy changes', 
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
 
   await expectUniformBoardSquares(page);
   await page.getByRole('button', { name: 'Next move' }).click();
@@ -160,16 +196,16 @@ test('aligns the evaluation meter to the framed board and uses its full track', 
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
-  await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
+  await expect(page.getByRole('button', { name: 'Run review (Start analysis)' })).toBeEnabled({
     timeout: 30_000,
   });
   await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
-  await page.getByRole('button', { name: 'Start analysis' }).click();
-  await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
+  await page.getByRole('button', { name: 'Run review (Start analysis)' }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({
     timeout: 60_000,
   });
   await page.getByRole('button', { name: 'Select ply 1' }).click();
@@ -229,14 +265,22 @@ test('keeps evaluation labels readable over either fill direction in every theme
   }
 });
 
-test('contains games and opening candidates in fixed-height scroll viewports', async ({ page }) => {
+test('bounds games and content-sized opening candidates in scroll viewports', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await installOverflowWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page, 20);
 
   const gameResults = page.getByRole('region', { name: 'Game results' });
-  await expect(gameResults.getByRole('button')).toHaveCount(20);
+  await expect(gameResults.getByRole('button', { name: /^Preview/ })).toHaveCount(20);
+  await expect(gameResults.getByRole('button', { name: /^Review/ }).first()).toBeInViewport();
+  expect(
+    await gameResults
+      .locator('li')
+      .first()
+      .evaluate((el) => el.scrollWidth - el.clientWidth)
+  ).toBeLessThanOrEqual(1);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThan(2000);
   const gameMetrics = await scrollMetrics(gameResults);
   expect(gameMetrics.clientHeight).toBeGreaterThanOrEqual(16 * 16 - 1);
   expect(gameMetrics.clientHeight).toBeLessThanOrEqual(28 * 16 + 1);
@@ -248,7 +292,8 @@ test('contains games and opening candidates in fixed-height scroll viewports', a
   const candidates = page.getByRole('region', { name: 'Opening candidate results' });
   await expect(candidates.getByRole('button', { name: /^Play / })).toHaveCount(20);
   const candidateMetrics = await scrollMetrics(candidates);
-  expect(candidateMetrics.clientHeight).toBe(gameMetrics.clientHeight);
+  expect(candidateMetrics.clientHeight).toBeGreaterThanOrEqual(3 * 44);
+  expect(candidateMetrics.clientHeight).toBeLessThanOrEqual(24 * 16);
   expect(candidateMetrics.scrollHeight).toBeGreaterThan(candidateMetrics.clientHeight);
 
   const headingBefore = await candidates.getByRole('columnheader', { name: 'Move' }).boundingBox();
@@ -257,6 +302,114 @@ test('contains games and opening candidates in fixed-height scroll viewports', a
   expect(headingBefore).not.toBeNull();
   expect(headingAfter).not.toBeNull();
   expect(Math.abs(headingAfter!.y - headingBefore!.y)).toBeLessThanOrEqual(1);
+});
+
+test('opening candidates sit directly under compact controls without overflow (T41)', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await installOverflowWorkspaceFixtures(page);
+  await page.goto('/');
+  await loadFixtureGames(page, 20);
+  await expect(
+    page.getByRole('button', { name: /^Preview .*overflow-opponent-20/i })
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Openings' }).click();
+  const firstCandidate = page
+    .getByRole('table', { name: 'Opening candidates', exact: true })
+    .locator('tbody tr')
+    .first();
+
+  // At desktop size the first candidate is immediately after the compact
+  // controls instead of a large reserved viewport.
+  await expect(firstCandidate).toBeVisible();
+  const desktop = await firstCandidate.boundingBox();
+  expect(desktop!.y).toBeLessThanOrEqual(260);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
+  ).toBeLessThanOrEqual(1);
+
+  const context = page.getByRole('region', { name: 'Contextual workspace', exact: true });
+  const candidates = page.getByRole('region', { name: 'Opening candidate results', exact: true });
+  const candidateRows = candidates.locator('tbody tr');
+  await expect(candidateRows).toHaveCount(20);
+  expect((await scrollMetrics(context)).scrollTop).toBe(0);
+  expect((await scrollMetrics(candidates)).scrollTop).toBe(0);
+  // Three full candidates fit in the initial desktop context without scrolling it.
+  for (let index = 0; index < 3; index += 1) {
+    await expect(candidateRows.nth(index)).toBeInViewport({ ratio: 1 });
+  }
+  await testInfo.attach('opening-desktop-candidates', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+
+  // Large lists scroll within their own bounded region and expose the final move.
+  const candidateMetrics = await scrollMetrics(candidates);
+  expect(candidateMetrics.scrollHeight).toBeGreaterThan(candidateMetrics.clientHeight);
+  await candidates.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  await expect.poll(async () => (await scrollMetrics(candidates)).scrollTop).toBeGreaterThan(0);
+  await expect(candidateRows.last().getByRole('button')).toBeInViewport({ ratio: 1 });
+  expect((await scrollMetrics(context)).scrollTop).toBe(0);
+
+  // A one-row node uses its content height instead of retaining the large viewport.
+  await candidates.evaluate((element) => element.scrollTo({ top: 0 }));
+  await page.getByRole('button', { name: 'Play a3, 1 games', exact: true }).click();
+  await expect(candidateRows).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Play a6, 1 games', exact: true })).toBeVisible();
+  const oneRow = await scrollMetrics(candidates);
+  expect(oneRow.clientHeight).toBeLessThan(150);
+  expect(oneRow.scrollHeight).toBeLessThanOrEqual(oneRow.clientHeight + 1);
+  await testInfo.attach('opening-desktop-one-row', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+  await page.getByRole('button', { name: 'Starting position', exact: true }).click();
+
+  // On phones the candidates follow board/playback and stay within reach.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(firstCandidate).toBeVisible();
+  const mobile = await firstCandidate.boundingBox();
+  expect(mobile!.y).toBeLessThanOrEqual(650);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
+  ).toBeLessThanOrEqual(1);
+
+  // Text resizing keeps the expanded statistics and source-game controls reachable.
+  const originalFontSize = await page.evaluate(() =>
+    Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+  );
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  expect(
+    await page.evaluate(() =>
+      Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+    )
+  ).toBeGreaterThanOrEqual(originalFontSize * 2);
+  await page.getByText('More statistics', { exact: true }).click();
+  const statistics = page.getByRole('region', { name: 'Detailed opening statistics', exact: true });
+  await expect(statistics.getByRole('table')).toBeVisible();
+  const sampleHeader = statistics.getByRole('columnheader', { name: 'Sample size', exact: true });
+  await sampleHeader.scrollIntoViewIfNeeded();
+  await expect(sampleHeader).toBeInViewport();
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+  await testInfo.attach('opening-mobile-expanded-statistics-200-percent', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+  await page.getByText('Matching games (20)', { exact: true }).click();
+  const sourceGames = page.getByRole('region', { name: 'Games in this opening', exact: true });
+  await expect(sourceGames.getByRole('button')).toHaveCount(20);
+  const source = sourceGames.getByRole('button').first();
+  await source.scrollIntoViewIfNeeded();
+  await expect(source).toBeInViewport();
+  await expect(source).toBeEnabled();
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+  await testInfo.attach('opening-mobile-matching-games-200-percent', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
 });
 
 test('keeps tab, hover-button, and eyebrow text at AA contrast in every theme', async ({
@@ -320,16 +473,16 @@ test('desktop analyzer layout stays bounded within usable viewport height for lo
   await installLongGameWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page, 1);
-  await page.getByRole('button', { name: /opponent-long/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-long/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
-  await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
+  await expect(page.getByRole('button', { name: 'Run review (Start analysis)' })).toBeEnabled({
     timeout: 30_000,
   });
   await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
-  await page.getByRole('button', { name: 'Start analysis' }).click();
-  await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
+  await page.getByRole('button', { name: 'Run review (Start analysis)' }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({
     timeout: 60_000,
   });
 
@@ -337,24 +490,20 @@ test('desktop analyzer layout stays bounded within usable viewport height for lo
   const moveListLocator = page.locator('.analysis-move-list');
   const contextMetrics = await scrollMetrics(contextLocator);
   const moveListMetrics = await scrollMetrics(moveListLocator);
-
-  const maxContextHeight = await page.evaluate(
-    () =>
-      window.innerHeight -
-      Number.parseFloat(
-        getComputedStyle(document.querySelector('.workspace-shell')!).getPropertyValue(
-          '--workspace-chrome-height'
-        )
-      ) *
-        Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+  // Desktop panels scroll beside the anchored board; long move lists stay bounded too.
+  expect(contextMetrics.scrollHeight).toBe(contextMetrics.clientHeight);
+  const sidebarMetrics = await scrollMetrics(page.locator('.workspace-layout__sidebar'));
+  expect(sidebarMetrics.scrollHeight).toBeGreaterThan(sidebarMetrics.clientHeight);
+  const sidebarContentBottom = await contextLocator.evaluate(
+    (element) => (element as HTMLElement).offsetTop + (element as HTMLElement).offsetHeight
   );
-  expect(contextMetrics.clientHeight).toBeLessThanOrEqual(maxContextHeight + 5);
-  expect(contextMetrics.scrollHeight).toBeGreaterThan(contextMetrics.clientHeight);
+  // Offscreen move labels must not create an empty scroll tail below the panels.
+  expect(sidebarMetrics.scrollHeight).toBeLessThanOrEqual(sidebarContentBottom + 1);
 
   expect(moveListMetrics.scrollHeight).toBeGreaterThan(moveListMetrics.clientHeight);
 
   const documentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
-  expect(documentHeight).toBeLessThan(1500);
+  expect(documentHeight).toBeLessThanOrEqual(958);
 
   await expect(page.locator('.annotation-panel-empty')).toBeVisible();
   await expect(page.locator('.annotation-panel')).toHaveCount(0);
@@ -362,7 +511,7 @@ test('desktop analyzer layout stays bounded within usable viewport height for lo
 
   await page.getByRole('button', { name: /select ply 5\b/i }).click();
   await expect(page.locator('.annotation-panel')).toHaveCount(1);
-  await expect(page.locator('.annotation-panel h4')).toHaveText(/ply 5/i);
+  await expect(page.locator('.annotation-panel h4')).toHaveText(/3\. d4/);
 });
 
 test('mobile analyzer layout uses natural document flow with bounded move list', async ({
@@ -375,17 +524,17 @@ test('mobile analyzer layout uses natural document flow with bounded move list',
 
   await loadFixtureGames(page, 1);
 
-  await page.getByRole('button', { name: /opponent-long/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-long/i }).click();
   await page.getByRole('button', { name: /open menu/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
-  await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
+  await expect(page.getByRole('button', { name: 'Run review (Start analysis)' })).toBeEnabled({
     timeout: 30_000,
   });
   await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
-  await page.getByRole('button', { name: 'Start analysis' }).click();
-  await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
+  await page.getByRole('button', { name: 'Run review (Start analysis)' }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({
     timeout: 60_000,
   });
 
@@ -451,7 +600,16 @@ async function waitForColorTransitions(locator: import('@playwright/test').Locat
   await locator.evaluate(async (element) => {
     // Flush style changes so theme and hover transitions have been created.
     window.getComputedStyle(element).color;
-    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+    await Promise.all(
+      element
+        .getAnimations()
+        .map((animation) =>
+          Promise.race([
+            animation.finished.catch(() => undefined),
+            new Promise<void>((resolve) => setTimeout(resolve, 250)),
+          ])
+        )
+    );
   });
 }
 
@@ -499,3 +657,192 @@ async function contrastAgainstBackground(
     return (lighter + 0.05) / (darker + 0.05);
   }, backgroundLocator);
 }
+
+test('keeps review feedback and playback together without navigation scroll jumps', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.addInitScript(() => localStorage.clear());
+  await installWorkspaceFixtures(page);
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 1366, height: 768 },
+    { width: 390, height: 844 },
+    { width: 320, height: 740 },
+  ]) {
+    await page.setViewportSize(size);
+    await page.goto('/?engine=unavailable');
+    await loadFixtureGames(page);
+    await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+    if (size.width < 960) await page.getByRole('button', { name: /open menu/i }).click();
+    await page.getByRole('button', { name: 'Review', exact: true }).click();
+    const board = page.getByRole('grid', { name: 'Chess board' });
+    const feedback = page.getByRole('region', { name: 'Selected move feedback' });
+    await expect(feedback).toBeVisible();
+    const boardBox = await board.boundingBox();
+    const feedbackBox = await feedback.boundingBox();
+    expect(boardBox!.y + boardBox!.height).toBeLessThanOrEqual(size.height);
+    expect(feedbackBox!.y).toBeLessThan(size.height);
+    expect(await overflow(page)).toBeLessThanOrEqual(1);
+    if (size.width === 390) {
+      const next = page.getByRole('button', { name: 'Next move', exact: true });
+      const nextBox = await next.boundingBox();
+      expect(nextBox!.y + nextBox!.height).toBeLessThanOrEqual(size.height);
+      const before = await page.evaluate(() => window.scrollY);
+      await next.click();
+      expect(await page.evaluate(() => window.scrollY)).toBe(before);
+      await expect(next).toBeFocused();
+    }
+  }
+});
+
+test('review accommodates long names and expandable feedback on a narrow phone', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await installLongNameWorkspaceFixtures(page);
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page, 1);
+  await page
+    .getByRole('button', {
+      name: /^Preview .*opponent-with-a-very-long-name-for-layout-regressions/i,
+    })
+    .click();
+  await page.getByRole('button', { name: /open menu/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(page.locator('.review-header')).toContainText(
+    'opponent-with-a-very-long-name-for-layout-regressions'
+  );
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+});
+
+test('expanded review feedback remains usable and keeps its toggle focused', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: /open menu/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Next move', exact: true }).click();
+  expect(
+    (await page.getByRole('button', { name: /select ply 1\b/i }).boundingBox())!.height
+  ).toBeGreaterThanOrEqual(43.99);
+  const toggle = page.locator('.review-feedback summary');
+  await expect(toggle).toBeVisible();
+  expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(43.99);
+  const boardDocumentTop = () =>
+    page
+      .getByRole('grid', { name: 'Chess board' })
+      .evaluate((element) => element.getBoundingClientRect().top + window.scrollY);
+  const beforeExpansion = await boardDocumentTop();
+  await toggle.click();
+  await expect(toggle).toBeFocused();
+  await expect(page.getByText(/Best move:/)).toBeVisible();
+  expect(await boardDocumentTop()).toBeCloseTo(beforeExpansion, 0);
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 320, height: 740 });
+  await expect(page.getByRole('grid', { name: 'Chess board' })).toBeVisible();
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+});
+
+test('keeps the first import focused on username and Find games (T30)', async ({ page }) => {
+  await page.goto('/?engine=unavailable');
+  await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Find games', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Maximum games')).not.toBeVisible();
+  await expect(page.getByLabel('Opening horizon (plies)')).not.toBeVisible();
+});
+
+test('review interaction controls maintain 44px mobile touch targets and no overflow at 200% zoom (T34)', async ({
+  page,
+}) => {
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  const menuButton = page.getByRole('button', { name: /open menu/i });
+  if (await menuButton.isVisible()) {
+    await menuButton.click();
+  }
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+
+  // Test at 200% zoom (viewport width halved from configured desktop)
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+  await page.setViewportSize({
+    width: Math.max(320, Math.floor(viewport!.width / 2)),
+    height: viewport!.height,
+  });
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+
+  // Test at standard narrow mobile viewport (320x740)
+  await page.setViewportSize({ width: 320, height: 740 });
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+
+  // Return to 390px mobile viewport to check touch targets
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  // Move history controls buttons
+  const prevBtn = page.getByRole('button', { name: 'Previous move', exact: true });
+  const nextBtn = page.getByRole('button', { name: 'Next move', exact: true });
+  const flipBtn = page.getByRole('button', { name: 'Flip board', exact: true });
+  const firstBtn = page.getByRole('button', { name: 'First position', exact: true });
+  const lastBtn = page.getByRole('button', { name: 'Last position', exact: true });
+
+  for (const btn of [prevBtn, nextBtn, flipBtn, firstBtn, lastBtn]) {
+    const box = await btn.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(43.9);
+    expect(box!.height).toBeGreaterThanOrEqual(43.9);
+  }
+
+  // Advance to ply 1 to reveal feedback navigation buttons and move cell
+  await nextBtn.click();
+  const moveCell = page.getByRole('button', { name: /select ply 1\b/i });
+  const cellBox = await moveCell.boundingBox();
+  expect(cellBox).not.toBeNull();
+  expect(cellBox!.height).toBeGreaterThanOrEqual(43.9);
+
+  const feedbackNav = page.locator('.review-feedback nav.review-feedback__actions button');
+  const navCount = await feedbackNav.count();
+  for (let i = 0; i < navCount; i++) {
+    const btnBox = await feedbackNav.nth(i).boundingBox();
+    expect(btnBox).not.toBeNull();
+    expect(btnBox!.height).toBeGreaterThanOrEqual(43.9);
+  }
+});
+
+test('core review milestone layout remains responsive across desktop and mobile viewports (T35)', async ({
+  page,
+}) => {
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  const menuButton = page.getByRole('button', { name: /open menu/i });
+  if (await menuButton.isVisible()) {
+    await menuButton.click();
+  }
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({ timeout: 30_000 });
+
+  // Desktop viewport check (1440x900)
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByRole('group', { name: 'Evaluation graph' })).toBeVisible();
+  await expect(page.locator('.review-summary')).toBeVisible();
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+
+  // Mobile viewport check (390x844)
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('grid', { name: 'Chess board' })).toBeVisible();
+  expect(await overflow(page)).toBeLessThanOrEqual(1);
+});

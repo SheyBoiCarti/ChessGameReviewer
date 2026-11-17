@@ -1,7 +1,12 @@
 import type { GameAnnotation } from '@/features/stockfish-analysis/analyzeGame';
-import { convertPvToSan, qualityLabel } from '@/features/stockfish-analysis/presentation';
+import {
+  convertPvToSan,
+  qualityLabel,
+  moveNotation,
+} from '@/features/stockfish-analysis/presentation';
 import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
 
+import { EvaluationComparison } from './ReviewFeedback';
 import { PrincipalVariationList } from './PrincipalVariationList';
 
 export function EngineAnnotationPanel({
@@ -15,17 +20,13 @@ export function EngineAnnotationPanel({
   onSelectPly(ply: number): void;
   onExplorePv?: ((startFen: string, uciMoves: readonly string[]) => void) | undefined;
 }) {
-  const bestMoveSan = startFen
-    ? (convertPvToSan(startFen, [annotation.before.bestMove]).moves[0] ??
-      annotation.before.bestMove)
-    : annotation.before.bestMove;
+  const best = startFen ? convertPvToSan(startFen, [annotation.before.bestMove]) : null;
+  const bestMoveSan = best && !best.diagnostic ? best.moves[0] : 'Best move unavailable';
 
   return (
     <article className="annotation-panel">
       <h4>
-        <span>
-          Ply {annotation.ply}: {annotation.san}
-        </span>
+        <span>{moveNotation(annotation.ply, annotation.san, annotation.mover)}</span>
         {annotation.accuracy.status === 'classified' ? (
           <MoveClassificationBadge quality={annotation.accuracy.quality} size="inline" />
         ) : null}
@@ -50,17 +51,16 @@ export function EngineAnnotationPanel({
         </div>
         <div>
           <dt>Best move</dt>
-          <dd>
-            {bestMoveSan !== annotation.before.bestMove
-              ? `${bestMoveSan} (${annotation.before.bestMove})`
-              : bestMoveSan}
-          </dd>
-        </div>
-        <div>
-          <dt>Depth</dt>
-          <dd>{annotation.before.depth}</dd>
+          <dd>{bestMoveSan}</dd>
         </div>
       </dl>
+      <EvaluationComparison annotation={annotation} />
+      <details>
+        <summary>Advanced details</summary>
+        <p>
+          Depth {annotation.before.depth} · UCI {annotation.before.bestMove}
+        </p>
+      </details>
       <button type="button" onClick={() => onSelectPly(annotation.ply)}>
         Show this position on board
       </button>

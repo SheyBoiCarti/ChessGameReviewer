@@ -4,10 +4,14 @@ import { MoveClassificationBadge } from '@/components/board/MoveClassificationBa
 import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGame';
 import { moveQualityDetails } from '@/features/stockfish-analysis/presentation';
 import type { PlayerMetadata, SideAccuracy } from '@/lib/api/contracts';
+import type { ReviewFilter } from '@/features/stockfish-analysis/reviewNavigation';
+import { filterReviewPlies } from '@/features/stockfish-analysis/reviewNavigation';
 import { REVIEW_MOVE_QUALITIES } from '@/lib/engine/accuracy';
 
 export interface GameReviewSummaryCardProps {
   result: GameAnalysisResult;
+  onStartReview?: (() => void) | undefined;
+  onFilter?: ((filter: ReviewFilter) => void) | undefined;
   upstreamAccuracies?: SideAccuracy | undefined;
   players?:
     | {
@@ -19,6 +23,8 @@ export interface GameReviewSummaryCardProps {
 
 export function GameReviewSummaryCard({
   result,
+  onStartReview,
+  onFilter,
   upstreamAccuracies,
   players,
 }: GameReviewSummaryCardProps): React.JSX.Element {
@@ -44,8 +50,13 @@ export function GameReviewSummaryCard({
     (typeof upstreamAccuracies.white === 'number' || typeof upstreamAccuracies.black === 'number');
 
   return (
-    <section className="game-review-summary surface-panel" aria-labelledby="game-review-heading">
+    <section className="game-review-summary" aria-labelledby="game-review-heading">
       <h3 id="game-review-heading">Game Review Summary</h3>
+      {onStartReview ? (
+        <button type="button" className="button-secondary" onClick={onStartReview}>
+          Start review at first important moment
+        </button>
+      ) : null}
       {result.status !== 'complete' ? (
         <p className="game-review-summary__coverage" role="status">
           Partial review: {result.analyzedPlies}/{result.totalPlies} positions analysed
@@ -96,6 +107,11 @@ export function GameReviewSummaryCard({
               </tr>
             </thead>
             <tbody>
+              <tr>
+                <th scope="row">In your repertoire</th>
+                <td>{whiteSummary.repertoireMoves ?? 'Context unavailable'}</td>
+                <td>{blackSummary.repertoireMoves ?? 'Context unavailable'}</td>
+              </tr>
               {REVIEW_MOVE_QUALITIES.map((quality) => {
                 const details = moveQualityDetails(quality);
                 const whiteCount = whiteSummary.breakdown[quality];
@@ -110,8 +126,26 @@ export function GameReviewSummaryCard({
                       <MoveClassificationBadge quality={quality} size="summary" />
                       <span className="game-review-summary__quality-label">{details.label}</span>
                     </th>
-                    <td className="game-review-summary__count-cell">{whiteCount}</td>
-                    <td className="game-review-summary__count-cell">{blackCount}</td>
+                    {(['white', 'black'] as const).map((mover) => {
+                      const count = mover === 'white' ? whiteCount : blackCount;
+                      return (
+                        <td key={mover} className="game-review-summary__count-cell">
+                          <button
+                            type="button"
+                            className="button-secondary"
+                            aria-label={`${mover === 'white' ? 'White' : 'Black'} ${details.label}: ${count} moves`}
+                            disabled={
+                              count === 0 ||
+                              !onFilter ||
+                              !filterReviewPlies(result.annotations, { mover, quality }).length
+                            }
+                            onClick={() => onFilter?.({ mover, quality })}
+                          >
+                            {count}
+                          </button>
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })}
@@ -126,10 +160,10 @@ export function GameReviewSummaryCard({
 function formatEstimate(value: number | null): React.ReactNode {
   if (value === null) {
     return (
-      <>
+      <span className="game-review-summary__unavailable">
         <span aria-hidden="true">—</span>
         <span className="visually-hidden">Unavailable</span>
-      </>
+      </span>
     );
   }
   return `${value.toFixed(1)}%`;

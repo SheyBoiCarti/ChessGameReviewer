@@ -5,11 +5,64 @@ import {
   convertPvToSan,
   moveQualityDetails,
   qualityLabel,
+  selectMovePresentation,
   toGraphPoints,
 } from '@/features/stockfish-analysis/presentation';
+import { createLongGameAnalysisResult } from '../../fixtures/longAnalysisFixture';
+import { parseGamePgn } from '@/lib/chess/pgnParser';
+import { makeGameRecord } from '../../helpers/phase1Fixtures';
 import { REVIEW_MOVE_QUALITIES, type MoveQuality } from '@/lib/engine/accuracy';
 
 describe('Stockfish analysis presentation', () => {
+  it('keeps pending selection tied to its original position', () => {
+    const parsed = parseGamePgn({ game: { ...makeGameRecord(), usernameKey: 'janedoe' } });
+    if (!parsed.ok) throw new Error('Fixture must be legal');
+    expect(selectMovePresentation(parsed.game, null, 1)).toMatchObject({
+      state: 'pending',
+      ply: 1,
+      san: parsed.game.plies[0]!.san,
+      fenBefore: parsed.game.plies[0]!.fenBefore,
+      fenAfter: parsed.game.plies[0]!.fenAfter,
+    });
+  });
+  it('uses original positions and White scores for either mover, including mate and indeterminate quality', () => {
+    const parsed = parseGamePgn({ game: { ...makeGameRecord(), usernameKey: 'janedoe' } });
+    if (!parsed.ok) throw new Error('Fixture must be legal');
+    const result = createLongGameAnalysisResult(2);
+    const first = {
+      ...result.annotations[0]!,
+      after: {
+        ...result.annotations[0]!.after,
+        score: { kind: 'mate' as const, value: -2 },
+        pv: ['e7e5'],
+      },
+    };
+    const second = {
+      ...result.annotations[1]!,
+      accuracy: { status: 'indeterminate' as const, reason: 'bound-score' as const },
+      after: { ...result.annotations[1]!.after, pv: ['e7e5'] },
+    };
+    const review = { ...result, annotations: [first, second] };
+    expect(selectMovePresentation(parsed.game, review, 0)).toMatchObject({
+      state: 'starting',
+      fenAfter: parsed.game.plies[0]!.fenBefore,
+    });
+    expect(selectMovePresentation(parsed.game, review, 1)).toMatchObject({
+      state: 'ready',
+      mover: 'white',
+      afterScore: { kind: 'mate', value: -2 },
+      reply: 'e7e5',
+      arrowOrigin: 'after',
+    });
+    expect(selectMovePresentation(parsed.game, review, 2)).toMatchObject({
+      state: 'ready',
+      mover: 'black',
+      quality: 'indeterminate',
+      reply: null,
+      fenAfter: parsed.game.plies[1]!.fenAfter,
+    });
+  });
+
   it('maps named strength presets to bounded documented limits', () => {
     expect(analysisPreset('quick')).toEqual({ limit: { depth: 10 }, multiPv: 1 });
     expect(analysisPreset('balanced')).toEqual({ limit: { depth: 14 }, multiPv: 2 });
@@ -83,4 +136,16 @@ describe('Stockfish analysis presentation', () => {
       diagnostic: 'The principal variation could not be fully converted to SAN; safe UCI is shown.',
     });
   });
+});
+
+it('keeps signed White-perspective score labels and bound uncertainty', () => {
+  expect(toGraphPoints([{ ply: 1, evaluation: { kind: 'mate', value: -3 } }])[0]!.label).toBe(
+    'Black mate in 3'
+  );
+  expect(toGraphPoints([{ ply: 1, evaluation: { kind: 'cp', value: -125 } }])[0]!.label).toBe(
+    'Black -1.25'
+  );
+  expect(
+    toGraphPoints([{ ply: 1, evaluation: { kind: 'cp', value: 125, bound: 'lower' } }])[0]!.label
+  ).toBe('lower bound · White +1.25');
 });

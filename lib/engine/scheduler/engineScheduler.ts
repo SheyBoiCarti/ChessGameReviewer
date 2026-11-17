@@ -87,6 +87,7 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
     this.disposed = true;
     if (this.active) {
       this.active.controller.abort();
+      this.detachActiveAbort(this.active);
       clearTimeout(this.active.deadlineTimer);
       this.active.reject(abortError());
       void this.adapter.stop();
@@ -122,11 +123,21 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
           deadlineTimer: undefined,
         };
         this.active = active;
+        if (entry.job.signal) {
+          active.abortListener = () => {
+            if (this.active !== active) return;
+            controller.abort();
+            void this.adapter.stop();
+          };
+          entry.job.signal.addEventListener('abort', active.abortListener, { once: true });
+          if (entry.job.signal.aborted) active.abortListener();
+        }
         const remaining = Math.max(0, entry.job.deadlineAt - this.now());
         active.deadlineTimer = setTimeout(() => {
           if (this.active !== active) return;
           controller.abort();
           void this.adapter.stop();
+          this.detachActiveAbort(active);
           this.active = undefined;
           active.reject(timeoutError());
           // The original pump may still be awaiting a non-cooperative engine.
@@ -158,6 +169,7 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
   private completeActive(active: ActiveEntry<TPayload, TResult>, result: TResult): void {
     if (this.active !== active) return;
     clearTimeout(active.deadlineTimer);
+    this.detachActiveAbort(active);
     this.active = undefined;
     if (this.disposed) return;
     if (active.preempted) {
@@ -174,6 +186,7 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
   private async failActive(active: ActiveEntry<TPayload, TResult>, error: Error): Promise<void> {
     if (this.active !== active) return;
     clearTimeout(active.deadlineTimer);
+    this.detachActiveAbort(active);
     this.active = undefined;
     if (this.disposed) return;
     if (active.preempted || active.controller.signal.aborted) {
@@ -197,6 +210,12 @@ export class EngineScheduler<TPayload = unknown, TResult = unknown> {
     active.reject(new EngineSchedulerError('ENGINE_CRASHED', error.message));
     this.rejectQueued(disabledError());
     this.adapter.dispose();
+  }
+
+  private detachActiveAbort(active: ActiveEntry<TPayload, TResult>): void {
+    if (active.abortListener && active.job.signal)
+      active.job.signal.removeEventListener('abort', active.abortListener);
+    active.abortListener = undefined;
   }
 
   private takeNextRunnable(): QueueEntry<TPayload, TResult> | undefined {

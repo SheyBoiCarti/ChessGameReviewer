@@ -1,4 +1,6 @@
 import type { Page } from '@playwright/test';
+import type { RawChesscomGame } from '../../../lib/api/chesscomSchemas';
+import scopeGames from '../../fixtures/openingScopeGames.json';
 
 const archiveUrl = 'https://api.chess.com/pub/player/fixture-user/games/2024/01';
 
@@ -83,7 +85,7 @@ export async function installOverflowWorkspaceFixtures(page: Page) {
   await installRoutes(page, overflowGames);
 }
 
-async function installRoutes(page: Page, fixtureGames: readonly ReturnType<typeof game>[]) {
+async function installRoutes(page: Page, fixtureGames: readonly RawChesscomGame[]) {
   await page.route('https://api.chess.com/pub/player/fixture-user/games/archives', (route) =>
     route.fulfill({
       contentType: 'application/json',
@@ -127,14 +129,15 @@ async function installRoutes(page: Page, fixtureGames: readonly ReturnType<typeo
 
 export async function loadFixtureGames(page: Page, maximumGames = 2) {
   await page.getByLabel('Username').fill('fixture-user');
+  await page.getByRole('button', { name: 'Game filters' }).click();
   await page.getByRole('radio', { name: 'Custom' }).click();
   await page.getByLabel('From date').fill('2024-01-01');
   await page.getByLabel('To date').fill('2024-01-31');
-  await page.getByRole('button', { name: 'Game filters' }).click();
   await page.getByLabel('Maximum games').fill(String(maximumGames));
+  await page.getByText('Advanced opening settings', { exact: true }).click();
   await page.getByLabel('Opening horizon (plies)').fill('8');
   await page.getByLabel('Rated status').selectOption('rated');
-  await page.getByRole('button', { name: 'Load games' }).click();
+  await page.getByRole('button', { name: 'Find games' }).click();
 }
 
 function game(input: {
@@ -165,7 +168,82 @@ function game(input: {
 export async function installTranspositionWorkspaceFixtures(page: Page) {
   const alternateGames = [
     { ...games[0]!, pgn: games[0]!.pgn.replace('3. e3 e6 4. Bd3 Bd6', '3. Bf4 e6 4. e3 Bd6') },
-    games[1]!,
+    game({
+      id: 'fixture-game-2',
+      url: games[1]!.url,
+      white: 'fixture-user',
+      black: 'opponent-two',
+      result: '1-0',
+      moves: '1. d4 Nf6 2. Nf3 d5 3. e3 e6 4. Bd3 Bd6 1-0',
+      endTime: games[1]!.end_time,
+    }),
   ];
   await installRoutes(page, alternateGames);
+}
+
+// Shared legal PGNs for controlled engine responses, including the long-game scenario.
+export const workspaceFixturePgns = [...games, ...longGames].map((g) => g.pgn);
+
+export async function installOpeningScopeWorkspaceFixtures(page: Page) {
+  const month = 'https://api.chess.com/pub/player/audit-player/games/2024/01';
+  await page.route('https://api.chess.com/pub/player/audit-player/**', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(
+        route.request().url().endsWith('/archives') ? { archives: [month] } : { games: scopeGames }
+      ),
+    })
+  );
+}
+
+export async function installLongNameWorkspaceFixtures(page: Page) {
+  const opponent = 'opponent-with-a-very-long-name-for-layout-regressions';
+  await installRoutes(
+    page,
+    longGames.map((g) => ({
+      ...g,
+      black: { ...g.black, username: opponent },
+      pgn: g.pgn.replace('opponent-long', opponent),
+    }))
+  );
+}
+
+// Both archive URLs and records are deliberately oldest-first; no timing dependence.
+export async function installOldestFirstWorkspaceFixtures(page: Page) {
+  await installRoutes(page, games);
+  const decemberUrl = archiveUrl.replace('2024/01', '2023/12');
+  await page.route('https://api.chess.com/pub/player/fixture-user/games/archives', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ archives: [decemberUrl, archiveUrl] }),
+    })
+  );
+  await page.route(decemberUrl, (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        games: [
+          {
+            ...games[0]!,
+            uuid: 'fixture-older-game',
+            url: 'https://www.chess.com/game/live/409999999',
+            end_time: 1703000000,
+            pgn: games[0]!.pgn.replace('2024.01.15', '2023.12.19'),
+          },
+        ],
+      }),
+    })
+  );
+}
+
+export async function installPaginatedWorkspaceFixtures(page: Page) {
+  await installRoutes(
+    page,
+    Array.from({ length: 500 }, (_, index) => ({
+      ...games[index % games.length]!,
+      uuid: `pagination-${index}`,
+      url: `https://www.chess.com/game/live/${430000000 + index}`,
+      end_time: 1705406400 + index * 60,
+    }))
+  );
 }

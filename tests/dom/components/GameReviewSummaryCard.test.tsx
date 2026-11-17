@@ -1,7 +1,10 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { createLongGameAnalysisResult } from '../../fixtures/longAnalysisFixture';
+import { describe, expect, it, vi } from 'vitest';
 
 import { GameReviewSummaryCard } from '@/components/analysis/GameReviewSummaryCard';
+import { summarizeAnnotations } from '@/features/stockfish-analysis/analyzeGame';
 import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGame';
 import type { MoveBreakdown } from '@/lib/engine/accuracy';
 
@@ -98,4 +101,15 @@ describe('GameReviewSummaryCard', () => {
     expect(screen.getByText('Move breakdown')).toBeInTheDocument();
     expect(screen.getByRole('table')).toBeInTheDocument();
   });
+});
+
+it('activates a nonzero quality count and disables zero counts', async () => {
+  const onFilter = vi.fn();
+  const result = createLongGameAnalysisResult(15);
+  result.summary = summarizeAnnotations(result.annotations);
+  render(<GameReviewSummaryCard result={result} onFilter={onFilter} />);
+  await userEvent.click(screen.getByText('Move breakdown'));
+  await userEvent.click(screen.getByRole('button', { name: 'White Mistake: 2 moves' }));
+  expect(onFilter).toHaveBeenCalledWith({ mover: 'white', quality: 'mistake' });
+  expect(screen.getByRole('button', { name: 'White Brilliant: 0 moves' })).toBeDisabled();
 });

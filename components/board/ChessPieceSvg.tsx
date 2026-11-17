@@ -5,13 +5,21 @@ const pieceCodes: Record<BoardPiece['color'], Record<BoardPiece['type'], string>
   black: { pawn: 'bp', knight: 'bn', bishop: 'bb', rook: 'br', queen: 'bq', king: 'bk' },
 };
 
-export function ChessPieceSvg({ piece, square }: { piece: BoardPiece; square: string }) {
+export function ChessPieceSvg({
+  piece,
+  square,
+  className,
+}: {
+  piece: BoardPiece;
+  square: string;
+  className?: string | undefined;
+}) {
   const label = `${piece.color} ${piece.type} on ${square}`;
 
   return (
     // eslint-disable-next-line @next/next/no-img-element -- local board art needs one native-image accessible name.
     <img
-      className={`chess-piece piece-${piece.color}`}
+      className={`chess-piece piece-container piece-${piece.color}${className ? ` ${className}` : ''}`}
       src={`/chess-pieces/neo/${pieceCodes[piece.color][piece.type]}.png`}
       alt=""
       aria-label={label}

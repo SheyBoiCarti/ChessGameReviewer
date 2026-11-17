@@ -1,8 +1,9 @@
 import type { Diagnostic, GameQuery, UpstreamError } from '../../lib/api/contracts';
+import type { OpeningGameProjection } from '../../lib/chess/graph/types';
 import type { FetchOptions } from '../../lib/api/chesscomClient';
 import type { RawChesscomGame } from '../../lib/api/chesscomSchemas';
 import type { ArchiveListMeta } from '../../lib/db/repositories';
-import type { ArchiveSyncRecord, GameRecord } from '../../lib/db/schema';
+import type { ArchiveSyncRecord, GameRecord, NormalizedMonthRecord } from '../../lib/db/schema';
 
 export type IngestionPhase = 'planning' | 'loading-cache' | 'fetching' | 'filtering';
 export type IngestionTerminalStatus = 'complete' | 'partial' | 'cancelled' | 'failed';
@@ -18,6 +19,14 @@ export interface FailedMonth {
 export interface RetryProgress {
   attempt: number;
   delayMs: number;
+}
+
+export interface IngestionBatch {
+  jobId: string;
+  fingerprint: string;
+  sequence: number;
+  datasetRevision: string;
+  games: readonly GameRecord[];
 }
 
 export interface IngestionProgress {
@@ -47,6 +56,7 @@ export interface IngestionResult {
 
 export interface PgnValidationResult {
   validGameIds: readonly string[];
+  projections?: readonly OpeningGameProjection[];
   diagnostics: readonly Diagnostic[];
   totalInvalid: number;
   diagnosticCodes: readonly string[];
@@ -64,11 +74,17 @@ export interface IngestionDependencies {
   writeArchiveList(record: ArchiveListMeta): Promise<void>;
   readArchiveSyncs(username: string): Promise<ArchiveSyncRecord[]>;
   readMonthGames(username: string, month: string): Promise<GameRecord[]>;
+  readNormalizedMonth(username: string, month: string): Promise<NormalizedMonthRecord | null>;
   validatePgns(
     games: readonly GameRecord[],
     options: { signal: AbortSignal }
   ): Promise<PgnValidationResult>;
-  persistMonth(games: GameRecord[], marker: ArchiveSyncRecord, signal?: AbortSignal): Promise<void>;
+  persistMonth(
+    games: GameRecord[],
+    marker: ArchiveSyncRecord,
+    signal?: AbortSignal,
+    normalized?: NormalizedMonthRecord
+  ): Promise<void>;
 }
 
 export interface RunIngestionOptions {
@@ -76,10 +92,20 @@ export interface RunIngestionOptions {
   jobId?: string;
   signal?: AbortSignal;
   manualRefresh?: boolean;
+  /** URL recovery may only read records already present on this device. */
+  cacheOnly?: boolean;
   now?: () => number;
   random?: () => number;
   wait?: (delayMs: number, signal: AbortSignal) => Promise<void>;
   onProgress?: (progress: IngestionProgress) => void;
+  onBatch?: (batch: IngestionBatch) => void;
 }
 
 export type StartOptions = Omit<RunIngestionOptions, 'deps' | 'jobId' | 'signal'>;
+
+export type {
+  ValidationState,
+  ValidationEnvelope,
+  NormalizedMonthCandidate,
+  NormalizedMonthRecord,
+} from '../../lib/db/schema';

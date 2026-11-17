@@ -2,6 +2,7 @@ import type { NormalizedGameSummary } from '../../lib/api/contracts';
 import type { GameRecord } from '../../lib/db/schema';
 import { PROTOCOL_VERSION, type WorkerResponse } from '../../workers/protocol';
 import type { PgnValidationResult } from './types';
+import { OpeningDataWorkerClient } from '../opening-tree/openingDataWorkerClient';
 
 interface ActiveValidation {
   jobId: string;
@@ -12,14 +13,39 @@ interface ActiveValidation {
 }
 
 export class PgnValidationWorkerClient {
+  private readonly sharedJobs = new Set<AbortController>();
   private worker: Worker | null = null;
   private active: ActiveValidation | null = null;
   private disposed = false;
+  private shared: OpeningDataWorkerClient | null = null;
+  private readonly workerFactory?: () => Worker;
 
-  constructor(private readonly workerFactory: () => Worker) {}
+  constructor(workerOrFactoryOrShared: Worker | (() => Worker) | OpeningDataWorkerClient) {
+    if (workerOrFactoryOrShared instanceof OpeningDataWorkerClient) {
+      this.shared = workerOrFactoryOrShared;
+    } else if (typeof workerOrFactoryOrShared === 'function') {
+      this.workerFactory = workerOrFactoryOrShared;
+    } else {
+      this.workerFactory = () => workerOrFactoryOrShared;
+      this.worker = workerOrFactoryOrShared;
+      workerOrFactoryOrShared.addEventListener('message', this.onMessage);
+      workerOrFactoryOrShared.addEventListener('error', this.onError);
+    }
+  }
 
   validate(games: readonly GameRecord[], signal: AbortSignal): Promise<PgnValidationResult> {
     if (this.disposed) return Promise.reject(new Error('PGN_VALIDATION_CLIENT_DISPOSED'));
+    if (this.shared) {
+      if (signal.aborted) return Promise.reject(abortError());
+      const controller = new AbortController();
+      const onAbort = () => controller.abort();
+      signal.addEventListener('abort', onAbort, { once: true });
+      this.sharedJobs.add(controller);
+      return this.shared.validate(games, controller.signal).finally(() => {
+        signal.removeEventListener('abort', onAbort);
+        this.sharedJobs.delete(controller);
+      });
+    }
     if (signal.aborted) return Promise.reject(abortError());
     this.cancel();
 
@@ -39,23 +65,30 @@ export class PgnValidationWorkerClient {
   }
 
   cancel(): void {
+    if (this.shared) {
+      for (const controller of this.sharedJobs) controller.abort();
+      this.sharedJobs.clear();
+      return;
+    }
     if (this.active) this.cancelJob(this.active.jobId);
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.cancel();
-    this.retireWorker();
+    if (!this.shared) {
+      this.retireWorker();
+    }
     this.disposed = true;
   }
 
   private getWorker(): Worker {
-    if (!this.worker) {
+    if (!this.worker && this.workerFactory) {
       this.worker = this.workerFactory();
       this.worker.addEventListener('message', this.onMessage);
       this.worker.addEventListener('error', this.onError);
     }
-    return this.worker;
+    return this.worker!;
   }
 
   private cancelJob(jobId: string): void {

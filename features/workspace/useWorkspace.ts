@@ -11,6 +11,9 @@ import {
 } from './createWorkspaceController';
 import type { WorkspacePreferences } from './types';
 import { readWorkspaceSession, type SavedWorkspaceSession } from './session';
+import { readCurrentWorkspaceUrlIntent, type WorkspaceUrlIntent } from './urlState';
+import { computePgnDigest } from '../stockfish-analysis/reviewIdentity';
+import { parseSelectedGame } from './parseSelectedGame';
 
 const preferencesStorageKey = 'chess-game-reviewer:preferences';
 const recentQueryStorageKey = 'chess-game-reviewer:recent-query';
@@ -20,6 +23,8 @@ export interface UseWorkspaceResult {
   state: ReturnType<WorkspaceController['getState']>;
   recentQuery: GameQuery | null;
   recoveredSession: SavedWorkspaceSession | null;
+  initialUrlIntent: WorkspaceUrlIntent | null;
+  startupComplete: boolean;
 }
 
 export function useWorkspace(createServices: () => WorkspaceServices): UseWorkspaceResult {
@@ -30,6 +35,9 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
   const [startupQuery] = useState(() => readStoredQuery());
   const [startupSession] = useState(() => readWorkspaceSession());
   const [recoveredSession, setRecoveredSession] = useState<SavedWorkspaceSession | null>(null);
+  // T28: a valid URL intent wins over stored defaults; it is read once at mount.
+  const [urlIntent] = useState<WorkspaceUrlIntent | null>(() => readCurrentWorkspaceUrlIntent());
+  const [startupComplete, setStartupComplete] = useState(false);
   const state = useSyncExternalStore(
     controller.subscribe,
     controller.getState,
@@ -47,10 +55,13 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
   }, [state.preferences]);
 
   useEffect(() => {
-    if (!state.query.active) return;
+    if (!state.query.active) {
+      if (state.ingestion.status === 'idle' && state.query.token > 0) setRecentQuery(null);
+      return;
+    }
     writeStoredValue(recentQueryStorageKey, state.query.active);
     setRecentQuery(state.query.active);
-  }, [state.query.active]);
+  }, [state.query.active, state.ingestion.status, state.query.token]);
 
   useEffect(() => {
     let active = true;
@@ -64,33 +75,77 @@ export function useWorkspace(createServices: () => WorkspaceServices): UseWorksp
             !usernames.includes(startupQuery.username)
           )
             return;
-          await controller.submitQuery(startupQuery);
+          const submission = controller.submitQuery(startupQuery, {
+            cacheOnly: urlIntent !== null,
+          });
+          const navigationVersion = controller.getNavigationVersion();
+          const requestToken = controller.getState().query.token;
+          await submission;
           const loaded = controller.getState();
           if (
             !active ||
-            loaded.query.token !== 1 ||
-            !startupSession ||
-            startupSession.username !== startupQuery.username
+            loaded.query.token !== requestToken ||
+            controller.getNavigationVersion() !== navigationVersion
           )
             return;
-          const game = loaded.ingestion.result?.games.find(
-            ({ id }) => id === startupSession.gameId
-          );
+          const games = loaded.ingestion.result?.games ?? [];
+          // T28: a URL game the local dataset can supply wins over stored defaults;
+          // an absent record leaves manual import/selection available instead.
+          if (urlIntent) {
+            const urlGame = games.find(({ id }) => id === urlIntent.gameId);
+            if (!urlGame) {
+              controller.selectGame(null);
+              return;
+            }
+            controller.selectGame(urlGame.id);
+            if (urlIntent.ply !== undefined)
+              controller.selectPly(
+                Math.min(urlIntent.ply, parseSelectedGame(urlGame)?.plies.length ?? 0)
+              );
+            if (urlIntent.tab === 'analysis') void controller.openReview(urlGame.id);
+            return;
+          }
+          if (!startupSession || startupSession.username !== startupQuery.username) return;
+          const game = games.find(({ id }) => id === startupSession.gameId);
           if (!game) return;
+          const digest = await computePgnDigest(game.pgn);
+          if (
+            !active ||
+            controller.getState().query.token !== requestToken ||
+            controller.getNavigationVersion() !== navigationVersion
+          )
+            return;
+          const ply =
+            startupSession.pgnDigest === digest
+              ? Math.min(startupSession.ply, parseSelectedGame(game)?.plies.length ?? 0)
+              : 0;
           controller.selectGame(game.id);
-          controller.selectPly(startupSession.ply);
-          setRecoveredSession(startupSession);
+          controller.selectPly(ply);
+          setRecoveredSession({ ...startupSession, ply });
+          if (startupSession.tab === 'analysis') void controller.openReview(game.id);
         })
         .catch(() => {
           /* Manual import remains available if local recovery fails. */
+        })
+        .finally(() => {
+          if (active) setStartupComplete(true);
         });
+    } else {
+      setStartupComplete(true);
     }
     return () => {
       active = false;
     };
-  }, [controller, startupQuery, startupSession]);
+  }, [controller, startupQuery, startupSession, urlIntent]);
 
-  return { controller, state, recentQuery, recoveredSession };
+  return {
+    controller,
+    state,
+    recentQuery,
+    recoveredSession,
+    initialUrlIntent: urlIntent,
+    startupComplete,
+  };
 }
 
 function readStoredPreferences(): Partial<WorkspacePreferences> {
@@ -111,6 +166,11 @@ function readStoredPreferences(): Partial<WorkspacePreferences> {
     stored.openingHorizon >= 2 &&
     stored.openingHorizon <= 40
       ? { openingHorizon: stored.openingHorizon }
+      : {}),
+    ...(stored.openingScope === 'white' ||
+    stored.openingScope === 'black' ||
+    stored.openingScope === 'both'
+      ? { openingScope: stored.openingScope }
       : {}),
     ...(stored.analysisStrength === 'quick' ||
     stored.analysisStrength === 'balanced' ||

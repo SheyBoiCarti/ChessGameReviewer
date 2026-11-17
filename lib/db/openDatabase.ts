@@ -47,7 +47,9 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
       return reject(wrapIDBError(err));
     }
 
+    let blocked = false;
     request.onblocked = () => {
+      blocked = true;
       options.onBlocked?.();
       reject(new DatabaseBlockedError());
     };
@@ -59,11 +61,14 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
       const tx = (event.target as IDBOpenDBRequest).transaction!;
 
       // Helper to safely ensure store and indexes exist
-      const getOrCreateStore = (name: string, keyPath: string): IDBObjectStore | null => {
+      const getOrCreateStore = (
+        name: string,
+        keyPath: string | string[]
+      ): IDBObjectStore | null => {
         if (upgradeError) return null;
         if (Array.from(db.objectStoreNames).includes(name)) {
           const store = tx.objectStore(name);
-          if (store.keyPath !== keyPath) {
+          if (JSON.stringify(store.keyPath) !== JSON.stringify(keyPath)) {
             upgradeError = new SchemaVersionError(
               `Store ${name} has incompatible keyPath. Reset the database.`
             );
@@ -110,6 +115,10 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
       ensureIndex(archiveStore, 'username', 'username');
       ensureIndex(archiveStore, 'month', 'month');
       ensureIndex(archiveStore, 'lastSuccessfulFetchAt', 'lastSuccessfulFetchAt');
+
+      const normalizedStore = getOrCreateStore(STORES.NORMALIZED_MONTHS, ['username', 'month']);
+      ensureIndex(normalizedStore, 'username', 'username');
+      ensureIndex(normalizedStore, 'lastUsedAt', 'lastUsedAt');
 
       // games store & indexes
       const gamesStore = getOrCreateStore(STORES.GAMES, 'id');
@@ -195,6 +204,10 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
 
     request.onsuccess = () => {
       const db = request.result;
+      if (blocked) {
+        db.close();
+        return;
+      }
 
       db.onversionchange = () => {
         db.close();
@@ -205,9 +218,6 @@ export function openDatabase(options: OpenDatabaseOptions = {}): Promise<IDBData
     };
 
     request.onerror = (e) => {
-      if (request.result) {
-        request.result.close();
-      }
       if (upgradeError) {
         return reject(upgradeError);
       }

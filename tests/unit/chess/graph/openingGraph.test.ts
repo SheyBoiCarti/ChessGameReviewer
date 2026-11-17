@@ -92,6 +92,26 @@ describe('OpeningGraphBuilder', () => {
     expect(withoutRepeats.root.aggregate.games).toBe(1);
   });
 
+  it('retains every exact arrival when repeated position aggregates are suppressed', () => {
+    const game = parse('repeated-arrival', '1. Nf3 Nf6 2. Ng1 Ng8 3. Nf3 Nf6 1/2-1/2');
+    const graph = new OpeningGraphBuilder({
+      maxOpeningPlies: 6,
+      includeRepeatedPositions: false,
+    }).build([game]);
+    let pathId = 0;
+    for (const ply of game.plies) {
+      const nextPath = graph.paths.lookup(pathId, ply.uci);
+      expect(nextPath).toBeDefined();
+      pathId = nextPath!;
+      expect(graph.positions.get(ply.positionAfter)?.arrivalsByPath.get(pathId)?.games).toBe(1);
+    }
+    expect(graph.root.aggregate.games).toBe(1);
+    expect(graph.root.outgoing.get('g1f3')?.aggregate.games).toBe(1);
+    const repeatedFirstMove = graph.positions.get(game.plies[0]!.positionAfter)!;
+    expect(repeatedFirstMove.aggregate.games).toBe(1);
+    expect(repeatedFirstMove.arrivalsByPath.size).toBe(2);
+  });
+
   it('counts root and every visited position including the final target', () => {
     const graph = new OpeningGraphBuilder({ maxOpeningPlies: 4 }).build([
       parse('four-plies', '1. e4 e5 2. Nf3 Nc6 1-0'),

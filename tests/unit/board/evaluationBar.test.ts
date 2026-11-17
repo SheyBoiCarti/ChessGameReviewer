@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizeEvaluationBar } from '@/features/board/evaluationBar';
+import { formatEvaluationScore, normalizeEvaluationBar } from '@/features/board/evaluationBar';
 
 describe('normalizeEvaluationBar', () => {
   it('maps finite White centipawn advantage monotonically and symmetrically', () => {
@@ -43,4 +43,29 @@ describe('normalizeEvaluationBar', () => {
       });
     }
   );
+});
+
+describe('formatEvaluationScore', () => {
+  it('formats positive, neutral, and negative centipawn evaluations', () => {
+    expect(formatEvaluationScore({ kind: 'cp', value: 150 })).toBe('+1.5');
+    expect(formatEvaluationScore({ kind: 'cp', value: 300 })).toBe('+3.0');
+    expect(formatEvaluationScore({ kind: 'cp', value: 0 })).toBe('0.0');
+    expect(formatEvaluationScore({ kind: 'cp', value: 2 })).toBe('0.0');
+    expect(formatEvaluationScore({ kind: 'cp', value: -120 })).toBe('-1.2');
+    expect(formatEvaluationScore({ kind: 'cp', value: -350 })).toBe('-3.5');
+  });
+
+  it('formats mate scores for both sides', () => {
+    expect(formatEvaluationScore({ kind: 'mate', value: 2 })).toBe('M2');
+    expect(formatEvaluationScore({ kind: 'mate', value: 1 })).toBe('M1');
+    expect(formatEvaluationScore({ kind: 'mate', value: -3 })).toBe('-M3');
+    expect(formatEvaluationScore({ kind: 'mate', value: -1 })).toBe('-M1');
+    expect(formatEvaluationScore({ kind: 'mate', value: 0 })).toBe('M0');
+  });
+
+  it('handles undefined and non-finite scores safely', () => {
+    expect(formatEvaluationScore(undefined)).toBe('0.0');
+    expect(formatEvaluationScore({ kind: 'cp', value: Number.NaN })).toBe('0.0');
+    expect(formatEvaluationScore({ kind: 'cp', value: Number.POSITIVE_INFINITY })).toBe('0.0');
+  });
 });

@@ -19,6 +19,29 @@ import { GameQueryForm } from '@/components/controls/GameQueryForm';
 validateGameQueryMock.mockImplementation((input) => originalValidateGameQuery.current?.(input));
 
 describe('GameQueryForm', () => {
+  it('finds games with only a username and keeps date/scope settings collapsed', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(<GameQueryForm onSubmit={onSubmit} />);
+    expect(screen.getByLabelText('Maximum games')).not.toBeVisible();
+    expect(screen.getByLabelText('Opening horizon (plies)')).not.toBeVisible();
+    expect(screen.getByText(/Last 30 days ·/)).toBeVisible();
+    await user.type(screen.getByLabelText('Username'), 'tester');
+    await user.click(screen.getByRole('button', { name: 'Find games' }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ username: 'tester' }));
+  });
+
+  it('reveals and focuses the first invalid hidden advanced field', async () => {
+    const user = userEvent.setup();
+    render(
+      <GameQueryForm onSubmit={vi.fn()} initialQuery={{ username: 'tester', maxGames: 5001 }} />
+    );
+    expect(screen.getByLabelText('Maximum games')).not.toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Find games' }));
+    expect(screen.getByLabelText('Maximum games')).toBeVisible();
+    expect(screen.getByLabelText('Maximum games')).toHaveFocus();
+  });
+
   it('discloses compact game filters while retaining native checked chip inputs', async () => {
     const user = userEvent.setup();
     render(<GameQueryForm onSubmit={vi.fn()} />);
@@ -42,12 +65,12 @@ describe('GameQueryForm', () => {
     render(<GameQueryForm onSubmit={onSubmit} />);
 
     await user.type(screen.getByLabelText(/username/i), '  Hikaru  ');
+    await user.click(screen.getByRole('button', { name: /game filters/i }));
     await user.click(screen.getByRole('radio', { name: /custom/i }));
     await user.clear(screen.getByLabelText(/from date/i));
     await user.type(screen.getByLabelText(/from date/i), '2026-01-01');
     await user.clear(screen.getByLabelText(/to date/i));
     await user.type(screen.getByLabelText(/to date/i), '2026-07-31');
-    await user.click(screen.getByRole('button', { name: /game filters/i }));
     await user.clear(screen.getByLabelText(/maximum games/i));
     await user.type(screen.getByLabelText(/maximum games/i), '1200');
     await user.click(screen.getByRole('checkbox', { name: /bullet/i }));
@@ -55,7 +78,7 @@ describe('GameQueryForm', () => {
     await user.click(screen.getByRole('checkbox', { name: /daily/i }));
     await user.click(screen.getByRole('checkbox', { name: /black games/i }));
     await user.selectOptions(screen.getByLabelText(/rated status/i), 'rated');
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
 
     expect(onSubmit).toHaveBeenCalledWith({
       username: 'hikaru',
@@ -80,7 +103,7 @@ describe('GameQueryForm', () => {
     for (const name of ['white games', 'black games']) {
       await user.click(screen.getByRole('checkbox', { name: new RegExp(name, 'i') }));
     }
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
 
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByText(/username must be 3-25 characters/i)).toHaveAttribute(
@@ -119,7 +142,7 @@ describe('GameQueryForm', () => {
       await user.click(screen.getByRole('checkbox', { name: new RegExp(name, 'i') }));
     }
     await user.click(filters);
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
 
     expect(filters).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText(/select at least one time class/i)).toBeVisible();
@@ -133,7 +156,7 @@ describe('GameQueryForm', () => {
     await user.click(screen.getByRole('button', { name: /game filters/i }));
     await user.clear(screen.getByLabelText(/maximum games/i));
     await user.type(screen.getByLabelText(/maximum games/i), '5001');
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
 
     expect(screen.getByText(/maxGames must be an integer between 1 and 5000/i)).toBeVisible();
     expect(screen.getByLabelText(/maximum games/i)).toHaveAttribute(
@@ -160,7 +183,7 @@ describe('GameQueryForm', () => {
     });
     render(<GameQueryForm onSubmit={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: /game filters/i }));
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
 
     expect(screen.getByText(/rated must be a boolean when specified/i)).toBeVisible();
     expect(screen.getByLabelText(/rated status/i)).toHaveAttribute(
@@ -185,7 +208,7 @@ describe('GameQueryForm', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: /game filters/i }));
+    await user.click(screen.getByText('Advanced opening settings'));
     const horizon = screen.getByLabelText(/opening horizon/i);
     expect(horizon).toHaveAttribute('min', '2');
     expect(horizon).toHaveAttribute('max', '40');
@@ -226,7 +249,7 @@ describe('GameQueryForm', () => {
   it('defaults to Last 30 days preset on a fresh form without recent query', () => {
     render(<GameQueryForm onSubmit={vi.fn()} />);
 
-    expect(screen.getByRole('radio', { name: /last 30 days/i })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /last 30 days/i, hidden: true })).toBeChecked();
     expect(screen.queryByLabelText(/from date/i)).not.toBeInTheDocument();
   });
 
@@ -236,6 +259,7 @@ describe('GameQueryForm', () => {
     const onSubmit = vi.fn();
     render(<GameQueryForm onSubmit={onSubmit} onDraftChange={onDraftChange} />);
 
+    await user.click(screen.getByRole('button', { name: /game filters/i }));
     await user.click(screen.getByRole('radio', { name: /this month/i }));
     expect(screen.getByRole('radio', { name: /this month/i })).toBeChecked();
     expect(onDraftChange).toHaveBeenCalledWith(
@@ -247,7 +271,7 @@ describe('GameQueryForm', () => {
     expect(onSubmit).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('radio', { name: /all available/i }));
-    expect(screen.getByRole('radio', { name: /all available/i })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /all available/i, hidden: true })).toBeChecked();
     expect(onDraftChange).toHaveBeenCalledWith(
       expect.objectContaining({
         dateFrom: '',
@@ -264,6 +288,7 @@ describe('GameQueryForm', () => {
     expect(screen.queryByLabelText(/from date/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/dates are inclusive in utc/i)).not.toBeInTheDocument();
 
+    await user.click(screen.getByRole('button', { name: /game filters/i }));
     await user.click(screen.getByRole('radio', { name: /custom/i }));
 
     expect(screen.getByLabelText(/from date/i)).toBeVisible();
@@ -286,7 +311,7 @@ describe('GameQueryForm', () => {
       />
     );
 
-    expect(screen.getByRole('radio', { name: /custom/i })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /custom/i, hidden: true })).toBeChecked();
     expect(screen.getByLabelText(/from date/i)).toHaveValue('2026-02-01');
     expect(screen.getByLabelText(/to date/i)).toHaveValue('2026-02-28');
 
@@ -304,7 +329,7 @@ describe('GameQueryForm', () => {
       />
     );
 
-    expect(screen.getByRole('radio', { name: /all available/i })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /all available/i, hidden: true })).toBeChecked();
     expect(screen.queryByLabelText(/from date/i)).not.toBeInTheDocument();
   });
 
@@ -314,12 +339,13 @@ describe('GameQueryForm', () => {
     render(<GameQueryForm onSubmit={onSubmit} />);
 
     await user.type(screen.getByLabelText(/username/i), 'tester');
+    await user.click(screen.getByRole('button', { name: /game filters/i }));
     await user.click(screen.getByRole('radio', { name: /custom/i }));
     await user.clear(screen.getByLabelText(/from date/i));
     await user.type(screen.getByLabelText(/from date/i), '2026-08-10');
     await user.clear(screen.getByLabelText(/to date/i));
     await user.type(screen.getByLabelText(/to date/i), '2026-08-01');
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
 
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent(/end date on or after the start date/i);

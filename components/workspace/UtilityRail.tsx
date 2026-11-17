@@ -67,7 +67,7 @@ export function UtilityRail({
     const wasOpen = previouslyOpen.current;
     previouslyOpen.current = open;
     if (!wasOpen || open) return;
-    returnFocusRef?.current?.focus();
+    returnFocusRef?.current?.focus({ preventScroll: true });
   }, [open, returnFocusRef]);
 
   if (!open) return null;
@@ -76,7 +76,7 @@ export function UtilityRail({
     inertCleanupRef.current?.();
     inertCleanupRef.current = undefined;
     onOpenChange(false);
-    returnFocusRef?.current?.focus();
+    returnFocusRef?.current?.focus({ preventScroll: true });
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {

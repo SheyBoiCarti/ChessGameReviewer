@@ -15,10 +15,15 @@ export function EngineStatus({
   heuristicVersion: string;
   jobStatus: string;
 }) {
-  if (!capability) return <p role="status">Checking engine capability…</p>;
+  if (!capability)
+    return (
+      <p>
+        {jobStatus === 'probing' ? 'Checking engine capability…' : 'Engine has not been started.'}
+      </p>
+    );
   if (capability.mode === 'unavailable') {
     return (
-      <div className="engine-status engine-unavailable" role="alert">
+      <div className="engine-status engine-unavailable">
         <strong>Engine unavailable.</strong> {capability.reason ?? 'Stockfish could not start.'} The
         opening tree remains available.
       </div>

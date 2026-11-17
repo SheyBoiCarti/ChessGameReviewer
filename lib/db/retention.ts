@@ -144,3 +144,52 @@ export async function checkSchemaCompatibility(db: IDBDatabase): Promise<Compati
     normalizerVersion: dbNormalizerVersion,
   };
 }
+
+export const NORMALIZED_MONTH_MAX_COUNT = 120;
+export const NORMALIZED_MONTH_MAX_BYTES = 64 * 1024 * 1024;
+export function normalizedMonthByteSize(record: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(record)).byteLength;
+}
+
+/** Use in the payload's write transaction so eviction cannot leave fresh coverage. */
+export function retainNormalizedMonths(
+  tx: IDBTransaction,
+  options: EvictGraphSnapshotsOptions = {}
+): Promise<number> {
+  const maxCount = options.maxCount ?? NORMALIZED_MONTH_MAX_COUNT;
+  const maxBytes = options.maxTotalBytes ?? NORMALIZED_MONTH_MAX_BYTES;
+  if (!Number.isInteger(maxCount) || maxCount < 0 || !Number.isFinite(maxBytes) || maxBytes < 0)
+    throw new TypeError('Invalid normalized month limits');
+  return new Promise((resolve, reject) => {
+    const store = tx.objectStore(STORES.NORMALIZED_MONTHS);
+    const request = store.index('lastUsedAt').getAll();
+    request.onerror = () => reject(wrapIDBError(request.error));
+    request.onsuccess = () => {
+      const records = request.result as import('./schema').NormalizedMonthRecord[];
+      let bytes = records.reduce((sum, record) => sum + normalizedMonthByteSize(record), 0);
+      let count = records.length;
+      let evicted = 0;
+      for (const record of records) {
+        if (count <= maxCount && bytes <= maxBytes) break;
+        store.delete([record.username, record.month]);
+        tx.objectStore(STORES.ARCHIVE_SYNC).delete(`${record.username}:${record.month}`);
+        count -= 1;
+        bytes -= normalizedMonthByteSize(record);
+        evicted += 1;
+      }
+      resolve(evicted);
+    };
+  });
+}
+export async function evictNormalizedMonths(
+  db: IDBDatabase,
+  options: EvictGraphSnapshotsOptions = {}
+): Promise<number> {
+  const tx = db.transaction([STORES.NORMALIZED_MONTHS, STORES.ARCHIVE_SYNC], 'readwrite');
+  const done = new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = tx.onabort = () => reject(wrapIDBError(tx.error));
+  });
+  const [evicted] = await Promise.all([retainNormalizedMonths(tx, options), done]);
+  return evicted;
+}

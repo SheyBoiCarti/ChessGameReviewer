@@ -1,7 +1,8 @@
 'use client';
 
-import { type FormEvent, useEffect, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 
+import { OpeningSettings } from '@/components/opening/OpeningSettings';
 import { DatePreset, resolveDatePreset } from '@/features/ingestion/datePresets';
 import type { Diagnostic, GameQuery, PlayerColor, TimeClass } from '@/lib/api/contracts';
 import { validateGameQuery } from '@/lib/validation/gameQuery';
@@ -13,6 +14,8 @@ const colorOptions: ReadonlyArray<{ value: PlayerColor; label: string }> = [
 ];
 
 export interface GameQueryFormProps {
+  recoveryTarget?: 'username' | 'dates' | null;
+  recoveryVersion?: number;
   onSubmit(query: GameQuery): void | Promise<void>;
   disabled?: boolean;
   openingHorizon?: number;
@@ -32,7 +35,10 @@ export function GameQueryForm({
   onDraftChange,
   recentQuery = null,
   onResume,
+  recoveryTarget,
+  recoveryVersion,
 }: GameQueryFormProps) {
+  const formRef = useRef<HTMLFormElement>(null);
   const [username, setUsername] = useState(initialQuery?.username ?? '');
   const [datePreset, setDatePreset] = useState<DatePreset>(() => {
     const now = new Date();
@@ -137,6 +143,38 @@ export function GameQueryForm({
     });
   };
 
+  useEffect(() => {
+    if (!diagnostics.length && !horizonError) return;
+    const field = formRef.current?.querySelector<HTMLElement>('[aria-describedby$="-error"]');
+    if (field?.matches('input, select')) field.focus();
+    else field?.querySelector<HTMLElement>('input, select')?.focus();
+  }, [diagnostics, horizonError]);
+
+  useEffect(() => {
+    if (!recoveryTarget) return;
+    if (recoveryTarget === 'dates') {
+      setDatePreset('all');
+      setDateFrom('');
+      setDateTo('');
+      setFiltersOpen(true);
+      onDraftChange?.({
+        username,
+        dateFrom: '',
+        dateTo: '',
+        maxGames: Number(maxGames),
+        timeClasses,
+        colors,
+        rated: rated === 'any' ? undefined : rated === 'rated',
+      });
+      formRef.current?.querySelector<HTMLElement>('button[type="submit"]')?.focus();
+    } else {
+      const field = formRef.current?.querySelector<HTMLInputElement>('input[name="username"]');
+      field?.focus();
+      field?.select();
+    }
+    // A recovery action runs once per explicit activation, not on typing.
+  }, [recoveryVersion]);
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const candidate = {
@@ -151,7 +189,7 @@ export function GameQueryForm({
     const validation = validateGameQuery(candidate);
     if (!validation.success) {
       setDiagnostics(validation.diagnostics);
-      if (validation.diagnostics.some(isAdvancedFilterDiagnostic)) {
+      if (validation.diagnostics.some((d) => d.code !== 'INVALID_USERNAME')) {
         setFiltersOpen(true);
       }
       const hasDateDiag = validation.diagnostics.some((d) =>
@@ -185,7 +223,7 @@ export function GameQueryForm({
     diagnostic('INVERTED_DATE_RANGE');
 
   return (
-    <form className="query-form" onSubmit={submit} noValidate>
+    <form ref={formRef} className="query-form" onSubmit={submit} noValidate>
       <div className="field">
         <label htmlFor="game-query-username">Username</label>
         <input
@@ -208,104 +246,12 @@ export function GameQueryForm({
         ) : null}
       </div>
 
-      <fieldset className="field date-range-fieldset">
-        <legend>Date range</legend>
-        <div className="date-preset-grid">
-          <label className="choice-chip">
-            <input
-              type="radio"
-              name="date-preset"
-              value="last30"
-              checked={datePreset === 'last30'}
-              onChange={() => handleSelectPreset('last30')}
-              disabled={disabled}
-            />
-            Last 30 days
-          </label>
-          <label className="choice-chip">
-            <input
-              type="radio"
-              name="date-preset"
-              value="thisMonth"
-              checked={datePreset === 'thisMonth'}
-              onChange={() => handleSelectPreset('thisMonth')}
-              disabled={disabled}
-            />
-            This month
-          </label>
-          <label className="choice-chip">
-            <input
-              type="radio"
-              name="date-preset"
-              value="all"
-              checked={datePreset === 'all'}
-              onChange={() => handleSelectPreset('all')}
-              disabled={disabled}
-            />
-            All available
-          </label>
-          <label className="choice-chip">
-            <input
-              type="radio"
-              name="date-preset"
-              value="custom"
-              checked={datePreset === 'custom'}
-              onChange={() => handleSelectPreset('custom')}
-              disabled={disabled}
-            />
-            Custom
-          </label>
-        </div>
-      </fieldset>
-
-      {datePreset === 'custom' ? (
-        <div className="date-fields">
-          <div className="field">
-            <label htmlFor="game-query-from">From date</label>
-            <input
-              id="game-query-from"
-              type="date"
-              value={dateFrom}
-              onChange={(event) => {
-                const next = event.currentTarget.value;
-                setDatePreset('custom');
-                setDateFrom(next);
-                updateDraft({ dateFrom: next });
-              }}
-              aria-describedby={dateError ? 'date-error' : 'date-help'}
-              disabled={disabled}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="game-query-to">To date</label>
-            <input
-              id="game-query-to"
-              type="date"
-              value={dateTo}
-              onChange={(event) => {
-                const next = event.currentTarget.value;
-                setDatePreset('custom');
-                setDateTo(next);
-                updateDraft({ dateTo: next });
-              }}
-              aria-describedby={dateError ? 'date-error' : 'date-help'}
-              disabled={disabled}
-            />
-          </div>
-          <p id="date-help" className="field-help">
-            Dates are inclusive in UTC.
-          </p>
-        </div>
-      ) : null}
-
-      {dateError ? (
-        <p id="date-error" className="field-error" role="alert">
-          {dateError.message}
-        </p>
-      ) : null}
-
       <div className="query-filter-summary" aria-live="polite">
-        {filterSummary(timeClasses, colors, rated, maxGames, openingHorizon)}
+        {dateFrom || dateTo
+          ? `${dateFrom || 'Beginning'} – ${dateTo || 'today'} UTC`
+          : 'All available dates'}{' '}
+        · {datePreset === 'last30' ? 'Last 30 days · ' : ''}
+        {filterSummary(timeClasses, colors, rated, maxGames)}
       </div>
       <button
         className="button-secondary query-filter-toggle"
@@ -318,6 +264,102 @@ export function GameQueryForm({
       </button>
 
       <div id="game-query-filters" className="query-filter-fields" hidden={!filtersOpen}>
+        <fieldset className="field date-range-fieldset">
+          <legend>Date range</legend>
+          <div className="date-preset-grid">
+            <label className="choice-chip">
+              <input
+                type="radio"
+                name="date-preset"
+                value="last30"
+                checked={datePreset === 'last30'}
+                onChange={() => handleSelectPreset('last30')}
+                disabled={disabled}
+              />
+              Last 30 days
+            </label>
+            <label className="choice-chip">
+              <input
+                type="radio"
+                name="date-preset"
+                value="thisMonth"
+                checked={datePreset === 'thisMonth'}
+                onChange={() => handleSelectPreset('thisMonth')}
+                disabled={disabled}
+              />
+              This month
+            </label>
+            <label className="choice-chip">
+              <input
+                type="radio"
+                name="date-preset"
+                value="all"
+                checked={datePreset === 'all'}
+                onChange={() => handleSelectPreset('all')}
+                disabled={disabled}
+              />
+              All available
+            </label>
+            <label className="choice-chip">
+              <input
+                type="radio"
+                name="date-preset"
+                value="custom"
+                checked={datePreset === 'custom'}
+                onChange={() => handleSelectPreset('custom')}
+                disabled={disabled}
+              />
+              Custom
+            </label>
+          </div>
+        </fieldset>
+
+        {datePreset === 'custom' ? (
+          <div className="date-fields">
+            <div className="field">
+              <label htmlFor="game-query-from">From date</label>
+              <input
+                id="game-query-from"
+                type="date"
+                value={dateFrom}
+                onChange={(event) => {
+                  const next = event.currentTarget.value;
+                  setDatePreset('custom');
+                  setDateFrom(next);
+                  updateDraft({ dateFrom: next });
+                }}
+                aria-describedby={dateError ? 'date-error' : 'date-help'}
+                disabled={disabled}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="game-query-to">To date</label>
+              <input
+                id="game-query-to"
+                type="date"
+                value={dateTo}
+                onChange={(event) => {
+                  const next = event.currentTarget.value;
+                  setDatePreset('custom');
+                  setDateTo(next);
+                  updateDraft({ dateTo: next });
+                }}
+                aria-describedby={dateError ? 'date-error' : 'date-help'}
+                disabled={disabled}
+              />
+            </div>
+            <p id="date-help" className="field-help">
+              Dates are inclusive in UTC.
+            </p>
+          </div>
+        ) : null}
+
+        {dateError ? (
+          <p id="date-error" className="field-error" role="alert">
+            {dateError.message}
+          </p>
+        ) : null}
+
         <div className="number-fields">
           <div className="field">
             <label htmlFor="game-query-maximum">Maximum games</label>
@@ -338,31 +380,6 @@ export function GameQueryForm({
             {maxGamesError ? (
               <p id="maximum-games-error" className="field-error">
                 {maxGamesError.message}
-              </p>
-            ) : null}
-          </div>
-          <div className="field">
-            <label htmlFor="opening-horizon">Opening horizon (plies)</label>
-            <input
-              id="opening-horizon"
-              type="number"
-              min="2"
-              max="40"
-              value={horizonDraft}
-              onChange={(event) => {
-                setHorizonDraft(event.currentTarget.value);
-                const value = event.currentTarget.valueAsNumber;
-                if (Number.isInteger(value) && value >= 2 && value <= 40) {
-                  setHorizonError(null);
-                  onOpeningHorizonChange?.(value);
-                }
-              }}
-              aria-describedby={horizonError ? 'opening-horizon-error' : undefined}
-              disabled={disabled}
-            />
-            {horizonError ? (
-              <p id="opening-horizon-error" className="field-error">
-                {horizonError}
               </p>
             ) : null}
           </div>
@@ -445,8 +462,19 @@ export function GameQueryForm({
         </div>
       </div>
 
+      <OpeningSettings
+        value={openingHorizon}
+        draft={horizonDraft}
+        error={horizonError}
+        disabled={disabled}
+        onDraftChange={setHorizonDraft}
+        onChange={(value) => {
+          setHorizonError(null);
+          onOpeningHorizonChange?.(value);
+        }}
+      />
       <button type="submit" className="button-primary" disabled={disabled}>
-        Load games
+        Find games
       </button>
       {recentQuery && onResume ? (
         <button
@@ -469,8 +497,7 @@ function filterSummary(
   timeClasses: readonly TimeClass[],
   colors: readonly PlayerColor[],
   rated: 'any' | 'rated' | 'unrated',
-  maxGames: string,
-  horizon: number
+  maxGames: string
 ): string {
   const timeLabel =
     timeClasses.length === timeClassOptions.length
@@ -480,7 +507,7 @@ function filterSummary(
     colors.length === colorOptions.length ? 'both colours' : colors.join(', ') || 'no colours';
   const ratedLabel =
     rated === 'any' ? 'rated and unrated' : rated === 'rated' ? 'rated only' : 'unrated only';
-  return `${timeLabel}; ${colorLabel}; ${ratedLabel}; up to ${maxGames || '0'} games; ${horizon} ply horizon.`;
+  return `${timeLabel}; ${colorLabel}; ${ratedLabel}; up to ${maxGames || '0'} games.`;
 }
 
 function toggle<T>(values: readonly T[], value: T): T[] {
@@ -489,13 +516,4 @@ function toggle<T>(values: readonly T[], value: T): T[] {
 
 function titleCase(value: string): string {
   return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
-}
-
-function isAdvancedFilterDiagnostic(diagnostic: Diagnostic): boolean {
-  return [
-    'INVALID_MAX_GAMES',
-    'INVALID_TIME_CLASSES',
-    'INVALID_COLORS',
-    'INVALID_RATED_STATUS',
-  ].includes(diagnostic.code);
 }

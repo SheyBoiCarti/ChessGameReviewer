@@ -2,6 +2,7 @@ import type { NormalizedGameSummary } from '../../lib/api/contracts';
 import type { SerializedOpeningGraph } from '../../lib/chess/graph/serialization';
 import type { GraphBuildOptions } from '../../lib/chess/graph/types';
 import { PROTOCOL_VERSION, type WorkerResponse } from '../../workers/protocol';
+import { OpeningDataWorkerClient } from './openingDataWorkerClient';
 
 export type GraphBuildWorkerResult =
   | {
@@ -25,30 +26,34 @@ export type GraphBuildWorkerResult =
     };
 
 export class GraphWorkerClient {
+  private readonly sharedJobs = new Set<AbortController>();
   private jobId: string | undefined;
   private settle: ((result: GraphBuildWorkerResult) => void) | undefined;
   private reject: ((reason: Error) => void) | undefined;
   private worker: Worker | null = null;
-  private readonly workerFactory: () => Worker;
+  private readonly workerFactory?: () => Worker;
+  private shared: OpeningDataWorkerClient | null = null;
 
-  constructor(workerOrFactory: Worker | (() => Worker)) {
-    if (typeof workerOrFactory === 'function') {
-      this.workerFactory = workerOrFactory;
+  constructor(workerOrFactoryOrShared: Worker | (() => Worker) | OpeningDataWorkerClient) {
+    if (workerOrFactoryOrShared instanceof OpeningDataWorkerClient) {
+      this.shared = workerOrFactoryOrShared;
+    } else if (typeof workerOrFactoryOrShared === 'function') {
+      this.workerFactory = workerOrFactoryOrShared;
     } else {
-      this.workerFactory = () => workerOrFactory;
-      this.worker = workerOrFactory;
-      workerOrFactory.addEventListener('message', this.onMessage);
-      workerOrFactory.addEventListener('error', this.onError);
+      this.workerFactory = () => workerOrFactoryOrShared;
+      this.worker = workerOrFactoryOrShared;
+      workerOrFactoryOrShared.addEventListener('message', this.onMessage);
+      workerOrFactoryOrShared.addEventListener('error', this.onError);
     }
   }
 
   private getWorker(): Worker {
-    if (!this.worker) {
+    if (!this.worker && this.workerFactory) {
       this.worker = this.workerFactory();
       this.worker.addEventListener('message', this.onMessage);
       this.worker.addEventListener('error', this.onError);
     }
-    return this.worker;
+    return this.worker!;
   }
 
   build(
@@ -56,6 +61,13 @@ export class GraphWorkerClient {
     options: GraphBuildOptions,
     queryFingerprint: string
   ): Promise<GraphBuildWorkerResult> {
+    if (this.shared) {
+      const controller = new AbortController();
+      this.sharedJobs.add(controller);
+      return this.shared
+        .build(games, options, queryFingerprint, controller.signal)
+        .finally(() => this.sharedJobs.delete(controller));
+    }
     if (!queryFingerprint) return Promise.reject(new Error('MISSING_QUERY_FINGERPRINT'));
     this.cancel();
     const jobId = crypto.randomUUID();
@@ -76,6 +88,11 @@ export class GraphWorkerClient {
   }
 
   cancel(): void {
+    if (this.shared) {
+      for (const controller of this.sharedJobs) controller.abort();
+      this.sharedJobs.clear();
+      return;
+    }
     if (!this.jobId) return;
     this.worker?.postMessage({
       protocolVersion: PROTOCOL_VERSION,
@@ -87,6 +104,10 @@ export class GraphWorkerClient {
   }
 
   dispose(): void {
+    if (this.shared) {
+      this.cancel();
+      return;
+    }
     this.cancel();
     if (this.worker) {
       this.worker.removeEventListener('message', this.onMessage);

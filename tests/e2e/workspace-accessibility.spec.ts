@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+import { installEngineFixtures } from './helpers/engineFixtures';
 import { installWorkspaceFixtures, loadFixtureGames } from './helpers/workspaceFixtures';
 
 test.describe.configure({ timeout: 60_000 });
@@ -17,7 +18,7 @@ test('has no serious or critical axe findings after the initial query and loaded
   await waitForWorkspaceReady(page);
   await assertAccessible(page);
   await loadFixtureGames(page);
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await assertAccessible(page);
 });
 
@@ -29,13 +30,13 @@ test('has no serious or critical axe findings in opening-tree, analysis-unavaila
   await waitForWorkspaceReady(page);
   await loadFixtureGames(page);
   await closeUtilityDrawer(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Openings' }).click();
   await assertAccessible(page);
 
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
-  await expect(page.getByText(/Engine unavailable/i)).toBeVisible();
+  await expect(page.getByText(/Analysis is unavailable on this device/i)).toBeVisible();
   await assertAccessible(page);
 
   await page.getByRole('button', { name: 'Openings' }).click();
@@ -91,22 +92,40 @@ test('has no serious or critical axe findings with completed analysis and bounde
   await waitForWorkspaceReady(page);
   await loadFixtureGames(page);
   await closeUtilityDrawer(page);
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('tab', { name: 'Analysis' }).click();
-  await expect(page.getByRole('button', { name: 'Start analysis' })).toBeEnabled({
+  await expect(page.getByRole('button', { name: 'Run review (Start analysis)' })).toBeEnabled({
     timeout: 30_000,
   });
   await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
-  await page.getByRole('button', { name: 'Start analysis' }).click();
-  await expect(page.getByText('Analysis status: Complete', { exact: true })).toBeVisible({
+  await page.getByRole('button', { name: 'Run review (Start analysis)' }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({
     timeout: 60_000,
   });
   await expect(page.locator('.analysis-move-list')).toBeVisible();
   await expect(page.locator('.annotation-panel-empty')).toBeVisible();
   await page.getByRole('button', { name: /select ply 1\b/i }).click();
   await expect(page.locator('.annotation-panel')).toHaveCount(1);
+  await assertAccessible(page);
+});
+
+test('has no serious or critical axe findings in review under light theme', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await waitForWorkspaceReady(page);
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Evaluation graph' })).toBeVisible();
+  await page.locator('.review-summary > summary').click();
+  await expect(page.getByText('Move breakdown', { exact: true })).toBeVisible();
   await assertAccessible(page);
 });
 
@@ -119,7 +138,12 @@ async function assertAccessible(page: import('@playwright/test').Page) {
       document
         .getAnimations()
         .filter((animation) => animation instanceof CSSTransition)
-        .map((animation) => animation.finished.catch(() => undefined))
+        .map((animation) =>
+          Promise.race([
+            animation.finished.catch(() => undefined),
+            new Promise<void>((resolve) => setTimeout(resolve, 250)),
+          ])
+        )
     );
   });
   const results = await new AxeBuilder({ page })
@@ -151,3 +175,268 @@ async function waitForModalReady(
   await expect(page.getByRole('button', { name: closeButtonName })).toBeFocused();
   await expect.poll(() => page.locator('[inert]').count()).toBeGreaterThan(0);
 }
+
+test('keeps playback available while engine readiness is delayed', async ({ page }, testInfo) => {
+  await installWorkspaceFixtures(page);
+  const engine = await installEngineFixtures(page);
+  await page.goto('/');
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  if (testInfo.project.name === 'mobile-chromium')
+    await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByText('Checking analysis engine…')).toBeVisible();
+  await expect(page.getByText(/analysis is unavailable on this device/i)).toHaveCount(0);
+  await expect(page.locator('.analyzer-workspace').getByRole('alert')).toHaveCount(0);
+  await page.getByRole('button', { name: /select ply 1\b/i }).click();
+  await expect(page.getByRole('button', { name: /select ply 1\b/i })).toHaveAttribute(
+    'aria-current',
+    'true'
+  );
+  await page.screenshot({ path: testInfo.outputPath('engine-preparing.png'), fullPage: true });
+  await engine.releaseReady();
+  await expect(page.getByText('Ready to review')).toBeVisible();
+  await page.getByRole('button', { name: 'Run review (Start analysis)', exact: true }).click();
+  await expect(page.getByRole('progressbar', { name: 'Review progress' })).toBeVisible();
+  await engine.releaseEvaluations(100);
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  await assertAccessible(page);
+});
+
+test('synchronizes graph keyboard selection, count filters and original board', async ({
+  page,
+}, testInfo) => {
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  const graph = page.getByRole('group', { name: 'Evaluation graph' });
+  const points = graph.getByRole('button');
+  await expect(graph.locator('[tabindex="0"]')).toHaveCount(1);
+  await points.first().focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(points.nth(1)).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('Position 2 of 8')).toBeVisible();
+  await expect(points.nth(1)).toHaveAttribute('aria-current', 'step');
+  await expect(points.nth(1)).toHaveAccessibleName(/1… Nf6.*perspective/);
+  await page.keyboard.press('End');
+  await page.keyboard.press('Space');
+  await expect(page.getByLabel('Position 8 of 8')).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect(points.last()).not.toBeFocused();
+  await points.first().click();
+  await expect(page.getByLabel('Position 1 of 8')).toBeVisible();
+  await page.locator('.review-summary > summary').click();
+  await page.getByText('Move breakdown', { exact: true }).click();
+  const count = page.getByRole('button', { name: /White Mistake: [1-9]/ });
+  await count.click();
+  await expect(page.getByLabel('Position 1 of 8')).toBeVisible();
+  const feedback = page.getByRole('region', { name: 'Selected move feedback' });
+  await feedback.getByRole('button', { name: 'Next moment' }).click();
+  await expect(page.getByLabel('Position 3 of 8')).toBeVisible();
+  await expect(page.getByRole('button', { name: /select ply 3\b/i })).toHaveAttribute(
+    'aria-current',
+    'true'
+  );
+  await expect(points.nth(2)).toHaveAttribute('aria-current', 'step');
+  await page.getByRole('combobox', { name: 'Review players' }).selectOption('black');
+  await feedback.getByRole('button', { name: 'Next moment' }).click();
+  await expect(page.getByLabel('Position 4 of 8')).toBeVisible();
+  await feedback.locator('summary').click();
+  await expect(feedback).toContainText('Before:');
+  await expect(feedback).toContainText('After:');
+  await assertAccessible(page);
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(size);
+    await page.getByRole('button', { name: 'Previous move', exact: true }).click();
+    await expect(page.getByLabel('Position 3 of 8')).toBeVisible();
+    await page.getByRole('button', { name: 'Next move', exact: true }).click();
+    await page.screenshot({
+      path: testInfo.outputPath(`move-understanding-${size.width}.png`),
+      fullPage: true,
+    });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
+    ).toBeLessThanOrEqual(1);
+  }
+});
+
+test('has no serious or critical axe findings across lifecycle, variation, disclosure and reduced-motion states (T34)', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await waitForWorkspaceReady(page);
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+
+  // 1. Initial review lifecycle state under reduced motion
+  const initialFindings = await new AxeBuilder({ page }).analyze();
+  expect(
+    initialFindings.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  ).toEqual([]);
+
+  // 2. Completed review lifecycle state
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+  const completedFindings = await new AxeBuilder({ page }).analyze();
+  expect(
+    completedFindings.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  ).toEqual([]);
+
+  // 3. Disclosure states: Move breakdown summary & Feedback details
+  await page.locator('.review-summary > summary').click();
+  await expect(page.getByText('Move breakdown', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Next move', exact: true }).click();
+  const feedback = page.getByRole('region', { name: 'Selected move feedback' });
+  await feedback.locator('summary').click();
+  await expect(feedback.getByText(/Best move:/)).toBeVisible();
+
+  const disclosureFindings = await new AxeBuilder({ page }).analyze();
+  expect(
+    disclosureFindings.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  ).toEqual([]);
+
+  // Verify reduced motion: transitions are disabled on feedback and evaluation-bar
+  const feedbackTransition = await feedback.evaluate((el) => getComputedStyle(el).transition);
+  const evalBarTransition = await page
+    .locator('.evaluation-bar')
+    .evaluate((el) => getComputedStyle(el).transition);
+  expect(
+    feedbackTransition === 'none' ||
+      feedbackTransition.includes('0s') ||
+      feedbackTransition.includes('0.01ms')
+  ).toBe(true);
+  expect(
+    evalBarTransition === 'none' ||
+      evalBarTransition.includes('0s') ||
+      evalBarTransition.includes('0.01ms')
+  ).toBe(true);
+
+  // 4. Variation sandbox state
+  await feedback.getByRole('button', { name: 'Explore alternative' }).click();
+  const banner = page.getByRole('complementary', { name: 'Analysis variation sandbox' });
+  await expect(banner).toBeVisible();
+
+  const variationFindings = await new AxeBuilder({ page }).analyze();
+  expect(
+    variationFindings.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  ).toEqual([]);
+
+  // Return from variation to review
+  await banner.getByRole('button', { name: /Return to game/ }).click();
+  await expect(page.getByRole('tab', { name: 'Review', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
+
+  const finalFindings = await new AxeBuilder({ page }).analyze();
+  expect(
+    finalFindings.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  ).toEqual([]);
+});
+
+test('opening history responds to Alt+Arrow shortcuts on the board (T39)', async ({ page }) => {
+  await installWorkspaceFixtures(page);
+  await page.goto('/?engine=unavailable');
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Openings' }).click();
+  const history = page.getByLabel('Opening move history');
+  await expect(page.getByRole('button', { name: /^Play Nf3,/ })).toBeVisible();
+  for (const move of ['Nf3', 'd5', 'd4', 'Nf6']) {
+    await page.getByRole('button', { name: `Play ${move},`, exact: false }).click();
+  }
+  await expect(history).toContainText('Nf3 d5 d4 Nf6');
+
+  // Inside the board, Alt+ArrowLeft/Right traverse opening history while plain
+  // arrows keep square navigation.
+  const board = page.getByRole('grid', { name: 'Chess board' });
+  await board.focus();
+  await page.keyboard.press('Alt+ArrowLeft');
+  await expect(history).toContainText('Nf3 d5 d4');
+  await expect(history).not.toContainText('Nf6');
+  await page.keyboard.press('Alt+ArrowLeft');
+  await page.keyboard.press('Alt+ArrowLeft');
+  await page.keyboard.press('Alt+ArrowLeft');
+  await expect(history).toContainText('Start');
+  await page.keyboard.press('Alt+ArrowRight');
+  await expect(history).toContainText('Nf3');
+  await expect(history).not.toContainText('d5');
+});
+
+test('rapid keyboard input ends on correct synchronized board, list, and graph position (T34)', async ({
+  page,
+}) => {
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible();
+
+  const board = page.getByRole('grid', { name: 'Chess board' });
+  board.focus();
+
+  // Rapidly press ArrowRight 5 times to advance 5 plies
+  for (let i = 0; i < 5; i++) {
+    await page.keyboard.press('ArrowRight');
+  }
+
+  // Synchronized across board, list, and graph
+  await expect(page.getByLabel('Position 5 of 8')).toBeVisible();
+  const moveCell = page.getByRole('button', { name: /select ply 5\b/i });
+  await expect(moveCell).toHaveAttribute('aria-current', 'true');
+  const graph = page.getByRole('group', { name: 'Evaluation graph' });
+  await expect(graph.getByRole('button').nth(4)).toHaveAttribute('aria-current', 'step');
+
+  // Rapidly move to end and start
+  await page.keyboard.press('End');
+  await expect(page.getByLabel('Position 8 of 8')).toBeVisible();
+  await expect(page.getByRole('button', { name: /select ply 8\b/i })).toHaveAttribute(
+    'aria-current',
+    'true'
+  );
+
+  await page.keyboard.press('Home');
+  await expect(page.getByLabel('Position 0 of 8')).toBeVisible();
+});
+
+test('core review milestone completed state satisfies accessibility standards (T35)', async ({
+  page,
+}) => {
+  await installWorkspaceFixtures(page);
+  await installEngineFixtures(page, { manualReady: false, manualEvaluations: false });
+  await page.goto('/?engine=single');
+  await loadFixtureGames(page);
+  await closeUtilityDrawer(page);
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: /Run review/ }).click();
+  await expect(page.getByText('Review complete', { exact: true })).toBeVisible({ timeout: 30_000 });
+
+  // Verify completed review state has no serious or critical axe violations
+  const findings = await new AxeBuilder({ page }).analyze();
+  expect(
+    findings.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  ).toEqual([]);
+});

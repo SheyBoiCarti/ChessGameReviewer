@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 
 import type { OpeningGraphSnapshot } from '@/lib/chess/graph/openingGraph';
 import { navigateCandidate, type GraphNavigationState } from '@/features/opening-tree/navigation';
@@ -13,6 +13,7 @@ import {
 
 import { OutcomeBar } from './OutcomeBar';
 import { PathBreadcrumbs } from './PathBreadcrumbs';
+import { OpeningDisclosure } from '@/components/opening/OpeningDisclosure';
 
 export interface OpeningTreeTableProps {
   graph: OpeningGraphSnapshot;
@@ -22,6 +23,11 @@ export interface OpeningTreeTableProps {
   diagnosticCodes?: readonly string[];
   onNavigate(value: GraphNavigationState): void;
   moveOrdersAction?: ReactNode;
+  onPerspectiveChange?(value: OutcomePerspective): void;
+  showArrows?: boolean | undefined;
+  onToggleArrows?(value: boolean): void;
+  activeUci?: string | null;
+  onHoverCandidate?(uci: string | null): void;
 }
 
 export function OpeningTreeTable({
@@ -32,18 +38,56 @@ export function OpeningTreeTable({
   diagnosticCodes = [],
   onNavigate,
   moveOrdersAction,
+  onPerspectiveChange,
+  showArrows = true,
+  onToggleArrows,
+  activeUci = null,
+  onHoverCandidate,
 }: OpeningTreeTableProps) {
   const [sort, setSort] = useState<MoveSort>('games');
-  const node = graph.positions.get(navigation.positionKey);
+  const [localPerspective, setLocalPerspective] = useState<OutcomePerspective>(perspective);
+  const effectivePerspective = onPerspectiveChange ? perspective : localPerspective;
+
+  useEffect(() => {
+    setLocalPerspective(perspective);
+  }, [perspective]);
+
+  const handlePerspectiveChange = (next: OutcomePerspective) => {
+    setLocalPerspective(next);
+    onPerspectiveChange?.(next);
+  };
+
+  // T38: an unobserved visited entry is the authoritative current position;
+  // candidates and memberships are empty there.
+  const node = navigation.observed ? graph.positions.get(navigation.positionKey) : undefined;
   if (!node) {
+    if (!navigation.observed) {
+      return (
+        <section className="opening-tree surface-panel" aria-labelledby="opening-tree-heading">
+          <h3 id="opening-tree-heading">Openings</h3>
+          <PathBreadcrumbs graph={graph} navigation={navigation} onNavigate={onNavigate} />
+          <p className="opening-tree__empty" role="status">
+            No observed games reach this position. Keep playing on the board or try an engine move
+            to explore this variation.
+          </p>
+        </section>
+      );
+    }
     return <p role="alert">The selected graph position is unavailable. Return to the root.</p>;
   }
-  const candidates = selectCandidateMoves(node, sort, perspective);
-  const scoreLabel = perspective === 'user' ? 'Expected user score' : 'Expected White score';
-  const winRateLabel = perspective === 'user' ? 'Win rate' : 'White win rate';
+  const candidates = selectCandidateMoves(node, sort, effectivePerspective);
+  const scoreLabel =
+    effectivePerspective === 'user' ? 'Expected user score' : 'Expected White score';
+  const winRateLabel = effectivePerspective === 'user' ? 'Win rate' : 'White win rate';
 
-  const isHorizonReached =
-    navigation.history.length > 0 && navigation.history.length - 1 >= graph.openingHorizon;
+  const continuationTotal = [...node.outgoing.values()].reduce(
+    (n, edge) => n + edge.aggregate.games,
+    0
+  );
+  const positionTotal = node.aggregate.games;
+  const nonContinuingCount = Math.max(0, positionTotal - continuationTotal);
+
+  const isHorizonReached = navigation.cursor >= graph.openingHorizon;
 
   return (
     <section className="opening-tree surface-panel" aria-labelledby="opening-tree-heading">
@@ -83,15 +127,11 @@ export function OpeningTreeTable({
           <option value="san">Move</option>
         </select>
       </label>
-      <p className="field-help" aria-live="polite">
-        Position-wide candidate moves across all observed move orders, sorted by {sort}.
-      </p>
 
       {candidates.length === 0 ? (
         isHorizonReached ? (
           <p className="opening-tree__empty">
-            Opening depth limit reached. Increase the opening depth in Game filters and import
-            again.
+            Opening depth limit reached. Increase the horizon in Advanced opening settings.
           </p>
         ) : (
           <p className="opening-tree__empty">
@@ -106,7 +146,11 @@ export function OpeningTreeTable({
           aria-label="Opening candidate results"
           tabIndex={0}
         >
-          <table className="opening-candidate-table" aria-label="Opening candidates">
+          <table
+            className="opening-candidate-table"
+            aria-label="Opening candidates"
+            onMouseLeave={() => onHoverCandidate?.(null)}
+          >
             <thead>
               <tr>
                 <th scope="col" className="opening-col--move">
@@ -123,9 +167,41 @@ export function OpeningTreeTable({
             <tbody>
               {candidates.map((candidate) => {
                 const edge = node.outgoing.get(candidate.uci);
-                const breakdown = edge ? selectOutcomeBreakdown(edge.aggregate, perspective) : null;
+                const breakdown = edge
+                  ? selectOutcomeBreakdown(edge.aggregate, effectivePerspective)
+                  : null;
+                const shareText =
+                  candidate.continuationShare !== null
+                    ? `${(candidate.continuationShare * 100).toFixed(1)}%`
+                    : null;
+                const isActive = activeUci === candidate.uci;
                 return (
-                  <tr key={candidate.uci} className="opening-candidate-row">
+                  <tr
+                    key={candidate.uci}
+                    className={`opening-candidate-row ${isActive ? 'opening-candidate-row--active' : ''}`}
+                    onMouseEnter={() => onHoverCandidate?.(candidate.uci)}
+                    onMouseLeave={() => onHoverCandidate?.(null)}
+                    onFocus={() => onHoverCandidate?.(candidate.uci)}
+                    onBlur={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                        onHoverCandidate?.(null);
+                      }
+                    }}
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement | null;
+                      if (!target) return;
+                      if (
+                        target.closest(
+                          'button, a, summary, input, select, textarea, [role="button"]'
+                        )
+                      ) {
+                        return;
+                      }
+                      if (edge) {
+                        onNavigate(navigateCandidate(graph, navigation, edge));
+                      }
+                    }}
+                  >
                     <td className="opening-cell--move">
                       <button
                         type="button"
@@ -138,10 +214,19 @@ export function OpeningTreeTable({
                     </td>
                     <td className="opening-cell--games">
                       <span className="tabular-nums">{candidate.metrics.sampleSize}</span>
+                      {shareText ? (
+                        <span
+                          className="continuation-share"
+                          title="Share of observed continuations"
+                        >
+                          {' '}
+                          ({shareText})
+                        </span>
+                      ) : null}
                     </td>
                     <td className="opening-cell--results">
                       {breakdown ? (
-                        <OutcomeBar breakdown={breakdown} perspective={perspective} />
+                        <OutcomeBar breakdown={breakdown} perspective={effectivePerspective} />
                       ) : null}
                     </td>
                   </tr>
@@ -152,9 +237,60 @@ export function OpeningTreeTable({
         </div>
       )}
 
+      <div className="opening-position-sample" aria-label="Position sample context">
+        <p>
+          <strong>Position sample:</strong> <span className="tabular-nums">{positionTotal}</span>{' '}
+          {positionTotal === 1 ? 'game' : 'games'}
+          {positionTotal !== continuationTotal ? (
+            <span className="field-help">
+              {' '}
+              (<span className="tabular-nums">{continuationTotal}</span> observed continuations
+              {nonContinuingCount > 0 ? `, ${nonContinuingCount} ended or reached horizon` : ''})
+            </span>
+          ) : (
+            <span className="field-help">
+              {' '}
+              (<span className="tabular-nums">{continuationTotal}</span> continuations)
+            </span>
+          )}
+        </p>
+      </div>
+
+      <div className="opening-tree-controls">
+        <div className="opening-perspective-toggle" role="group" aria-label="Result perspective">
+          <span className="perspective-toggle-label">Perspective:</span>
+          <button
+            type="button"
+            className={`button-toggle ${effectivePerspective === 'user' ? 'button-toggle--active' : ''}`}
+            onClick={() => handlePerspectiveChange('user')}
+            aria-pressed={effectivePerspective === 'user'}
+          >
+            Your results
+          </button>
+          <button
+            type="button"
+            className={`button-toggle ${effectivePerspective === 'board' ? 'button-toggle--active' : ''}`}
+            onClick={() => handlePerspectiveChange('board')}
+            aria-pressed={effectivePerspective === 'board'}
+          >
+            White / Black
+          </button>
+        </div>
+
+        {onToggleArrows ? (
+          <label className="opening-arrows-toggle-label">
+            <input
+              type="checkbox"
+              checked={showArrows}
+              onChange={(e) => onToggleArrows(e.target.checked)}
+            />
+            Arrows
+          </label>
+        ) : null}
+      </div>
+
       {candidates.length > 0 ? (
-        <details className="more-statistics-disclosure">
-          <summary>More statistics</summary>
+        <OpeningDisclosure label="More statistics" className="more-statistics-disclosure">
           <div className="more-statistics-content">
             <p className="field-help">
               The configured horizon is {graph.openingHorizon} plies; the supported maximum is 40
@@ -176,6 +312,7 @@ export function OpeningTreeTable({
                     <th scope="col">{winRateLabel}</th>
                     <th scope="col">{scoreLabel}</th>
                     <th scope="col">Draw rate</th>
+                    <th scope="col">Share</th>
                     <th scope="col">Average opponent rating</th>
                     <th scope="col">Sample size</th>
                   </tr>
@@ -183,11 +320,11 @@ export function OpeningTreeTable({
                 <tbody>
                   {candidates.map((candidate) => {
                     const score =
-                      perspective === 'user'
+                      effectivePerspective === 'user'
                         ? candidate.metrics.userScore
                         : candidate.metrics.whiteScore;
                     const winRate =
-                      perspective === 'user'
+                      effectivePerspective === 'user'
                         ? candidate.metrics.userWinRate
                         : candidate.metrics.whiteWinRate;
                     return (
@@ -198,6 +335,7 @@ export function OpeningTreeTable({
                         <td>{percent(winRate)}</td>
                         <td>{percent(score)}</td>
                         <td>{percent(candidate.metrics.drawRate)}</td>
+                        <td>{percent(candidate.continuationShare)}</td>
                         <td>{candidate.metrics.averageOpponentRating?.toFixed(0) ?? '—'}</td>
                         <td>{candidate.metrics.sampleSize}</td>
                       </tr>
@@ -207,7 +345,7 @@ export function OpeningTreeTable({
               </table>
             </div>
           </div>
-        </details>
+        </OpeningDisclosure>
       ) : null}
 
       {moveOrdersAction ? <div className="opening-tree-actions">{moveOrdersAction}</div> : null}

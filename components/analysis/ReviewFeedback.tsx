@@ -4,16 +4,30 @@ import { useMemo } from 'react';
 import { Chess } from 'chess.js';
 
 import { MoveClassificationBadge } from '@/components/board/MoveClassificationBadge';
+import type { AnalysisStrength } from '@/features/workspace/types';
 import type { GameAnnotation } from '@/features/stockfish-analysis/analyzeGame';
-import { moveQualityDetails } from '@/features/stockfish-analysis/presentation';
+import { explainMove } from '@/features/stockfish-analysis/moveExplanation';
+import { whiteCentipawnDelta } from '@/lib/engine/evaluation';
+import {
+  convertPvToSan,
+  moveNotation,
+  toGraphPoints,
+  moveQualityDetails,
+} from '@/features/stockfish-analysis/presentation';
 
 export interface ReviewFeedbackProps {
   annotation: GameAnnotation | null;
   selectedPly: number;
   startFen?: string | undefined;
   nextMistake: number | null;
+  previousMoment?: number | null | undefined;
+  firstMoment?: number | null | undefined;
+  navigationKind?: 'mistake' | 'moment' | undefined;
   onSelectPly(ply: number): void;
   hasAnnotations: boolean;
+  showingPrevious?: boolean | undefined;
+  previousStrength?: AnalysisStrength | null | undefined;
+  onExplorePv?: ((fen: string, moves: readonly string[]) => void) | undefined;
 }
 
 function convertUciToSan(fen: string | undefined, uci: string | undefined): string | null {
@@ -38,18 +52,87 @@ export function ReviewFeedback({
   selectedPly,
   startFen,
   nextMistake,
+  previousMoment = null,
+  firstMoment = null,
+  navigationKind = 'mistake',
   onSelectPly,
   hasAnnotations,
+  showingPrevious = false,
+  previousStrength,
+  onExplorePv,
 }: ReviewFeedbackProps) {
   const bestSan = useMemo(() => {
     if (!annotation?.before?.bestMove) return null;
     return convertUciToSan(startFen, annotation.before.bestMove);
   }, [annotation?.before?.bestMove, startFen]);
 
+  const navigation = hasAnnotations ? (
+    <nav className="review-feedback__actions" aria-label="Key moments">
+      {selectedPly === 0 ? (
+        nextMistake !== null ? (
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => onSelectPly(nextMistake)}
+          >
+            First important moment
+          </button>
+        ) : (
+          <p>No important moments in the analysed moves.</p>
+        )
+      ) : (
+        <>
+          <button
+            type="button"
+            className="button-secondary"
+            aria-label="Previous moment"
+            disabled={previousMoment === null}
+            onClick={() => previousMoment !== null && onSelectPly(previousMoment)}
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            className="button-secondary review-feedback__next-btn"
+            aria-label={`Next ${navigationKind}`}
+            disabled={nextMistake === null}
+            onClick={() => nextMistake !== null && onSelectPly(nextMistake)}
+          >
+            Next
+          </button>
+          {nextMistake === null ? (
+            <span
+              className="review-feedback__no-mistakes visually-hidden"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              No later {navigationKind === 'mistake' ? 'mistakes' : 'moments'} in the analysed
+              moves.
+            </span>
+          ) : null}
+          {nextMistake === null && firstMoment !== null && firstMoment < selectedPly ? (
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => onSelectPly(firstMoment)}
+              aria-label="Restart key moments"
+            >
+              Restart
+            </button>
+          ) : null}
+        </>
+      )}
+    </nav>
+  ) : (
+    <p className="review-feedback__navigation-empty">No analysed moments yet.</p>
+  );
+
   if (selectedPly === 0) {
     return (
       <div className="review-feedback" role="region" aria-label="Selected move feedback">
         <p className="review-feedback__empty">Select a move to review it.</p>
+        {navigation}
       </div>
     );
   }
@@ -58,6 +141,7 @@ export function ReviewFeedback({
     return (
       <div className="review-feedback" role="region" aria-label="Selected move feedback">
         <p className="review-feedback__empty">This move has not been analysed yet.</p>
+        {navigation}
       </div>
     );
   }
@@ -65,39 +149,107 @@ export function ReviewFeedback({
   const quality =
     annotation.accuracy.status === 'classified' ? annotation.accuracy.quality : undefined;
   const isClassified = Boolean(quality);
+  const explanation = startFen ? explainMove(startFen, annotation.uci) : null;
+  const continuation = startFen ? convertPvToSan(startFen, annotation.before.pv) : null;
   const qualityLabel = quality ? moveQualityDetails(quality).label : 'Move quality unavailable';
 
   return (
     <div className="review-feedback" role="region" aria-label="Selected move feedback">
-      <div className="review-feedback__header">
-        {quality ? <MoveClassificationBadge quality={quality} size="inline" ariaHidden /> : null}
-        <span className="review-feedback__title">
-          {isClassified ? `${annotation.san} — ${qualityLabel}` : 'Move quality unavailable'}
-        </span>
-      </div>
+      <details className="review-feedback__details">
+        <summary className="review-feedback__header">
+          {quality ? <MoveClassificationBadge quality={quality} size="inline" ariaHidden /> : null}
+          <span className="review-feedback__title">
+            {showingPrevious ? `Previous ${previousStrength ?? 'saved'} review · ` : ''}
+            {moveNotation(annotation.ply, annotation.san, annotation.mover)} —{' '}
+            <span>{isClassified ? qualityLabel : 'Move quality unavailable'}</span>
+          </span>
+        </summary>
 
-      <p className="review-feedback__best-move">Best move: {bestSan ?? 'Best move unavailable'}</p>
+        <p>
+          {quality
+            ? moveQualityDetails(quality).description
+            : 'The available scores do not support a reliable move grade.'}
+        </p>
+        {explanation ? <p>{explanation}</p> : null}
+        {annotation.accuracy.status === 'classified' &&
+        typeof annotation.accuracy.accuracyEstimate === 'number' ? (
+          <p className="review-feedback__accuracy">
+            Accuracy score: {Math.round(annotation.accuracy.accuracyEstimate)}%
+          </p>
+        ) : null}
+        <EvaluationComparison annotation={annotation} />
+        {continuation && continuation.moves.length > 0 && !continuation.diagnostic ? (
+          <p>Engine continuation: {continuation.moves.join(' ')}</p>
+        ) : null}
+        <p className="review-feedback__best-move">
+          Best move: {bestSan ?? 'Best move unavailable'}
+        </p>
 
-      {hasAnnotations ? (
-        <div className="review-feedback__actions">
-          <button
-            type="button"
-            className="button-secondary review-feedback__next-btn"
-            onClick={() => {
-              if (nextMistake !== null) {
-                onSelectPly(nextMistake);
+        {onExplorePv && startFen ? (
+          <div className="review-feedback__actions">
+            {bestSan ? (
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() =>
+                  onExplorePv(
+                    startFen,
+                    annotation.before.pv[0] === annotation.before.bestMove
+                      ? annotation.before.pv
+                      : [annotation.before.bestMove]
+                  )
+                }
+              >
+                Explore alternative
+              </button>
+            ) : null}
+            {(() => {
+              try {
+                const chess = new Chess(startFen);
+                const uci = annotation.uci;
+                chess.move({
+                  from: uci.slice(0, 2),
+                  to: uci.slice(2, 4),
+                  ...(uci[4] ? { promotion: uci[4] } : {}),
+                });
+                const afterFen = chess.fen();
+                return convertUciToSan(afterFen, annotation.after.pv[0]) ? (
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={() => onExplorePv(afterFen, annotation.after.pv)}
+                  >
+                    Explore reply
+                  </button>
+                ) : null;
+              } catch {
+                return null;
               }
-            }}
-            disabled={nextMistake === null}
-          >
-            Next mistake
-          </button>
-          {nextMistake === null ? (
-            <span className="review-feedback__no-mistakes">
-              No later mistakes in the analysed moves.
-            </span>
-          ) : null}
-        </div>
+            })()}
+          </div>
+        ) : null}
+      </details>
+      {navigation}
+    </div>
+  );
+}
+
+export function EvaluationComparison({ annotation }: { annotation: GameAnnotation }) {
+  const [before, after] = toGraphPoints([
+    { ply: annotation.ply, evaluation: annotation.before.score },
+    { ply: annotation.ply, evaluation: annotation.after.score },
+  ]);
+  const delta = whiteCentipawnDelta(annotation.before.score, annotation.after.score);
+  return (
+    <div className="review-evaluation">
+      <p>Evaluation from White’s perspective</p>
+      <p>Before: {before!.label}</p>
+      <p>After: {after!.label}</p>
+      {delta !== null ? (
+        <p>
+          Change for White: {delta >= 0 ? '+' : ''}
+          {(delta / 100).toFixed(2)} pawns
+        </p>
       ) : null}
     </div>
   );

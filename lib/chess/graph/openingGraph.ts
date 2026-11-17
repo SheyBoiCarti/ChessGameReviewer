@@ -1,7 +1,15 @@
+import { DEFAULT_POSITION } from 'chess.js';
+
+import { normalizePositionKey } from '../fen';
 import type { ParsedGame } from '../pgnParser';
 import { addVisit, emptyOutcome } from './outcomes';
 import { PathStore } from './pathStore';
-import type { GraphBuildOptions, GraphStructuralLimits, PositionNode } from './types';
+import type {
+  GraphBuildOptions,
+  GraphStructuralLimits,
+  OpeningGameProjection,
+  PositionNode,
+} from './types';
 
 const DEFAULT_LIMITS: GraphStructuralLimits = {
   maxPositions: 150_000,
@@ -16,7 +24,13 @@ export interface OpeningGraphSnapshot {
   paths: PathStore;
   openingHorizon: number;
   includedGameCount: number;
+  includedGameIds: string[];
+  positionGameIds: Map<string, string[]>;
+  prefixGameIds: Map<number, string[]>;
+  excludedGameCount: number;
   remainingGameCount: number;
+  /** Full six-field FEN of the root from the first canonical included source game. */
+  rootFen: string;
   reachedLimit?: keyof GraphStructuralLimits | 'maxSnapshotBytes';
 }
 
@@ -30,8 +44,13 @@ interface BuildState {
   positions: Map<string, PositionNode>;
   paths: PathStore;
   root: PositionNode | undefined;
+  rootFen: string | undefined;
   edgeCount: number;
   includedGameCount: number;
+  includedGameIds: string[];
+  positionGameIds: Map<string, string[]>;
+  prefixGameIds: Map<number, string[]>;
+  excludedGameCount: number;
 }
 
 export class OpeningGraphBuilder {
@@ -53,7 +72,7 @@ export class OpeningGraphBuilder {
     this.limits = { ...DEFAULT_LIMITS, ...limits };
   }
 
-  build(games: readonly ParsedGame[]): OpeningGraphSnapshot {
+  build(games: readonly (ParsedGame | OpeningGameProjection)[]): OpeningGraphSnapshot {
     const state = createBuildState();
     const orderedGames = canonicalGameOrder(games);
 
@@ -73,7 +92,7 @@ export class OpeningGraphBuilder {
   }
 
   async buildAsync(
-    games: readonly ParsedGame[],
+    games: readonly (ParsedGame | OpeningGameProjection)[],
     runtime: AsyncGraphBuildOptions = {}
   ): Promise<OpeningGraphSnapshot | undefined> {
     const state = createBuildState();
@@ -111,14 +130,24 @@ export class OpeningGraphBuilder {
 
   private addGame(
     state: BuildState,
-    game: ParsedGame | undefined
+    game: ParsedGame | OpeningGameProjection | undefined
   ): keyof GraphStructuralLimits | undefined {
-    if (!game || game.plies.length === 0 || !isContinuous(game)) return undefined;
+    const skip = () => {
+      state.excludedGameCount += 1;
+      return undefined;
+    };
+    if (
+      !game ||
+      game.plies.length === 0 ||
+      !isContinuous(game) ||
+      state.includedGameIds.includes(game.id)
+    )
+      return skip();
     const firstPly = game.plies[0];
-    if (!firstPly) return undefined;
+    if (!firstPly) return skip();
     const rootKey = state.root?.key ?? firstPly.positionBefore;
-    if (state.root && firstPly.positionBefore !== state.root.key) return undefined;
-    if (!hasConsistentExistingEdges(game, state.positions)) return undefined;
+    if (state.root && firstPly.positionBefore !== state.root.key) return skip();
+    if (!hasConsistentExistingEdges(game, state.positions)) return skip();
 
     const plies = game.plies.slice(0, this.options.maxOpeningPlies);
     const additions = countAdditions(plies, state.positions, state.paths, rootKey);
@@ -134,6 +163,7 @@ export class OpeningGraphBuilder {
 
     if (!state.root) {
       state.root = createNode(rootKey);
+      state.rootFen = firstPly.fenBefore;
       state.positions.set(state.root.key, state.root);
     }
 
@@ -147,6 +177,7 @@ export class OpeningGraphBuilder {
     const visitedEdges = new Set<string>();
     let source = state.root;
     let pathId = 0;
+    const playedPrefixes = [0];
     for (const ply of plies) {
       const target =
         state.positions.get(ply.positionAfter) ??
@@ -160,6 +191,7 @@ export class OpeningGraphBuilder {
       if (edge.targetKey !== target.key || edge.san !== ply.san)
         throw new Error('INCONSISTENT_EDGE');
       pathId = state.paths.intern(pathId, ply.uci, ply.san);
+      playedPrefixes.push(pathId);
       const edgeKey = `${source.key}\u0000${ply.uci}`;
       if (!visitedEdges.has(edgeKey)) {
         addVisit(edge.aggregate, visit);
@@ -168,13 +200,27 @@ export class OpeningGraphBuilder {
       const firstVisit = !visitedPositions.has(target.key);
       if (this.options.includeRepeatedPositions || firstVisit) {
         addVisit(target.aggregate, visit);
-        const arrival = target.arrivalsByPath.get(pathId) ?? emptyOutcome();
-        addVisit(arrival, visit);
-        target.arrivalsByPath.set(pathId, arrival);
-        visitedPositions.add(target.key);
       }
+      visitedPositions.add(target.key);
+      // Every played prefix is observed evidence, including a return to a
+      // previously counted position. The repetition policy only affects the
+      // position aggregate; it must not hide exact-line membership.
+      const arrival = target.arrivalsByPath.get(pathId) ?? emptyOutcome();
+      addVisit(arrival, visit);
+      target.arrivalsByPath.set(pathId, arrival);
       source = target;
     }
+    for (const key of visitedPositions) {
+      const ids = state.positionGameIds.get(key) ?? [];
+      ids.push(game.id);
+      state.positionGameIds.set(key, ids);
+    }
+    for (const id of playedPrefixes) {
+      const ids = state.prefixGameIds.get(id) ?? [];
+      ids.push(game.id);
+      state.prefixGameIds.set(id, ids);
+    }
+    state.includedGameIds.push(game.id);
     state.includedGameCount += 1;
     return undefined;
   }
@@ -197,8 +243,13 @@ function createBuildState(): BuildState {
     positions: new Map(),
     paths: new PathStore(),
     root: undefined,
+    rootFen: undefined,
     edgeCount: 0,
     includedGameCount: 0,
+    includedGameIds: [],
+    positionGameIds: new Map(),
+    prefixGameIds: new Map(),
+    excludedGameCount: 0,
   };
 }
 
@@ -214,7 +265,8 @@ function snapshotFor(
   reachedLimit?: keyof GraphStructuralLimits
 ): OpeningGraphSnapshot {
   if (!state.root) {
-    state.root = createNode('');
+    state.rootFen = DEFAULT_POSITION;
+    state.root = createNode(normalizePositionKey(DEFAULT_POSITION));
     state.positions.set(state.root.key, state.root);
   }
   return {
@@ -224,7 +276,12 @@ function snapshotFor(
     paths: state.paths,
     openingHorizon,
     includedGameCount: state.includedGameCount,
+    includedGameIds: state.includedGameIds,
+    positionGameIds: state.positionGameIds,
+    prefixGameIds: state.prefixGameIds,
+    excludedGameCount: state.excludedGameCount,
     remainingGameCount,
+    rootFen: state.rootFen!,
     ...(reachedLimit ? { reachedLimit } : {}),
   };
 }
@@ -243,7 +300,7 @@ function createAndStore(positions: Map<string, PositionNode>, key: string): Posi
   return node;
 }
 
-function isContinuous(game: ParsedGame): boolean {
+function isContinuous(game: ParsedGame | OpeningGameProjection): boolean {
   return game.plies.every(
     (ply, index) =>
       index === 0 ||
@@ -253,7 +310,7 @@ function isContinuous(game: ParsedGame): boolean {
 }
 
 function hasConsistentExistingEdges(
-  game: ParsedGame,
+  game: ParsedGame | OpeningGameProjection,
   positions: ReadonlyMap<string, PositionNode>
 ): boolean {
   return game.plies.every((ply) => {

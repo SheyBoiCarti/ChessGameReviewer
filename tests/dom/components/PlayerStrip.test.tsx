@@ -1,9 +1,64 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fetchPlayerProfile } from '@/lib/api/chesscomProfile';
 
 import { getPlayerInitials, PlayerStrip } from '@/components/board/PlayerStrip';
 
+vi.mock('@/lib/api/chesscomProfile', () => ({ fetchPlayerProfile: vi.fn().mockResolvedValue({}) }));
+
 describe('PlayerStrip', () => {
+  it('loads profile photos, shares requests across navigation, and falls back when an image fails', async () => {
+    vi.mocked(fetchPlayerProfile).mockResolvedValueOnce({
+      username: 'photo-player',
+      avatar: 'https://images.chesscomfiles.com/photo-player.jpg',
+      joined: 0,
+      status: 'basic',
+      url: 'https://www.chess.com/member/photo-player',
+    });
+    const { container, unmount } = render(
+      <PlayerStrip player={{ username: 'photo-player', rating: 1500 }} color="white" />
+    );
+    await waitFor(() =>
+      expect(container.querySelector('img')).toHaveAttribute(
+        'src',
+        'https://images.chesscomfiles.com/photo-player.jpg'
+      )
+    );
+    fireEvent.error(container.querySelector('img')!);
+    expect(screen.getByText('PH')).toBeInTheDocument();
+    unmount();
+    const calls = vi.mocked(fetchPlayerProfile).mock.calls.length;
+    const next = render(
+      <PlayerStrip player={{ username: 'PHOTO-PLAYER', rating: 1500 }} color="black" />
+    );
+    await waitFor(() => expect(next.container.querySelector('img')).toBeInTheDocument());
+    expect(fetchPlayerProfile).toHaveBeenCalledTimes(calls);
+  });
+
+  it('ignores an old profile response after the selected player changes', async () => {
+    let resolve!: (profile: Awaited<ReturnType<typeof fetchPlayerProfile>>) => void;
+    vi.mocked(fetchPlayerProfile).mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        })
+    );
+    const { container, rerender } = render(
+      <PlayerStrip player={{ username: 'old-player', rating: 1500 }} color="white" />
+    );
+    rerender(<PlayerStrip player={{ username: 'new-player', rating: 1500 }} color="white" />);
+    await act(async () =>
+      resolve({
+        username: 'old-player',
+        avatar: 'https://example.com/old.jpg',
+        joined: 0,
+        status: 'basic',
+        url: 'https://www.chess.com/member/old-player',
+      })
+    );
+    expect(container.querySelector('img')).not.toBeInTheDocument();
+    expect(screen.getByText('NE')).toBeInTheDocument();
+  });
   it('renders player username, rating, initials avatar, and color dot', () => {
     render(
       <PlayerStrip

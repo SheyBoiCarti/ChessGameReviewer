@@ -35,6 +35,17 @@ const job = (id: string, priority: 1 | 2 | 3, relevanceToken = id) => ({
 });
 
 describe('EngineScheduler', () => {
+  it('stops active work when its caller cancels', async () => {
+    const adapter = new DeferredAdapter();
+    const scheduler = new EngineScheduler(adapter);
+    const controller = new AbortController();
+    const running = scheduler.schedule({ ...job('batch', 2), signal: controller.signal });
+    controller.abort();
+    expect(adapter.calls).toContain('stop');
+    adapter.finish('batch');
+    await expect(running).rejects.toMatchObject({ name: 'AbortError' });
+    scheduler.dispose();
+  });
   it('runs higher priority work first while retaining FIFO order within a priority', async () => {
     const adapter = new DeferredAdapter();
     const scheduler = new EngineScheduler(adapter);

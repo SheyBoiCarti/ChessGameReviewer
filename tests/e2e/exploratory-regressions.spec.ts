@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import {
+  installOpeningScopeWorkspaceFixtures,
   installTranspositionWorkspaceFixtures,
   installWorkspaceFixtures,
   loadFixtureGames,
@@ -17,7 +18,7 @@ async function openTab(page: Page, name: string) {
   await page.getByRole('button', { name, exact: true }).click();
 }
 
-test('B1: candidate follows an alternate arrival and Back returns to the original line', async ({
+test('B1/T37: a transposed candidate keeps the actual route via row and board input', async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -25,15 +26,62 @@ test('B1: candidate follows an alternate arrival and Back returns to the origina
   await installTranspositionWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await openTab(page, 'Openings');
+  // Both transposition routes belong to the player's White repertoire.
+  await expect(page.getByRole('radio', { name: /^White/ })).toBeChecked();
+  await expect(page.getByRole('button', { name: /^Play d4,/ })).toBeVisible();
+  const history = page.getByLabel('Opening move history');
   for (const move of ['Nf3', 'd5', 'd4', 'Nf6', 'e3']) {
-    await page.getByRole('button', { name: `Play ${move}`, exact: false }).click();
+    await page.getByRole('button', { name: `Play ${move},`, exact: false }).click();
   }
-  await expect(page.getByRole('button', { name: 'Play e6', exact: false })).toBeVisible();
-  await page.getByRole('button', { name: 'Back', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Play e3', exact: false })).toBeVisible();
+  // The visited notation is the actual clicked sequence, never a stored arrival.
+  await expect(history).toContainText('Nf3 d5 d4 Nf6 e3');
+  await expect(page.getByRole('button', { name: /^Play e6,/ })).toBeVisible();
+
+  // Back one move follows the actual route; the shared position keeps e3.
+  await page.getByRole('button', { name: 'Previous move', exact: true }).click();
+  await expect(history).toContainText('Nf3 d5 d4 Nf6');
+  await expect(history).not.toContainText('e3');
+  await expect(page.getByRole('button', { name: /^Play e3,/ })).toBeVisible();
+
+  // Board input reproduces the same exact route from the root.
+  await page.getByRole('button', { name: 'Starting position', exact: true }).click();
+  for (const [from, to] of [
+    ['g1', 'f3'],
+    ['d7', 'd5'],
+    ['d2', 'd4'],
+    ['g8', 'f6'],
+    ['e2', 'e3'],
+  ]) {
+    await page.locator(`[data-square="${from}"]`).click();
+    await page.locator(`[data-square="${to}"]`).click();
+  }
+  await expect(history).toContainText('Nf3 d5 d4 Nf6 e3');
   expect(errors).toEqual([]);
+});
+
+test('B11/T38: an unobserved board novelty clears candidates until Return', async ({ page }) => {
+  await installWorkspaceFixtures(page);
+  await page.goto('/');
+  await loadFixtureGames(page);
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
+  await openTab(page, 'Openings');
+  await expect(page.getByRole('button', { name: /^Play Nf3,/ })).toBeVisible();
+  await page.locator('[data-square="a2"]').click();
+  await page.locator('[data-square="a3"]').click();
+
+  // Neither root candidates nor root statistics leak into the unknown position.
+  await expect(page.getByRole('button', { name: /^Play (?!engine choice)/ })).toHaveCount(0);
+  await expect(page.getByText(/no observed games reach this position/i)).toBeVisible();
+  await expect(page.locator('.unobserved-move-notice')).toContainText(
+    /beyond your imported opening tree after a3/i
+  );
+
+  // Return atomically restores the last observed entry and its statistics.
+  await page.getByRole('button', { name: /return to observed opening tree/i }).click();
+  await expect(page.getByRole('button', { name: /^Play Nf3,/ })).toBeVisible();
+  await expect(page.getByLabel('Opening move history')).toContainText('Start');
 });
 
 test('B2/B7: cancel retains games with neutral feedback; an empty import clears the graph and count', async ({
@@ -42,9 +90,10 @@ test('B2/B7: cancel retains games with neutral feedback; an empty import clears 
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await page.getByRole('button', { name: 'Import games', exact: true }).click();
   await page.getByLabel('Username').fill('fixture-slow');
+  await page.getByRole('button', { name: 'Game filters' }).click();
   await page.getByLabel('From date').fill('2024-02-01');
   await page.getByLabel('To date').fill('2024-02-29');
   await page.route('**/fixture-slow/games/archives', async (route) => {
@@ -53,20 +102,20 @@ test('B2/B7: cancel retains games with neutral feedback; an empty import clears 
       json: { archives: ['https://api.chess.com/pub/player/fixture-user/games/2024/02'] },
     });
   });
-  await page.getByRole('button', { name: 'Load games', exact: true }).click();
+  await page.getByRole('button', { name: 'Find games', exact: true }).click();
   await page.getByRole('button', { name: 'Cancel loading' }).click();
   await expect(page.getByText('Import cancelled.', { exact: false })).toBeVisible();
   await expect(page.getByText('Games could not be loaded', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: /close import games/i }).click();
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await page.getByRole('button', { name: 'Import games', exact: true }).click();
   await page.getByLabel('Username').fill('fixture-user');
+  await page.getByRole('button', { name: 'Game filters' }).click();
   await page.getByLabel('From date').fill('2024-01-01');
   await page.getByLabel('To date').fill('2024-01-31');
-  await page.getByRole('button', { name: 'Game filters' }).click();
   for (const speed of ['Bullet', 'Blitz', 'Rapid'])
     await page.getByRole('checkbox', { name: speed, exact: true }).uncheck();
-  await page.getByRole('button', { name: 'Load games', exact: true }).click();
+  await page.getByRole('button', { name: 'Find games', exact: true }).click();
   await expect(
     page
       .getByRole('dialog', { name: 'Import games' })
@@ -109,14 +158,16 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   await installWorkspaceFixtures(page);
   await page.goto('/?engine=single');
   await loadFixtureGames(page);
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await openTab(page, 'Review');
   await page.locator('.analysis-settings-disclosure > summary').click();
   await page.getByLabel('Analysis strength').selectOption('quick');
   await page.getByRole('button', { name: /Run review/ }).click();
-  await expect(page.locator('.analyzer-lifecycle-text')).toContainText(/Analysing [1-7] of 8/, {
-    timeout: 30_000,
-  });
+  await expect(page.getByRole('progressbar', { name: 'Review progress' })).toHaveAttribute(
+    'aria-valuenow',
+    /^[1-7]$/,
+    { timeout: 30_000 }
+  );
   await expect(page.locator('html')).toHaveAttribute('data-review-evaluation-held', 'true');
   await page.getByRole('button', { name: 'Cancel analysis', exact: true }).click();
   await page.evaluate(() => window.dispatchEvent(new Event('release-review-evaluation')));
@@ -125,14 +176,21 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   // partial result has been saved and delivered to the workspace.
   await expect(
     page
+      .locator('.analysis-coverage-notice')
+      .filter({ hasText: /Coverage: [1-7] of 8 eligible plies/ })
+  ).toBeVisible();
+  await page.locator('.review-summary > summary').click();
+  await expect(
+    page
       .getByRole('region', { name: 'Game Review Summary', exact: true })
       .getByText(/Coverage: [1-7] of 8 eligible plies/)
   ).toBeVisible();
   await openTab(page, 'Games');
-  await page.getByRole('button', { name: /opponent-one/i }).click();
-  await page.getByRole('button', { name: /opponent-two/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-one/i }).click();
+  await page.getByRole('button', { name: /^Preview .*opponent-two/i }).click();
   await openTab(page, 'Review');
   await expect(page.getByRole('button', { name: 'Resume analysis' })).toBeVisible();
+  await page.locator('.review-summary > summary').click();
   await expect(
     page
       .getByRole('region', { name: 'Game Review Summary', exact: true })
@@ -147,10 +205,13 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   await page.reload();
   await expect(page.locator('.profile-tactics-moves-meta')).toHaveText(evaluated);
   await openTab(page, 'Games');
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toContainText('Reviewed');
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toContainText(
+    'Reviewed'
+  );
   await openTab(page, 'Review');
   await expect(page.getByText('Review complete', { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByLabel('Position 8 of 8')).toBeVisible();
+  await page.locator('.review-summary > summary').click();
   await expect(page.getByRole('heading', { name: 'Game Review Summary' })).toBeVisible();
   await openTab(page, 'Insights');
   await expect(page.locator('.profile-tactics-moves-meta')).toHaveText(evaluated);
@@ -175,8 +236,10 @@ test('B3/B5: real Stockfish partial and completed reviews survive selection and 
   });
   expect(reviewCount).toBe(0);
   await page.reload();
+  await expect(page.getByText('No stored usernames were found.')).toBeVisible();
+  await openTab(page, 'Games');
   await expect(page.getByLabel('Username')).toBeVisible();
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toHaveCount(0);
 });
 
 test('B4/B6/B8/B9: mobile Insights fits, passes contrast and landmarks, and reports refresh failure', async ({
@@ -186,7 +249,7 @@ test('B4/B6/B8/B9: mobile Insights fits, passes contrast and landmarks, and repo
   await installWorkspaceFixtures(page);
   await page.goto('/');
   await loadFixtureGames(page);
-  await expect(page.getByRole('button', { name: /opponent-two/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview .*opponent-two/i })).toBeVisible();
   await openTab(page, 'Settings');
   await page.getByLabel('Theme').selectOption('dark');
   await openTab(page, 'Insights');
@@ -237,4 +300,35 @@ test('B10: loading and reloading emits no analytics CSP failures', async ({ page
       /content security policy|script.debug.js|Failed to load.*Vercel/i.test(message)
     )
   ).toEqual([]);
+});
+
+test('T57: source game to review and back preserves move history, scope, and review state', async ({
+  page,
+}) => {
+  await installOpeningScopeWorkspaceFixtures(page);
+  await page.goto('/?engine=unavailable');
+  await page.getByLabel('Username').fill('audit-player');
+  await page.getByRole('button', { name: 'Game filters' }).click();
+  await page.getByRole('radio', { name: 'Custom' }).click();
+  await page.getByLabel('From date').fill('2024-01-01');
+  await page.getByLabel('To date').fill('2024-01-31');
+  await page.getByRole('button', { name: 'Find games' }).click();
+  await expect(page.getByText('20 games loaded', { exact: false })).toBeVisible();
+
+  await openTab(page, 'Openings');
+  await expect(page.getByRole('table', { name: 'Opening candidates' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Play e4, 7 games', exact: true }).click();
+  const line = await page.getByLabel('Opening move history').textContent();
+  expect(line).toContain('e4');
+
+  await page.getByText(/Matching games/i).click();
+  await page
+    .getByRole('button', { name: /review source game/i })
+    .first()
+    .click();
+
+  await expect(page.getByRole('button', { name: 'Back to openings', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to openings', exact: true }).click();
+  await expect(page.getByLabel('Opening move history')).toHaveText(line!);
 });

@@ -1,10 +1,15 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useState } from 'react';
 
 import type { GameAnalysisResult } from '@/features/stockfish-analysis/analyzeGame';
-import { analysisPreset } from '@/features/stockfish-analysis/presentation';
-import { nextMistakePly } from '@/features/stockfish-analysis/reviewNavigation';
+import { analysisPreset, selectMovePresentation } from '@/features/stockfish-analysis/presentation';
+import {
+  reviewMomentNavigation,
+  filterReviewPlies,
+  type ReviewFilter,
+} from '@/features/stockfish-analysis/reviewNavigation';
+import type { PlayerColor } from '@/lib/engine/evaluation';
 import type { AnalysisStrength } from '@/features/workspace/types';
 import type { PlayerMetadata, SideAccuracy } from '@/lib/api/contracts';
 import type { ParsedGame } from '@/lib/chess/pgnParser';
@@ -22,6 +27,10 @@ import { ReviewFeedback } from './ReviewFeedback';
 
 export interface AnalyzerWorkspaceProps {
   mode?: ReviewMode | undefined;
+  userColor?: PlayerColor | undefined;
+  reviewFilter?: ReviewFilter | undefined;
+  onReviewFilterChange?: ((filter: ReviewFilter) => void) | undefined;
+  feedbackInLayout?: boolean | undefined;
   game?: ParsedGame | undefined;
   players?:
     | {
@@ -37,17 +46,22 @@ export interface AnalyzerWorkspaceProps {
     | 'probing'
     | 'unavailable'
     | 'running'
+    | 'stopping'
     | 'partial'
     | 'cancelled'
     | 'failed'
     | 'complete';
   result: GameAnalysisResult | null;
+  showingPrevious?: boolean | undefined;
+  previousStrength?: AnalysisStrength | null | undefined;
   progress: { analyzedPlies: number; totalPlies: number } | null;
   strength: AnalysisStrength;
   onStrengthChange(value: AnalysisStrength): void;
   onStart(value: AnalysisStrength): void;
   onCancel(): void;
+  onStartOver?(): void;
   onResume(): void;
+  onRetryEngine?(): void;
   onSelectPly(ply: number): void;
   selectedPly: number;
   fenByPly: Readonly<Record<number, string>>;
@@ -57,6 +71,10 @@ export interface AnalyzerWorkspaceProps {
 
 export function AnalyzerWorkspace({
   mode = 'review',
+  userColor,
+  reviewFilter,
+  onReviewFilterChange,
+  feedbackInLayout = false,
   game,
   players,
   isVariationActive = false,
@@ -64,35 +82,42 @@ export function AnalyzerWorkspace({
   capability,
   status,
   result,
+  showingPrevious = false,
+  previousStrength,
   progress,
   strength,
   onStrengthChange,
   onStart,
   onCancel,
+  onStartOver,
   onResume,
+  onRetryEngine,
   onSelectPly,
   selectedPly,
   fenByPly,
   upstreamAccuracies,
   onExplorePv,
 }: AnalyzerWorkspaceProps) {
-  const preset = analysisPreset(strength);
+  const preset = result?.annotations[0]?.settings ?? analysisPreset(strength);
   const limitLabel = preset.limit.depth
     ? `Depth ${preset.limit.depth}`
     : `${preset.limit.movetimeMs ?? 0} ms per position`;
   const engineBuild = result?.annotations[0]?.settings.engineBuild ?? 'Stockfish 18';
-  const unavailable = !capability || capability.mode === 'unavailable';
-  const probing = status === 'probing' || capability === null;
+  const probing = status === 'probing' || (capability === null && !result);
+  const unavailable = !probing && capability?.mode === 'unavailable';
 
+  const selected = game ? selectMovePresentation(game, result, selectedPly) : null;
   const selectedAnnotation =
-    result?.annotations.find((annotation) => annotation.ply === selectedPly) ?? null;
+    selected && selected.state !== 'starting'
+      ? selected.annotation
+      : (result?.annotations.find((annotation) => annotation.ply === selectedPly) ?? null);
 
   const hasResults = Boolean(result && result.annotations.length > 0);
 
-  const nextMistake = useMemo(() => {
-    if (!result || result.annotations.length === 0) return null;
-    return nextMistakePly(result.annotations, selectedPly);
-  }, [result, selectedPly]);
+  const [localFilter, setLocalFilter] = useState<ReviewFilter>({});
+  const filter = reviewFilter ?? localFilter;
+  const changeFilter = onReviewFilterChange ?? setLocalFilter;
+  const moments = reviewMomentNavigation(result?.annotations ?? [], selectedPly, filter);
 
   const handleSelectPly = (ply: number) => {
     if (isVariationActive && onReturnToGame) {
@@ -103,9 +128,6 @@ export function AnalyzerWorkspace({
 
   return (
     <section className="analyzer-workspace" aria-labelledby="analyzer-heading">
-      <span className={`status-label status-label--${status}`}>
-        Analysis status: {analyzerStatusLabel(status)}
-      </span>
       <h3 id="analyzer-heading">Local Stockfish analysis</h3>
       <p className="visually-hidden">
         Review key moments with Stockfish. Results stay on this device.
@@ -113,19 +135,17 @@ export function AnalyzerWorkspace({
 
       {/* Lifecycle row */}
       <div className="analyzer-lifecycle-row">
-        <div className="analyzer-lifecycle-status">
+        <div className="analyzer-lifecycle-status" role="status" aria-live="polite">
           {unavailable ? (
             <p className="analyzer-lifecycle-text">Analysis is unavailable on this device.</p>
           ) : probing ? (
             <p className="analyzer-lifecycle-text">Checking analysis engine…</p>
           ) : status === 'idle' ? (
             <p className="analyzer-lifecycle-text">Ready to review</p>
+          ) : status === 'stopping' ? (
+            <p className="analyzer-lifecycle-text">Stopping analysis…</p>
           ) : status === 'running' ? (
-            <p className="analyzer-lifecycle-text">
-              {progress && progress.totalPlies > 0
-                ? `Analysing ${progress.analyzedPlies} of ${progress.totalPlies} positions`
-                : 'Analysing positions…'}
-            </p>
+            <p className="analyzer-lifecycle-text">Analysing positions…</p>
           ) : status === 'partial' || status === 'cancelled' ? (
             <p className="analyzer-lifecycle-text">Partial review</p>
           ) : status === 'failed' ? (
@@ -158,6 +178,10 @@ export function AnalyzerWorkspace({
                 aria-label="Run review (Start analysis)"
               >
                 Run review
+              </button>
+            ) : status === 'stopping' ? (
+              <button type="button" className="button-secondary" disabled>
+                Stopping…
               </button>
             ) : status === 'running' ? (
               <button
@@ -196,62 +220,42 @@ export function AnalyzerWorkspace({
                 Run again
               </button>
             ) : null
+          ) : onRetryEngine ? (
+            <button type="button" className="button-primary" onClick={onRetryEngine}>
+              Retry engine
+            </button>
           ) : null}
         </div>
       </div>
 
-      {unavailable || !capability ? (
-        <EngineStatus
-          capability={capability}
-          engineBuild={engineBuild}
-          limitLabel={limitLabel}
-          multiPv={preset.multiPv}
-          heuristicVersion={ACCURACY_HEURISTIC_VERSION}
-          jobStatus={status}
-        />
-      ) : (
-        <details className="analysis-settings-disclosure">
-          <summary>Settings</summary>
-          <div className="analysis-settings-body">
-            <AnalysisSettings
-              strength={strength}
-              disabled={status === 'running'}
-              onChange={onStrengthChange}
-            />
-            <details className="analysis-engine-details">
-              <summary>Engine details</summary>
-              <EngineStatus
-                capability={capability}
-                engineBuild={engineBuild}
-                limitLabel={limitLabel}
-                multiPv={preset.multiPv}
-                heuristicVersion={ACCURACY_HEURISTIC_VERSION}
-                jobStatus={status}
-              />
-            </details>
-          </div>
-        </details>
-      )}
-
-      {progress ? (
-        <p role="status" aria-live="polite">
-          {progress.analyzedPlies} of {progress.totalPlies} eligible plies analysed.
-        </p>
+      {showingPrevious ? (
+        <p className="analysis-coverage-notice">Previous {previousStrength ?? 'saved'} review.</p>
+      ) : null}
+      {unavailable ? (
+        <p className="analysis-coverage-notice">Playback and Openings remain available.</p>
       ) : null}
 
-      {status === 'partial' ? (
-        <p role="alert">Partial analysis: completed positions remain cached and can be resumed.</p>
-      ) : null}
-      {(status === 'partial' || status === 'cancelled') && result ? (
-        <p className="analysis-coverage-notice" role="status">
-          Partial review: {result.analyzedPlies}/{result.totalPlies} positions analysed
-          <span className="visually-hidden">
-            Coverage: {result.analyzedPlies} of {result.totalPlies} eligible plies
-          </span>
+      <div
+        className={`analysis-progress-slot${mode === 'review' ? ' analysis-progress-slot--review' : ''}`}
+      >
+        {status === 'running' || status === 'stopping' ? (
+          <progress
+            className="analysis-progress"
+            aria-label="Review progress"
+            aria-valuemin={0}
+            aria-valuemax={progress?.totalPlies || game?.plies.length || 1}
+            aria-valuenow={progress?.analyzedPlies ?? 0}
+            max={progress?.totalPlies || game?.plies.length || 1}
+            value={progress?.analyzedPlies ?? 0}
+          >
+            {progress?.analyzedPlies ?? 0} positions analysed
+          </progress>
+        ) : null}
+      </div>
+      {(status === 'partial' || status === 'cancelled') && result && !showingPrevious ? (
+        <p className="analysis-coverage-notice">
+          Coverage: {result.analyzedPlies} of {result.totalPlies} eligible plies
         </p>
-      ) : null}
-      {status === 'failed' ? (
-        <p role="alert">Analysis failed. Completed cached positions remain available.</p>
       ) : null}
       {result?.warnings && result.warnings.length ? (
         <p className="analysis-cache-warning" role="status">
@@ -263,54 +267,105 @@ export function AnalyzerWorkspace({
       {mode === 'review' ? (
         /* Review Mode Order */
         <>
-          {hasResults ? (
-            <>
-              <GameReviewSummaryCard
-                result={result!}
-                upstreamAccuracies={upstreamAccuracies}
-                players={players}
-              />
-              <MoveAccuracyGraph
-                annotations={result!.annotations}
-                onSelectPly={handleSelectPly}
-                title="Evaluation"
-                className="accuracy-graph--review"
-              />
-            </>
+          {!feedbackInLayout ? (
+            <ReviewFeedback
+              annotation={selectedAnnotation}
+              selectedPly={selectedPly}
+              startFen={fenByPly[selectedPly]}
+              nextMistake={moments.next}
+              firstMoment={moments.first}
+              previousMoment={moments.previous}
+              navigationKind="moment"
+              onSelectPly={handleSelectPly}
+              hasAnnotations={hasResults}
+              showingPrevious={showingPrevious}
+              previousStrength={previousStrength}
+              onExplorePv={onExplorePv}
+            />
           ) : null}
-          <ReviewFeedback
-            annotation={selectedAnnotation}
-            selectedPly={selectedPly}
-            startFen={fenByPly[selectedPly]}
-            nextMistake={nextMistake}
-            onSelectPly={handleSelectPly}
-            hasAnnotations={hasResults}
-          />
+          <div className="review-filters">
+            <label>
+              Review players{' '}
+              <select
+                aria-label="Review players"
+                value={filter.mover ?? 'both'}
+                onChange={(event) =>
+                  changeFilter({
+                    ...filter,
+                    mover:
+                      event.target.value === 'both'
+                        ? undefined
+                        : (event.target.value as PlayerColor),
+                  })
+                }
+              >
+                <option value="both">Both players</option>
+                <option value="white">
+                  {userColor === 'white' ? 'My moves (White)' : 'White moves'}
+                </option>
+                <option value="black">
+                  {userColor === 'black' ? 'My moves (Black)' : 'Black moves'}
+                </option>
+              </select>
+            </label>
+            {filter.quality ? (
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => changeFilter({ ...filter, quality: undefined })}
+              >
+                Clear {filter.quality} filter
+              </button>
+            ) : null}
+            <p>
+              {moments.plies.length} key moments in analysed moves
+              {filter.quality ? ` · ${filter.quality}` : ''}
+            </p>
+          </div>
           <AnalysisMoveList
+            reviewPlies={moments.plies}
             id="analysis-move-list"
             moves={game?.plies}
             annotations={result?.annotations}
             selectedPly={selectedPly}
             onSelectPly={handleSelectPly}
           />
+          {hasResults ? (
+            <MoveAccuracyGraph
+              annotations={result!.annotations}
+              totalPlies={game?.plies.length ?? result!.totalPlies}
+              selectedPly={selectedPly}
+              onSelectPly={handleSelectPly}
+              title="Evaluation"
+              className="accuracy-graph--review"
+            />
+          ) : null}
+          <details className="review-summary">
+            <summary>Summary</summary>
+            {result ? (
+              <GameReviewSummaryCard
+                result={result}
+                onFilter={(nextFilter) => {
+                  changeFilter(nextFilter);
+                  const first = filterReviewPlies(result.annotations, nextFilter)[0];
+                  if (first !== undefined) handleSelectPly(first);
+                }}
+                onStartReview={
+                  moments.first !== null ? () => handleSelectPly(moments.first!) : undefined
+                }
+                upstreamAccuracies={upstreamAccuracies}
+                players={players}
+              />
+            ) : (
+              <p>No completed positions yet.</p>
+            )}
+          </details>
         </>
       ) : (
         /* Analysis Mode Order */
         <>
           {isVariationActive ? (
-            <div className="variation-active-banner surface-panel">
-              <h4>Exploring a variation</h4>
-              {onReturnToGame ? (
-                <button
-                  type="button"
-                  className="button-secondary"
-                  onClick={onReturnToGame}
-                  aria-label="Return to game"
-                >
-                  Return to game
-                </button>
-              ) : null}
-            </div>
+            <p>Exploring a variation. Original game moves remain below.</p>
           ) : selectedPly === 0 ? (
             <div className="annotation-panel-empty" role="note">
               <p>Select a move to inspect its analysis.</p>
@@ -338,6 +393,8 @@ export function AnalyzerWorkspace({
           {hasResults ? (
             <MoveAccuracyGraph
               annotations={result!.annotations}
+              totalPlies={game?.plies.length ?? result!.totalPlies}
+              selectedPly={selectedPly}
               onSelectPly={handleSelectPly}
               title={isVariationActive ? 'Original game evaluation' : 'Evaluation'}
               className="accuracy-graph--analysis"
@@ -345,27 +402,33 @@ export function AnalyzerWorkspace({
           ) : null}
         </>
       )}
+
+      <details className="analysis-settings-disclosure">
+        <summary>Settings</summary>
+        <div className="analysis-settings-body">
+          {onStartOver ? (
+            <button type="button" className="button-secondary" onClick={onStartOver}>
+              Start over
+            </button>
+          ) : null}
+          <AnalysisSettings
+            strength={strength}
+            disabled={probing || unavailable || status === 'running' || status === 'stopping'}
+            onChange={onStrengthChange}
+          />
+          <details className="analysis-engine-details">
+            <summary>Engine details</summary>
+            <EngineStatus
+              capability={probing ? null : capability}
+              engineBuild={engineBuild}
+              limitLabel={limitLabel}
+              multiPv={preset.multiPv}
+              heuristicVersion={ACCURACY_HEURISTIC_VERSION}
+              jobStatus={status}
+            />
+          </details>
+        </div>
+      </details>
     </section>
   );
-}
-
-function analyzerStatusLabel(status: AnalyzerWorkspaceProps['status']): string {
-  switch (status) {
-    case 'unavailable':
-      return 'Unavailable';
-    case 'partial':
-      return 'Partial';
-    case 'failed':
-      return 'Failed';
-    case 'running':
-      return 'Running';
-    case 'cancelled':
-      return 'Cancelled';
-    case 'complete':
-      return 'Complete';
-    case 'probing':
-      return 'Checking engine';
-    case 'idle':
-      return 'Ready';
-  }
 }

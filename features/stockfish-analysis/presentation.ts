@@ -1,8 +1,15 @@
 import { Chess } from 'chess.js';
 
+import type { ParsedGame } from '@/lib/chess/pgnParser';
+import type { GameAnnotation, GameAnalysisResult } from './analyzeGame';
+import { explainMove } from './moveExplanation';
 import type { AnalysisStrength } from '@/features/workspace/types';
 import type { MoveAccuracy, MoveQuality } from '@/lib/engine/accuracy';
-import type { EvaluationScore } from '@/lib/engine/evaluation';
+import {
+  parseFenSideToMove,
+  type PlayerColor,
+  type EvaluationScore,
+} from '@/lib/engine/evaluation';
 import type { EvaluationLimit } from '@/lib/engine/stockfishAdapter';
 
 export interface MoveQualityDetails {
@@ -17,13 +24,13 @@ const QUALITY_METADATA: Record<MoveQuality, MoveQualityDetails> = {
     label: 'Brilliant',
     symbol: '!!',
     colorClass: 'badge-brilliant',
-    description: 'Best move that sacrifices material to gain an advantage',
+    description: 'A top engine choice meeting the local brilliant-move criteria',
   },
   great: {
     label: 'Great',
     symbol: '!',
     colorClass: 'badge-great',
-    description: 'Finds the only winning move or defends against a major threat',
+    description: 'A strong engine choice meeting the local great-move criteria',
   },
   best: {
     label: 'Best',
@@ -59,13 +66,13 @@ const QUALITY_METADATA: Record<MoveQuality, MoveQualityDetails> = {
     label: 'Blunder',
     symbol: '??',
     colorClass: 'badge-blunder',
-    description: 'A catastrophic mistake that loses material or the game',
+    description: 'A move with a large drop in the local evaluation',
   },
   miss: {
     label: 'Miss',
     symbol: '✕',
     colorClass: 'badge-miss',
-    description: 'Missed an opportunity to win material or mate',
+    description: 'A missed improvement according to the local engine',
   },
   forced: {
     label: 'Forced',
@@ -135,14 +142,14 @@ export function toGraphPoints(values: readonly EvaluationGraphInput[]): Evaluati
       return {
         ply,
         value: evaluation.value >= 0 ? 12 : -12,
-        label: `${side} mate in ${Math.abs(evaluation.value)}`,
+        label: `${evaluation.bound ? `${evaluation.bound} bound · ` : ''}${side} mate in ${Math.abs(evaluation.value)}`,
       };
     }
     const pawns = evaluation.value / 100;
     return {
       ply,
       value: pawns,
-      label: `${pawns >= 0 ? 'White' : 'Black'} ${pawns >= 0 ? '+' : ''}${pawns.toFixed(2)}`,
+      label: `${evaluation.bound ? `${evaluation.bound} bound · ` : ''}${pawns >= 0 ? 'White' : 'Black'} ${pawns >= 0 ? '+' : ''}${pawns.toFixed(2)}`,
     };
   });
 }
@@ -185,4 +192,95 @@ export function convertPvToSan(
       diagnostic: 'The principal variation could not be fully converted to SAN; safe UCI is shown.',
     };
   }
+}
+
+/** A single original-game selection shared by board and analysis panels. */
+interface SelectedMoveBase {
+  ply: number;
+  san: string;
+  fenBefore: string;
+  fenAfter: string;
+  mover: PlayerColor;
+  scoreOrigin: 'after';
+  arrowOrigin: 'after';
+  reply: string | null;
+}
+export type SelectedMovePresentation =
+  | { state: 'starting'; ply: 0; fenAfter: string }
+  | (SelectedMoveBase & {
+      state: 'pending';
+      annotation: null;
+      quality: null;
+      beforeScore: null;
+      afterScore: null;
+    })
+  | (SelectedMoveBase & {
+      state: 'ready';
+      explanation: string | null;
+      annotation: GameAnnotation;
+      quality: MoveQuality | 'indeterminate';
+      beforeScore: EvaluationScore;
+      afterScore: EvaluationScore;
+    });
+
+export function selectMovePresentation(
+  game: ParsedGame,
+  result: GameAnalysisResult | null,
+  ply: number
+): SelectedMovePresentation {
+  const move = game.plies[ply - 1];
+  if (!move || ply < 1) {
+    return { state: 'starting', ply: 0, fenAfter: game.plies[0]?.fenBefore ?? new Chess().fen() };
+  }
+  const annotation = result?.annotations.find((item) => item.ply === move.ply) ?? null;
+  const candidate = annotation?.after.pv[0];
+  let reply: string | null = null;
+  if (candidate && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(candidate)) {
+    try {
+      const chess = new Chess(move.fenAfter);
+      if (
+        chess.move({
+          from: candidate.slice(0, 2),
+          to: candidate.slice(2, 4),
+          ...(candidate[4] ? { promotion: candidate[4] } : {}),
+        })
+      )
+        reply = candidate;
+    } catch {
+      /* A stale or illegal PV cannot be drawn on this position. */
+    }
+  }
+  const base: SelectedMoveBase = {
+    ply: move.ply,
+    san: move.san,
+    fenBefore: move.fenBefore,
+    fenAfter: move.fenAfter,
+    mover: parseFenSideToMove(move.fenBefore),
+    scoreOrigin: 'after',
+    arrowOrigin: 'after',
+    reply,
+  };
+  if (!annotation)
+    return {
+      ...base,
+      state: 'pending',
+      annotation: null,
+      quality: null,
+      beforeScore: null,
+      afterScore: null,
+    };
+  return {
+    ...base,
+    state: 'ready',
+    explanation: explainMove(move.fenBefore, move.uci),
+    annotation,
+    quality:
+      annotation.accuracy.status === 'classified' ? annotation.accuracy.quality : 'indeterminate',
+    beforeScore: annotation.before.score,
+    afterScore: annotation.after.score,
+  };
+}
+
+export function moveNotation(ply: number, san: string, mover?: PlayerColor): string {
+  return `${Math.ceil(ply / 2)}${(mover ?? (ply % 2 ? 'white' : 'black')) === 'white' ? '.' : '…'} ${san}`;
 }

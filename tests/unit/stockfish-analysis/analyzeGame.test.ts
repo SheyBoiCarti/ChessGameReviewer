@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { analyzeGame, type AnalysisEngine } from '@/features/stockfish-analysis/analyzeGame';
+import {
+  analyzeGame,
+  type AnalysisEngine,
+  type AnalysisUpdate,
+} from '@/features/stockfish-analysis/analyzeGame';
 import {
   EvaluationCache,
   type EvaluationCacheRepository,
@@ -94,6 +98,20 @@ function engineForMultiPv(
 }
 
 describe('analyzeGame', () => {
+  it('publishes completed annotations in order without sharing mutable data', async () => {
+    const updates: AnalysisUpdate[] = [];
+    const result = await analyzeGame({
+      game: parsedGame,
+      settings,
+      engine: engineForMultiPv({}),
+      cache: new EvaluationCache(new MemoryRepository()),
+      onUpdate: (update) => updates.push(update),
+    });
+    expect(updates.map((update) => update.annotation.ply)).toEqual([1, 2]);
+    expect(updates.map((update) => update.analyzedPlies)).toEqual([1, 2]);
+    expect(result.annotations).toHaveLength(2);
+    expect(updates[0]!.annotation).not.toBe(result.annotations[0]);
+  });
   it('deduplicates repeated positions, persists each live result, and normalizes MultiPV lines with breakdown', async () => {
     const repository = new MemoryRepository();
     const evaluations: string[] = [];

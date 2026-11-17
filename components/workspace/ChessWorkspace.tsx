@@ -1,10 +1,24 @@
 'use client';
 
-import dynamic from 'next/dynamic';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { selectMovePresentation } from '@/features/stockfish-analysis/presentation';
+
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  type JSX,
+} from 'react';
+import type { GameQuery } from '@/lib/api/contracts';
 import type { Square } from 'chess.js';
 
-import { GameSelector } from '@/components/analysis/GameSelector';
+import {
+  GameSelector,
+  defaultGameListState,
+  type GameListState,
+} from '@/components/analysis/GameSelector';
 import { VariationSandboxBanner } from '@/components/analysis/VariationSandboxBanner';
 import { ChessboardView, type MoveHistoryModel } from '@/components/board/ChessboardView';
 import { GameQueryForm } from '@/components/controls/GameQueryForm';
@@ -14,10 +28,14 @@ import { IngestionProgress } from '@/components/feedback/IngestionProgress';
 import { OfflineCacheNotice } from '@/components/feedback/OfflineCacheNotice';
 import { MoveOrderDialog } from '@/components/tree/MoveOrderDialog';
 import { OpeningTreeTable } from '@/components/tree/OpeningTreeTable';
+import { OpeningScopeControl } from '@/components/opening/OpeningScopeControl';
+import { OpeningDisclosure } from '@/components/opening/OpeningDisclosure';
+import { OpeningSettings } from '@/components/opening/OpeningSettings';
 import { UnobservedMoveNotice } from '@/components/opening/UnobservedMoveNotice';
 import { OpeningPositionAnalysis } from '@/components/opening/OpeningPositionAnalysis';
+import { usePositionAnalysis } from '@/features/stockfish-analysis/usePositionAnalysis';
 import { AppIcon } from '@/components/ui/AppIcon';
-import type { AppliedBoardMove } from '@/features/board/moves';
+import { applyBoardMove, type AppliedBoardMove, type PromotionPiece } from '@/features/board/moves';
 import {
   appendVariationMove,
   createVariationFromUciSequence,
@@ -27,20 +45,49 @@ import {
   type AnalysisVariationState,
 } from '@/features/board/variation';
 import {
+  appendVisitedEntry,
   createGraphNavigation,
-  navigateCandidate,
-  navigateBack,
+  replayGraphNavigation,
+  navigateToHistoryIndex,
   resolveBoardMoveInGraph,
+  type GraphNavigationEntry,
   type GraphNavigationState,
 } from '@/features/opening-tree/navigation';
+import { applyRepertoireContext } from '@/features/stockfish-analysis/repertoireContext';
+import { initialOpeningScope, type OpeningScope } from '@/features/opening-tree/graphIdentity';
+import {
+  readStoredOpeningScope,
+  writeStoredOpeningScope,
+} from '@/features/workspace/openingScopePreference';
 import { createBrowserWorkspaceServices } from '@/features/workspace/browserServices';
 import type { WorkspaceServices } from '@/features/workspace/createWorkspaceController';
 import { useWorkspace } from '@/features/workspace/useWorkspace';
+import { computePgnDigest } from '@/features/stockfish-analysis/reviewIdentity';
 import { saveWorkspaceSession } from '@/features/workspace/session';
+import {
+  readWorkspaceUrl,
+  sameWorkspaceUrlIntent,
+  writeWorkspaceUrl,
+  type WorkspaceUrlIntent,
+} from '@/features/workspace/urlState';
 import type { PlayerMetadata } from '@/lib/api/contracts';
-import { parseGamePgn, type ParsedGame } from '@/lib/chess/pgnParser';
+import type { ParsedGame } from '@/lib/chess/pgnParser';
+import { parseSelectedGame } from '@/features/workspace/parseSelectedGame';
+import {
+  selectPrefixGameIds,
+  selectPositionGameIds,
+  selectCandidateMoves,
+  selectOpeningArrows,
+  type OpeningArrow,
+} from '@/features/opening-tree/selectors';
+import { OpeningView } from '@/components/opening/OpeningView';
+import { ReviewView } from '@/components/analysis/ReviewView';
+import { ReviewFeedback } from '@/components/analysis/ReviewFeedback';
+import {
+  reviewMomentNavigation,
+  type ReviewFilter,
+} from '@/features/stockfish-analysis/reviewNavigation';
 import { deserializeOpeningGraph } from '@/lib/chess/graph/serialization';
-import type { GameRecord } from '@/lib/db/schema';
 import type { MoveQuality } from '@/lib/engine/accuracy';
 import type { EvaluationScore } from '@/lib/engine/evaluation';
 
@@ -52,41 +99,121 @@ import { WorkspaceNavigation } from './WorkspaceNavigation';
 import { WorkspaceTabs, type ReviewMode, type WorkspaceTab } from './WorkspaceTabs';
 import { ProfileInsightsDashboard } from '@/components/profile-insights/ProfileInsightsDashboard';
 
-const LazyAnalyzerWorkspace = dynamic(
-  () =>
-    import('@/components/analysis/AnalyzerWorkspace').then((module) => module.AnalyzerWorkspace),
-  { loading: () => <p role="status">Loading the local analyzer…</p>, ssr: false }
-);
-
 export function ChessWorkspace({
   createServices = createBrowserWorkspaceServices,
 }: {
   createServices?: (() => WorkspaceServices) | undefined;
 } = {}): JSX.Element {
-  const { controller, state, recentQuery, recoveredSession } = useWorkspace(createServices);
-  const [tab, setTab] = useState<WorkspaceTab>('games');
-  const [reviewMode, setReviewMode] = useState<ReviewMode>('review');
+  const {
+    controller,
+    state,
+    recentQuery,
+    recoveredSession,
+    initialUrlIntent: urlIntentAtMount,
+    startupComplete,
+  } = useWorkspace(createServices);
+  // T28: a valid URL intent wins over stored defaults, so view and mode are
+  // initialized from the address bar before session recovery can apply.
+  const [tab, setTab] = useState<WorkspaceTab>(() => urlIntentAtMount?.tab ?? 'games');
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>({});
+  const [reviewMode, setReviewMode] = useState<ReviewMode>(
+    () => urlIntentAtMount?.reviewMode ?? 'review'
+  );
+  const [urlRecovery, setUrlRecovery] = useState<string | null>(() => {
+    const url = new URL(window.location.href);
+    return url.searchParams.has('view') && !urlIntentAtMount
+      ? 'This workspace link is invalid. Choose a view or find games to continue.'
+      : null;
+  });
   const [menuOpen, setMenuOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [queryRecovery, setQueryRecovery] = useState<{
+    target: 'username' | 'dates';
+    version: number;
+  } | null>(null);
+  const [openingImportQuery, setOpeningImportQuery] = useState<GameQuery | null>(null);
+  const [openingNotice, setOpeningNotice] = useState<string | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [reviewReturnTab, setReviewReturnTab] = useState<'games' | 'opening'>('games');
   const [navigation, setNavigation] = useState<GraphNavigationState | null>(null);
+  // T40: visited histories are kept per username/dataset/scope/horizon above the
+  // view mount lifetime so opening → Review → Back restores scope and line.
+  const openingHistoryRef = useRef(new Map<string, GraphNavigationState>());
   const [moveOrdersOpen, setMoveOrdersOpen] = useState(false);
   const [resultFocusVersion, setResultFocusVersion] = useState(0);
+  const [variationOrigin, setVariationOrigin] = useState<{
+    gameId: string;
+    selectedPly: number;
+    fen: string;
+    mode: ReviewMode;
+  } | null>(null);
   const [variation, setVariation] = useState<AnalysisVariationState | null>(null);
-  const [unobservedMove, setUnobservedMove] = useState<{
-    move: AppliedBoardMove;
-    returnPositionKey: string;
-    returnPathId: number;
+  // T26: list presentation state is owned above GameSelector's mount lifetime, keyed by
+  // the canonical import query, so Review returns retain filter/sort/page/scroll.
+  const listStateStoreRef = useRef(new Map<string, GameListState>());
+  const listStateKey = canonicalQueryKey(state.query.active ?? recentQuery);
+  const [listPresentation, setListPresentation] = useState(() => ({
+    key: listStateKey,
+    state: listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState },
+  }));
+  const listState =
+    listPresentation.key === listStateKey
+      ? listPresentation.state
+      : (listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState });
+  const handleListStateChange = useCallback(
+    (next: GameListState) => {
+      listStateStoreRef.current.set(listStateKey, next);
+      setListPresentation({ key: listStateKey, state: next });
+    },
+    [listStateKey]
+  );
+  const handleScrollChange = useCallback(
+    (scrollTop: number) => {
+      const current = listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState };
+      listStateStoreRef.current.set(listStateKey, { ...current, scrollTop });
+    },
+    [listStateKey]
+  );
+  useEffect(() => {
+    const stored = listStateStoreRef.current.get(listStateKey) ?? { ...defaultGameListState };
+    setListPresentation({ key: listStateKey, state: stored });
+  }, [listStateKey]);
+  const selectedRecord =
+    state.ingestion.result?.games.find(({ id }) => id === state.selection.gameId) ??
+    state.retainedReviewGame ??
+    null;
+  const [sessionContent, setSessionContent] = useState<{
+    record: NonNullable<typeof selectedRecord>;
+    digest: string;
   } | null>(null);
   useEffect(() => {
-    if (recoveredSession) {
+    let active = true;
+    if (selectedRecord)
+      void computePgnDigest(selectedRecord.pgn)
+        .then((digest) => {
+          if (active) setSessionContent({ record: selectedRecord, digest });
+        })
+        .catch(() => {
+          /* Session recovery remains optional if hashing is unavailable. */
+        });
+    return () => {
+      active = false;
+    };
+  }, [selectedRecord]);
+  useEffect(() => {
+    // T28: a valid URL intent already governs view and mode; stored session
+    // defaults only apply when the URL did not describe a workspace state.
+    if (recoveredSession && !urlIntentAtMount) {
       setTab(recoveredSession.tab);
       setReviewMode(recoveredSession.reviewMode);
     }
-  }, [recoveredSession]);
+  }, [recoveredSession, urlIntentAtMount]);
 
   useEffect(() => {
     if (
+      startupComplete &&
+      sessionContent?.record === selectedRecord &&
+      sessionContent &&
       state.query.active &&
       state.selection.gameId &&
       ['complete', 'partial'].includes(state.ingestion.status)
@@ -95,11 +222,15 @@ export function ChessWorkspace({
         username: state.query.active.username,
         gameId: state.selection.gameId,
         ply: state.selection.ply,
+        pgnDigest: sessionContent.digest,
         tab,
         reviewMode,
       });
     }
   }, [
+    startupComplete,
+    sessionContent,
+    selectedRecord,
     state.query.active,
     state.selection.gameId,
     state.selection.ply,
@@ -107,6 +238,125 @@ export function ChessWorkspace({
     tab,
     reviewMode,
   ]);
+
+  // T28: keep the address bar synchronized with view/game/mode/ply without a
+  // state-sync loop. The mount run only records state (the URL already
+  // describes it); an already-current URL — e.g. one just applied from
+  // popstate — is left untouched; view/game/mode changes push a history entry
+  // while position-only changes replace it, so thirty ply advances do not
+  // create thirty Back steps.
+  const urlSyncRef = useRef<{
+    tab: WorkspaceTab;
+    reviewMode: ReviewMode;
+    gameId: string | null;
+    ply: number;
+  } | null>(null);
+  const suppressUrlSyncRef = useRef(false);
+  useEffect(() => {
+    if (!startupComplete) return;
+    const suppressed = suppressUrlSyncRef.current;
+    suppressUrlSyncRef.current = false;
+    const gameId = state.selection.gameId;
+    const previous = urlSyncRef.current;
+    urlSyncRef.current = { tab, reviewMode, gameId, ply: state.selection.ply };
+    if (!previous) {
+      if (urlIntentAtMount?.gameId && !gameId) {
+        setUrlRecovery(
+          'This game is not available locally. Import its games or choose a game from Games.'
+        );
+        return;
+      }
+      const initial = writeWorkspaceUrl(new URL(window.location.href), {
+        tab,
+        reviewMode,
+        ...(gameId ? { gameId, ply: state.selection.ply } : {}),
+      });
+      window.history.replaceState(null, '', `${initial.pathname}${initial.search}${initial.hash}`);
+      return;
+    }
+    if (
+      previous.tab === tab &&
+      previous.reviewMode === reviewMode &&
+      previous.gameId === gameId &&
+      previous.ply === state.selection.ply
+    )
+      return;
+    if (suppressed) return;
+    setUrlRecovery(null);
+    const intent: WorkspaceUrlIntent = {
+      tab,
+      reviewMode,
+      ...(gameId ? { gameId } : {}),
+      ...(gameId ? { ply: state.selection.ply } : {}),
+    };
+    const url = new URL(window.location.href);
+    if (sameWorkspaceUrlIntent(readWorkspaceUrl(url), intent)) return;
+    const next = writeWorkspaceUrl(url, intent);
+    const target = `${next.pathname}${next.search}${next.hash}`;
+    const positionOnly =
+      previous.tab === tab && previous.reviewMode === reviewMode && previous.gameId === gameId;
+    if (positionOnly) window.history.replaceState(null, '', target);
+    else window.history.pushState(null, '', target);
+  }, [
+    tab,
+    reviewMode,
+    state.selection.gameId,
+    state.selection.ply,
+    startupComplete,
+    urlIntentAtMount,
+  ]);
+
+  // T28: one popstate owner applies Back/Forward URL intents; applying a URL
+  // never writes another history entry.
+  const popStateRef = useRef({
+    tab,
+    reviewMode,
+    selectionGameId: state.selection.gameId,
+    selectionPly: state.selection.ply,
+    games: state.ingestion.result?.games ?? [],
+  });
+  popStateRef.current = {
+    tab,
+    reviewMode,
+    selectionGameId: state.selection.gameId,
+    selectionPly: state.selection.ply,
+    games: state.ingestion.result?.games ?? [],
+  };
+  useEffect(() => {
+    const applyPopState = () => {
+      const intent = readWorkspaceUrl(new URL(window.location.href));
+      const snapshot = popStateRef.current;
+      controller.invalidateReviewIntent();
+      setVariation(null);
+      setVariationOrigin(null);
+      if (!intent) {
+        setUrlRecovery('This workspace link is invalid. Choose a view or find games to continue.');
+        return;
+      }
+      setTab(intent.tab);
+      setReviewMode(intent.reviewMode);
+      const game = snapshot.games.find(({ id }) => id === intent.gameId);
+      setUrlRecovery(
+        intent.gameId && !game
+          ? 'This game is not available locally. Import its games or choose a game from Games.'
+          : null
+      );
+      controller.selectGame(game?.id ?? null);
+      if (game && intent.ply !== undefined) {
+        controller.selectPly(Math.min(intent.ply, parseSelectedGame(game)?.plies.length ?? 0));
+      }
+      const changed =
+        intent.tab !== snapshot.tab ||
+        intent.reviewMode !== snapshot.reviewMode ||
+        (game?.id ?? null) !== snapshot.selectionGameId ||
+        controller.getState().selection.ply !== snapshot.selectionPly;
+      // The applied state must not write the URL back; the sync effect skips
+      // the render this produces.
+      if (changed) suppressUrlSyncRef.current = true;
+    };
+    window.addEventListener('popstate', applyPopState);
+    return () => window.removeEventListener('popstate', applyPopState);
+  }, [controller]);
 
   const [loadedAnnouncement, setLoadedAnnouncement] = useState<string | null>(null);
 
@@ -119,6 +369,12 @@ export function ChessWorkspace({
   const menuDialogRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const previousIngestionStatus = useRef(state.ingestion.status);
+  const queryIntentVersion = useRef(controller.getNavigationVersion());
+  const lastQueryToken = useRef(state.query.token);
+  if (lastQueryToken.current !== state.query.token) {
+    lastQueryToken.current = state.query.token;
+    queryIntentVersion.current = controller.getNavigationVersion();
+  }
 
   const graph = useMemo(() => {
     if (!state.graph.snapshot) return null;
@@ -129,21 +385,169 @@ export function ChessWorkspace({
     }
   }, [state.graph.snapshot]);
 
-  const selectedRecord =
-    state.ingestion.result?.games.find(({ id }) => id === state.selection.gameId) ?? null;
+  // T40: the per-scope history key spans username, dataset revision, scope and horizon.
+  const openingDatasetKey = [
+    state.query.active?.username ?? '',
+    state.graph.datasetRevision ?? '',
+    state.graph.scope ?? '',
+    state.graph.snapshot?.openingHorizon ?? state.preferences.openingHorizon,
+  ].join('\u0000');
+  const datasetKeyRef = useRef(openingDatasetKey);
+
+  const openingColorCounts = useMemo(() => {
+    const games = state.ingestion.result?.games ?? [];
+    return {
+      white: games.filter((game) => game.userColor === 'white').length,
+      black: games.filter((game) => game.userColor === 'black').length,
+    };
+  }, [state.ingestion.result]);
+
+  const openingGamesById = useMemo(
+    () => new Map((state.ingestion.result?.games ?? []).map((game) => [game.id, game])),
+    [state.ingestion.result]
+  );
+  const openingNode = navigation?.observed
+    ? graph?.positions.get(navigation.positionKey)
+    : undefined;
+  const openingExactMatchCount =
+    state.graph.snapshot && navigation?.observed
+      ? selectPrefixGameIds(state.graph.snapshot, navigation.pathId).length
+      : 0;
+
+  const [showOpeningArrows, setShowOpeningArrows] = useState(true);
+  const [activeOpeningUci, setActiveOpeningUci] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveOpeningUci(null);
+  }, [navigation?.positionKey, state.graph.scope, tab]);
+
+  const openingArrows = useMemo(() => {
+    if (tab !== 'opening' || !showOpeningArrows || !graph || !navigation || !navigation.observed) {
+      return undefined;
+    }
+    const node = graph.positions.get(navigation.positionKey);
+    if (!node) return undefined;
+    const candidates = selectCandidateMoves(node, 'games', state.preferences.resultPerspective);
+    const sideToMove: 'white' | 'black' = navigation.fen.split(' ')[1] === 'b' ? 'black' : 'white';
+    return selectOpeningArrows(candidates, activeOpeningUci, state.graph.scope, sideToMove);
+  }, [
+    tab,
+    showOpeningArrows,
+    graph,
+    navigation,
+    state.preferences.resultPerspective,
+    activeOpeningUci,
+    state.graph.scope,
+  ]);
+
+  // Initialize once per committed import. Horizon changes made outside Openings
+  // are applied on entry, independently of the import query and Review selection.
+  const scopeInitializedDatasetRef = useRef(state.ingestion.result);
+  const requestedOpeningRef = useRef('');
+  useEffect(() => {
+    if (tab !== 'opening') return;
+    const result = state.ingestion.result;
+    if (!result || result.games.length === 0 || state.ingestion.status === 'loading') return;
+    const username = state.query.active?.username ?? '';
+    const freshDataset =
+      scopeInitializedDatasetRef.current !== result || !requestedOpeningRef.current;
+    const preferred = freshDataset
+      ? (readStoredOpeningScope(username) ?? initialOpeningScope(result.games))
+      : state.preferences.openingScope;
+    const effective = preferred === 'both' ? initialOpeningScope(result.games) : preferred;
+    scopeInitializedDatasetRef.current = result;
+    if (effective !== state.preferences.openingScope) {
+      controller.dispatch({
+        type: 'preferences/changed',
+        preferences: { openingScope: effective },
+      });
+    }
+    const requestKey = JSON.stringify([
+      state.query.token,
+      effective,
+      state.preferences.openingHorizon,
+    ]);
+    if (requestedOpeningRef.current === requestKey) return;
+    requestedOpeningRef.current = requestKey;
+    void controller.requestOpeningGraph(effective);
+  }, [
+    tab,
+    controller,
+    state.ingestion.result,
+    state.ingestion.status,
+    state.query.active?.username,
+    state.query.token,
+    state.preferences.openingScope,
+    state.preferences.openingHorizon,
+  ]);
+
+  // Color selection sets the playing perspective, including a restored preference.
+  useEffect(() => {
+    const scope = state.preferences.openingScope;
+    if (tab === 'opening' && scope !== 'both')
+      controller.dispatch({
+        type: 'preferences/changed',
+        preferences: { boardOrientation: scope },
+      });
+  }, [controller, tab, state.preferences.openingScope]);
+
+  const handleOpeningScopeChange = (scope: OpeningScope) => {
+    writeStoredOpeningScope(state.query.active?.username ?? '', scope);
+    controller.dispatch({ type: 'preferences/changed', preferences: { openingScope: scope } });
+  };
+
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
+  const latestOpeningHistoryRef = useRef(new Map<string, GraphNavigationState>());
+  // Resolve the current entry before painting a replacement graph, so old
+  // arrival IDs never label the new graph's exact-line counts.
+  useLayoutEffect(() => {
+    const previousKey = datasetKeyRef.current;
+    const previous = navigationRef.current;
+    if (previous && previousKey) openingHistoryRef.current.set(previousKey, previous);
+    datasetKeyRef.current = openingDatasetKey;
+    // Save the leaving scope separately; an unchanged dataset restores all redo.
+    if (previous && previousKey) {
+      const [username, , scope] = previousKey.split('\u0000');
+      latestOpeningHistoryRef.current.set(JSON.stringify([username, scope]), previous);
+    }
+    if (!graph) {
+      setNavigation(null);
+      return;
+    }
+    const lineKey = JSON.stringify([state.query.active?.username, state.graph.scope]);
+    const exact = openingHistoryRef.current.get(openingDatasetKey);
+    const saved = exact ?? latestOpeningHistoryRef.current.get(lineKey);
+    const restored = saved ? replayGraphNavigation(saved, graph) : null;
+    setNavigation(restored ?? createGraphNavigation(graph));
+    setMoveOrdersOpen(false);
+    setOpeningNotice(
+      saved && !exact
+        ? 'Imported games or opening depth changed. The valid part of your visited line was restored.'
+        : null
+    );
+    if (openingHistoryRef.current.size > 24) {
+      openingHistoryRef.current.delete(openingHistoryRef.current.keys().next().value!);
+    }
+  }, [graph, openingDatasetKey, state.query.active?.username, state.graph.scope]);
+
+  useEffect(() => {
+    if (navigation) controller.navigateGraph(navigation.positionKey, navigation.pathId);
+  }, [controller, navigation]);
+
   const parsedGame = useMemo(() => parseSelectedGame(selectedRecord), [selectedRecord]);
+  const fenByPly = useMemo(
+    () => Object.fromEntries(parsedGame?.plies.map((move) => [move.ply, move.fenBefore]) ?? []),
+    [parsedGame]
+  );
   const displayedFen = boardFen(tab, graph, navigation, parsedGame, state.selection.ply);
-  const openingGames = useMemo(
-    () =>
-      (state.ingestion.result?.games ?? [])
-        .map((record) => ({ record, game: parseSelectedGame(record) }))
-        .filter(({ game }) => game !== null),
-    [state.ingestion.result?.games]
-  );
-  const openingSequence = graph && navigation ? graph.paths.sequence(navigation.pathId) : [];
-  const matchingOpeningGames = openingGames.filter(({ game }) =>
-    openingSequence.every((move, index) => game?.plies[index]?.uci === move.uci)
-  );
+
+  // T28: a URL or stored ply is clamped once the selected game is known.
+  useEffect(() => {
+    if (parsedGame && state.selection.ply > parsedGame.plies.length) {
+      controller.selectPly(parsedGame.plies.length);
+    }
+  }, [controller, parsedGame, state.selection.ply]);
 
   const analysisStatusMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -166,27 +570,41 @@ export function ChessWorkspace({
 
   useEffect(() => {
     setVariation(null);
+    setVariationOrigin(null);
+    setReviewFilter({});
   }, [state.selection.gameId]);
 
-  useEffect(() => {
-    if (tab === 'games' && state.selection.gameId) {
-      if (typeof boardRef.current?.scrollIntoView === 'function') {
-        boardRef.current.scrollIntoView({ block: 'start' });
-      }
-    }
-  }, [tab, state.selection.gameId]);
+  const repertoireKeys = useMemo(
+    () =>
+      state.repertoire?.horizon === state.preferences.openingHorizon
+        ? new Set(state.repertoire.moveKeys)
+        : null,
+    [state.repertoire, state.preferences.openingHorizon]
+  );
+  const reviewResult = useMemo(
+    () =>
+      state.analysis.result && parsedGame
+        ? applyRepertoireContext(state.analysis.result, parsedGame, repertoireKeys)
+        : state.analysis.result,
+    [state.analysis.result, parsedGame, repertoireKeys]
+  );
 
+  const reviewMoments = reviewMomentNavigation(
+    reviewResult?.annotations ?? [],
+    state.selection.ply,
+    reviewFilter
+  );
+  const selectedPresentation = parsedGame
+    ? selectMovePresentation(parsedGame, reviewResult, state.selection.ply)
+    : null;
   const selectedAnnotation =
-    tab === 'analysis' && !variation
-      ? state.analysis.result?.annotations.find(({ ply }) => ply === state.selection.ply)
+    tab === 'analysis' && !variation && selectedPresentation?.state === 'ready'
+      ? (selectedPresentation.annotation ?? undefined)
       : undefined;
-  const isSuboptimalMove =
-    selectedAnnotation?.accuracy.status === 'classified' &&
-    ['inaccuracy', 'mistake', 'blunder', 'miss'].includes(selectedAnnotation.accuracy.quality);
   const selectedArrow = uciArrow(
-    isSuboptimalMove
-      ? (selectedAnnotation?.before.bestMove ?? selectedAnnotation?.before.pv[0])
-      : (selectedAnnotation?.after.pv[0] ?? selectedAnnotation?.before.bestMove)
+    selectedAnnotation && selectedPresentation?.state === 'ready'
+      ? (selectedPresentation.reply ?? undefined)
+      : undefined
   );
   const selectedBadge =
     selectedAnnotation && selectedAnnotation.accuracy.status === 'classified'
@@ -197,25 +615,23 @@ export function ChessWorkspace({
       : undefined;
 
   useEffect(() => {
-    if (graph) {
-      setNavigation(createGraphNavigation(graph));
-      setUnobservedMove(null);
-    } else {
-      setNavigation(null);
-      setUnobservedMove(null);
-    }
-  }, [graph]);
-
-  useEffect(() => {
     const previous = previousIngestionStatus.current;
     previousIngestionStatus.current = state.ingestion.status;
     if (previous === 'loading' && state.ingestion.status !== 'loading') {
+      // Recovery is a one-time form intent; later saved searches own their dates.
+      if (queryRecovery) setQueryRecovery(null);
       const hasGames = (state.ingestion.result?.games.length ?? 0) > 0;
-      if (['complete', 'partial'].includes(state.ingestion.status) && hasGames) {
+      const inReview = tab === 'analysis';
+      const userNavigated =
+        controller.getNavigationVersion() !== queryIntentVersion.current || inReview;
+      if (startupComplete && ['complete', 'partial'].includes(state.ingestion.status) && hasGames) {
         setImportOpen(false);
-        selectTab('games');
+        setOpeningImportQuery(null);
+        if (!userNavigated) {
+          selectTab('games');
+          requestAnimationFrame(() => titleHeadingRef.current?.focus({ preventScroll: true }));
+        }
         setLoadedAnnouncement(`${state.ingestion.result?.games.length} games loaded`);
-        requestAnimationFrame(() => titleHeadingRef.current?.focus());
       } else {
         if (state.ingestion.status === 'empty') setLoadedAnnouncement(null);
         setResultFocusVersion((v) => v + 1);
@@ -224,10 +640,15 @@ export function ChessWorkspace({
   }, [state.ingestion.status, state.ingestion.result]);
 
   useEffect(() => {
-    if (tab === 'analysis' && state.analysis.status !== 'probing' && !state.analysis.capability) {
+    if (
+      tab === 'analysis' &&
+      state.analysis.status !== 'probing' &&
+      !state.analysis.capability &&
+      !state.analysis.result
+    ) {
       void controller.probeEngine();
     }
-  }, [controller, state.analysis.capability, state.analysis.status, tab]);
+  }, [controller, state.analysis.capability, state.analysis.status, state.analysis.result, tab]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = state.preferences.theme;
@@ -263,10 +684,10 @@ export function ChessWorkspace({
   }, [storedUsernames, state.query.active]);
 
   const selectTab = (next: WorkspaceTab) => {
+    if (next !== tab) controller.invalidateReviewIntent();
     setTab(next);
     if (next !== 'opening') {
       setMoveOrdersOpen(false);
-      setUnobservedMove(null);
     }
     if (next !== 'analysis') {
       setVariation(null);
@@ -278,9 +699,34 @@ export function ChessWorkspace({
     controller.selectPly(ply);
   };
 
+  const rememberVariationOrigin = () => {
+    if (state.selection.gameId && displayedFen)
+      setVariationOrigin({
+        gameId: state.selection.gameId,
+        selectedPly: state.selection.ply,
+        fen: displayedFen,
+        mode: reviewMode,
+      });
+  };
+  const returnToGame = () => {
+    if (variationOrigin && variationOrigin.gameId === state.selection.gameId) {
+      controller.selectPly(variationOrigin.selectedPly);
+      setReviewMode(variationOrigin.mode);
+    }
+    setVariation(null);
+    setVariationOrigin(null);
+  };
+  const explorePv = (pvFen: string, uciMoves: readonly string[]) => {
+    const preview = createVariationFromUciSequence(state.selection.ply, pvFen, uciMoves);
+    if (!preview) return;
+    rememberVariationOrigin();
+    setVariation(preview);
+    setReviewMode('analysis');
+  };
+
   const handleBoardMove = (applied: AppliedBoardMove): boolean => {
-    // Piece moves only allowed in analysis mode of analysis tab
-    if (tab === 'analysis' && reviewMode === 'analysis') {
+    // Both Review and Analysis can follow the game or explore a legal variation.
+    if (tab === 'analysis') {
       if (!variation) {
         const nextMainMove = parsedGame?.plies[state.selection.ply];
         if (nextMainMove && applied.uci === nextMainMove.uci) {
@@ -290,6 +736,7 @@ export function ChessWorkspace({
         if (displayedFen) {
           try {
             const newVar = startVariation(state.selection.ply, displayedFen, applied);
+            rememberVariationOrigin();
             setVariation(newVar);
             return true;
           } catch {
@@ -310,8 +757,6 @@ export function ChessWorkspace({
 
     if (tab === 'opening') {
       if (!graph || !navigation) return false;
-      if (unobservedMove) return false;
-
       const res = resolveBoardMoveInGraph(
         graph,
         navigation.positionKey,
@@ -319,48 +764,61 @@ export function ChessWorkspace({
         applied
       );
 
-      if (res.observed && res.nextPathId !== null) {
-        setUnobservedMove(null);
-        try {
-          setNavigation((prev) =>
-            prev
-              ? navigateCandidate(
-                  graph,
-                  prev,
-                  {
-                    targetKey: res.nextPositionKey,
-                    uci: applied.uci,
-                    san: applied.san,
-                  },
-                  res.nextPathId
-                )
-              : null
-          );
-          controller.navigateGraph(res.nextPositionKey, res.nextPathId);
-          return true;
-        } catch {
-          return false;
-        }
-      } else {
-        setUnobservedMove({
-          move: applied,
-          returnPositionKey: navigation.positionKey,
-          returnPathId: navigation.pathId,
-        });
-        return true;
-      }
+      // T38: the visited entry is the authoritative current position; the board
+      // shows its actual FEN for both observed and unobserved moves.
+      const entry: GraphNavigationEntry = {
+        positionKey: res.nextPositionKey,
+        fen: res.nextFen,
+        pathId: res.nextPathId,
+        uci: applied.uci,
+        san: applied.san,
+        observed: res.observed,
+      };
+      setNavigation((prev) => (prev ? appendVisitedEntry(prev, entry) : null));
+      controller.navigateGraph(res.nextPositionKey, res.nextPathId);
+      return true;
     }
 
     return false;
   };
 
   const isOpeningBoard = tab === 'opening' && Boolean(graph && navigation);
+  // T38: the unobserved visited entry drives the notice; it is no longer separate state.
+  const unobservedMove = navigation && !navigation.observed ? navigation : null;
   const displayedBoardFen =
     tab === 'analysis' && variation
       ? variationFen(variation)
-      : tab === 'opening' && unobservedMove
-        ? unobservedMove.move.fenAfter
+      : isOpeningBoard && unobservedMove
+        ? unobservedMove.fen
         : displayedFen;
+
+  const [positionEngineEnabled, setPositionEngineEnabled] = useState(true);
+  const positionEnginePaused =
+    tab === 'analysis' && ['running', 'stopping'].includes(state.analysis.status);
+  const positionAnalysis = usePositionAnalysis(
+    positionEngineEnabled && !positionEnginePaused && (tab === 'opening' || tab === 'analysis')
+      ? displayedBoardFen
+      : null
+  );
+  const positionEnginePanel = displayedBoardFen ? (
+    <OpeningPositionAnalysis
+      fen={displayedBoardFen}
+      analysis={positionAnalysis}
+      enabled={positionEngineEnabled}
+      onEnabledChange={setPositionEngineEnabled}
+      paused={positionEnginePaused}
+      onPlayMove={(uci) => {
+        if (tab === 'analysis' || state.graph.status !== 'building') {
+          const move = applyBoardMove(displayedBoardFen, {
+            from: uci.slice(0, 2) as Square,
+            to: uci.slice(2, 4) as Square,
+            ...(uci.length > 4 ? { promotion: uci.slice(4) as PromotionPiece } : {}),
+          });
+          if (move) handleBoardMove(move);
+        }
+      }}
+    />
+  ) : null;
 
   const lastMoveValue: { from: Square; to: Square } | undefined =
     tab === 'analysis' && variation
@@ -370,10 +828,10 @@ export function ChessWorkspace({
             to: variation.moves[variation.cursor - 1]!.to,
           }
         : undefined
-      : tab === 'opening' && unobservedMove
+      : tab === 'opening' && navigation?.uci
         ? {
-            from: unobservedMove.move.from,
-            to: unobservedMove.move.to,
+            from: navigation.uci.slice(0, 2) as Square,
+            to: navigation.uci.slice(2, 4) as Square,
           }
         : state.selection.ply > 0 && parsedGame && !isOpeningBoard
           ? {
@@ -382,8 +840,16 @@ export function ChessWorkspace({
             }
           : undefined;
 
+  // T39: opening playback reuses the same MoveHistoryModel primitives as Review;
+  // the cursor maps onto the visited history so all controls stay consistent.
   const historyValue: MoveHistoryModel | undefined = isOpeningBoard
-    ? undefined
+    ? {
+        currentPly: navigation!.cursor,
+        totalPlies: navigation!.history.length - 1,
+        onPlyChange: (index) =>
+          state.graph.status !== 'building' &&
+          setNavigation((prev) => (prev ? navigateToHistoryIndex(prev, index) : null)),
+      }
     : tab === 'analysis' && variation
       ? {
           currentPly: variation.cursor,
@@ -400,13 +866,14 @@ export function ChessWorkspace({
         : undefined;
 
   useEffect(() => {
-    if (tab !== 'games' && tab !== 'analysis') return;
+    if (tab !== 'games' && tab !== 'analysis' && tab !== 'opening') return;
     if (importOpen || aboutOpen || menuOpen || moveOrdersOpen) return;
     if (!historyValue) return;
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing)
+        return;
 
       const active = document.activeElement;
       if (active) {
@@ -415,7 +882,7 @@ export function ChessWorkspace({
           tag === 'input' ||
           tag === 'textarea' ||
           tag === 'select' ||
-          active.getAttribute('contenteditable') === 'true' ||
+          active.closest('[contenteditable]:not([contenteditable="false"])') ||
           active.getAttribute('role') === 'textbox' ||
           active.closest('[role="dialog"]')
         ) {
@@ -446,12 +913,12 @@ export function ChessWorkspace({
   }, [tab, importOpen, aboutOpen, menuOpen, moveOrdersOpen, historyValue]);
 
   // Board interactivity by view:
-  // Games & Review: playback and orientation only (isInteractive = false)
-  // Analysis: piece moves and variations allowed (isInteractive = true)
-  // Openings: graph moves allowed
+  // Games: playback and orientation only.
+  // Review and Analysis: follow recorded moves or explore variations.
+  // Openings: recorded moves and legal exploratory moves are allowed.
   const isInteractive =
-    (tab === 'analysis' && reviewMode === 'analysis' && Boolean(displayedBoardFen)) ||
-    (tab === 'opening' && Boolean(graph && navigation) && !unobservedMove);
+    (tab === 'analysis' && Boolean(displayedBoardFen)) ||
+    (tab === 'opening' && state.graph.status !== 'building' && Boolean(graph && navigation));
 
   const hasGamesLoaded = (state.ingestion.result?.games.length ?? 0) > 0;
   const isSelectedGameWithoutMoves = Boolean(
@@ -465,24 +932,16 @@ export function ChessWorkspace({
       </div>
     ) : (
       <div ref={boardRef} className="workspace-board">
-        {tab === 'analysis' && variation ? (
-          <VariationSandboxBanner
-            state={variation}
-            onCursorChange={(cursor) =>
-              setVariation((prev) => (prev ? moveVariationCursor(prev, cursor) : null))
-            }
-            onClose={() => setVariation(null)}
-          />
-        ) : null}
         {tab === 'opening' && unobservedMove ? (
           <UnobservedMoveNotice
-            san={unobservedMove.move.san}
+            san={unobservedMove.san ?? ''}
             onReturn={() => {
-              controller.navigateGraph(
-                unobservedMove.returnPositionKey,
-                unobservedMove.returnPathId
-              );
-              setUnobservedMove(null);
+              const observedIndex = navigation!.history
+                .slice(0, navigation!.cursor + 1)
+                .findLastIndex((entry) => entry.observed);
+              const next = navigateToHistoryIndex(navigation!, Math.max(0, observedIndex));
+              setNavigation(next);
+              controller.navigateGraph(next.positionKey, next.pathId);
             }}
           />
         ) : null}
@@ -490,6 +949,7 @@ export function ChessWorkspace({
           fen={displayedBoardFen}
           orientation={state.preferences.boardOrientation}
           isInteractive={isInteractive}
+          squareNavigation={isOpeningBoard || isInteractive}
           onMove={handleBoardMove}
           onFlipOrientation={() =>
             controller.dispatch({
@@ -511,40 +971,23 @@ export function ChessWorkspace({
           {...(lastMoveValue !== undefined ? { lastMove: lastMoveValue } : {})}
           {...(selectedBadge !== undefined ? { lastMoveBadge: selectedBadge } : {})}
           {...(historyValue !== undefined ? { history: historyValue } : {})}
-          {...(selectedAnnotation ? { evaluationScore: selectedAnnotation.after.score } : {})}
+          evaluationScore={positionAnalysis.score ?? selectedAnnotation?.after.score}
           {...(tab === 'analysis' && selectedArrow ? { pvArrow: selectedArrow } : {})}
+          {...(openingArrows !== undefined ? { openingArrows } : {})}
         />
-        {isOpeningBoard && navigation ? (
-          <button
-            type="button"
-            className="button-secondary"
-            disabled={!unobservedMove && navigation.history.length <= 1}
-            onClick={() => {
-              if (unobservedMove) {
-                setUnobservedMove(null);
-                return;
-              }
-              const next = navigateBack(navigation);
-              setNavigation(next);
-              controller.navigateGraph(next.positionKey, next.pathId);
-            }}
-          >
-            Back
-          </button>
-        ) : null}
       </div>
     );
 
   // Determine whether board should be rendered:
   // - Settings: no board
   // - Analysis without selected game: no board
-  // - Openings without graph: no board
+  // - Openings without a graph or selected game position: no board
   // - Games with no game selected (initial visit or loaded list without selection): no board
   const shouldRenderBoard =
     tab !== 'settings' &&
     tab !== 'insights' &&
     !(tab === 'analysis' && !selectedRecord) &&
-    !(tab === 'opening' && !graph) &&
+    !(tab === 'opening' && !displayedBoardFen) &&
     !(tab === 'games' && !selectedRecord);
 
   const viewTitle =
@@ -560,8 +1003,17 @@ export function ChessWorkspace({
 
   const queryForm = (
     <GameQueryForm
+      key={openingImportQuery ? JSON.stringify(openingImportQuery) : 'default-import'}
       disabled={state.ingestion.status === 'loading'}
-      initialQuery={state.query.active ?? recentQuery ?? state.query.draft}
+      recoveryTarget={queryRecovery?.target ?? null}
+      recoveryVersion={queryRecovery?.version ?? 0}
+      initialQuery={
+        openingImportQuery ??
+        state.query.requested ??
+        state.query.active ??
+        recentQuery ??
+        state.query.draft
+      }
       onDraftChange={(draft) => {
         if (state.ingestion.error || state.ingestion.status === 'failed')
           controller.dismissIngestionError();
@@ -577,13 +1029,66 @@ export function ChessWorkspace({
           preferences: { openingHorizon },
         })
       }
-      onSubmit={(query) => controller.submitQuery(query)}
+      onSubmit={(query) => {
+        setOpeningImportQuery(null);
+        return controller.submitQuery(query);
+      }}
       recentQuery={recentQuery}
       onResume={(query) => controller.submitQuery(query)}
     />
   );
 
+  const recoverQuery = (target: 'username' | 'dates') => {
+    setQueryRecovery((previous) => ({ target, version: (previous?.version ?? 0) + 1 }));
+    setImportOpen(true);
+  };
+  const feedbackResult = ['failed', 'cancelled'].includes(state.ingestion.status)
+    ? (state.ingestion.lastAttempt ?? {
+        jobId: 'failed',
+        fingerprint: '',
+        status: 'failed' as const,
+        games: [],
+        failedMonths: [],
+        diagnostics: [
+          {
+            code: 'IMPORT_FAILED',
+            message: state.ingestion.error ?? 'Games could not be loaded.',
+            severity: 'error' as const,
+          },
+        ],
+        offlineCacheOnly: false,
+      })
+    : state.ingestion.result;
+  const importFeedback =
+    feedbackResult && state.ingestion.status !== 'loading' ? (
+      <div
+        className="utility-rail__result"
+        data-utility-rail-result
+        role="region"
+        aria-label="Ingestion result"
+        tabIndex={-1}
+      >
+        <DiagnosticSummary
+          result={feedbackResult}
+          onRetry={() => {
+            const query = state.query.requested ?? state.query.active;
+            if (query) void controller.submitQuery(query, { manualRefresh: true });
+          }}
+          onEditUsername={() => recoverQuery('username')}
+          onExpandDates={() => recoverQuery('dates')}
+          retainedCount={
+            state.ingestion.status === 'failed' && hasGamesLoaded
+              ? (state.ingestion.result?.games.length ?? 0)
+              : 0
+          }
+          retainedUsername={state.query.active?.username}
+          onKeepCurrent={() => controller.dismissIngestionError()}
+        />
+      </div>
+    ) : null;
+
   const handleReviewModeChange = (mode: ReviewMode) => {
+    if (mode !== reviewMode) controller.invalidateReviewIntent();
     if (mode === 'review') {
       setVariation(null);
     }
@@ -591,7 +1096,10 @@ export function ChessWorkspace({
   };
 
   return (
-    <div className="workspace-shell" data-modal-root>
+    <div
+      className={`workspace-shell${tab === 'opening' ? ' workspace-shell--opening' : ''}`}
+      data-modal-root
+    >
       {/* Desktop Left Rail Navigation (hidden < 960px via CSS) */}
       <aside className="workspace-rail">
         <WorkspaceNavigation
@@ -605,9 +1113,14 @@ export function ChessWorkspace({
       {/* Main Column */}
       <div className="workspace-main">
         <AppTopBar
-          viewTitle={viewTitle}
+          viewTitle={
+            tab === 'opening' && state.query.active?.username
+              ? `Openings · ${state.query.active.username}`
+              : viewTitle
+          }
           onOpenMenu={() => {
             setImportOpen(false);
+            setOpeningImportQuery(null);
             setMenuOpen(true);
           }}
           menuTriggerRef={menuTriggerRef}
@@ -623,6 +1136,24 @@ export function ChessWorkspace({
         />
 
         <main className="workspace-content">
+          {urlRecovery ? (
+            <div className="status-card" role="status">
+              <p>{urlRecovery}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setUrlRecovery(null);
+                  selectTab('games');
+                }}
+              >
+                Choose a game
+              </button>
+              <button type="button" onClick={() => setImportOpen(true)}>
+                Import linked games
+              </button>
+            </div>
+          ) : null}
+
           {state.ingestion.status === 'cancelled' && !importOpen ? (
             <p role="status">
               Import cancelled.{' '}
@@ -698,6 +1229,14 @@ export function ChessWorkspace({
                 maintenance={state.dataMaintenance}
                 onDeleteUsername={async (username) => {
                   const res = await controller.deleteUserData(username);
+                  for (const key of openingHistoryRef.current.keys())
+                    if (key.split('\u0000')[0] === username.toLowerCase())
+                      openingHistoryRef.current.delete(key);
+                  for (const key of latestOpeningHistoryRef.current.keys())
+                    if (JSON.parse(key)[0] === username.toLowerCase())
+                      latestOpeningHistoryRef.current.delete(key);
+                  listStateStoreRef.current.clear();
+                  setListPresentation({ key: listStateKey, state: { ...defaultGameListState } });
                   setStoredUsernames((prev) =>
                     prev.filter((u) => u.toLowerCase() !== username.toLowerCase())
                   );
@@ -705,6 +1244,10 @@ export function ChessWorkspace({
                 }}
                 onClearAll={async () => {
                   const res = await controller.clearAllData();
+                  openingHistoryRef.current.clear();
+                  latestOpeningHistoryRef.current.clear();
+                  listStateStoreRef.current.clear();
+                  setListPresentation({ key: listStateKey, state: { ...defaultGameListState } });
                   setStoredUsernames([]);
                   return res;
                 }}
@@ -731,6 +1274,54 @@ export function ChessWorkspace({
           ) : (
             <WorkspaceLayout
               board={shouldRenderBoard ? board : null}
+              review={tab === 'analysis'}
+              opening={tab === 'opening'}
+              header={
+                tab === 'analysis' && selectedRecord ? (
+                  <div className="review-header">
+                    <button
+                      type="button"
+                      className="button-secondary"
+                      onClick={() => {
+                        const target = reviewReturnTab;
+                        setReviewReturnTab('games');
+                        selectTab(target);
+                      }}
+                    >
+                      {reviewReturnTab === 'opening' ? 'Back to openings' : 'Back to games'}
+                    </button>
+                    <div>
+                      <strong>
+                        {selectedRecord.whitePlayer.username ?? 'White'} vs{' '}
+                        {selectedRecord.blackPlayer.username ?? 'Black'}
+                      </strong>
+                      <p>
+                        {selectedRecord.result} ·{' '}
+                        {new Date(selectedRecord.endedAt * 1000).toLocaleDateString()} · You played{' '}
+                        {selectedRecord.userColor}
+                      </p>
+                    </div>
+                  </div>
+                ) : null
+              }
+              feedback={
+                tab === 'analysis' && reviewMode === 'review' && selectedRecord && parsedGame ? (
+                  <ReviewFeedback
+                    onExplorePv={explorePv}
+                    annotation={selectedAnnotation ?? null}
+                    selectedPly={state.selection.ply}
+                    startFen={fenByPly[state.selection.ply]}
+                    firstMoment={reviewMoments.first}
+                    previousMoment={reviewMoments.previous}
+                    nextMistake={reviewMoments.next}
+                    navigationKind="moment"
+                    onSelectPly={handlePlyChange}
+                    hasAnnotations={Boolean(state.analysis.result?.annotations.length)}
+                    showingPrevious={state.analysis.showingPrevious}
+                    previousStrength={state.analysis.previousStrength}
+                  />
+                ) : null
+              }
               tabs={
                 tab === 'analysis' ? (
                   <WorkspaceTabs selected={reviewMode} onSelect={handleReviewModeChange} />
@@ -749,68 +1340,35 @@ export function ChessWorkspace({
                     hasGamesLoaded ? (
                       <>
                         {state.ingestion.result?.offlineCacheOnly ? <OfflineCacheNotice /> : null}
-                        {state.ingestion.status === 'failed' || state.ingestion.error ? (
-                          <div
-                            className="status-card status-failed"
-                            role="alert"
-                            style={{ marginBottom: '1rem' }}
-                          >
-                            <div
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                gap: '0.75rem',
-                              }}
-                            >
-                              <div>
-                                <h3>Games could not be loaded</h3>
-                                <p>
-                                  {state.ingestion.error ?? 'Failed to import games.'} Retaining
-                                  previously loaded games.
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                className="button button--secondary button--sm"
-                                onClick={() => controller.dismissIngestionError()}
-                              >
-                                Keep current games
-                              </button>
-                            </div>
-                          </div>
-                        ) : null}
-                        {state.ingestion.result?.status === 'partial' ? (
-                          <div className="partial-import-notice" role="status">
-                            <p>Some games could not be imported.</p>
-                            <details className="diagnostic-details">
-                              <summary>Diagnostics</summary>
-                              <DiagnosticSummary
-                                result={state.ingestion.result}
-                                onRetry={() => {
-                                  const active = state.query.active;
-                                  if (active)
-                                    void controller.submitQuery(active, { manualRefresh: true });
-                                }}
-                              />
-                            </details>
-                          </div>
-                        ) : null}
+                        {!importOpen &&
+                        ['failed', 'partial', 'cancelled'].includes(state.ingestion.status)
+                          ? importFeedback
+                          : null}
                         <GameSelector
+                          key={listStateKey}
                           games={state.ingestion.result?.games ?? []}
                           selectedGameId={state.selection.gameId}
+                          listState={listState}
+                          onListStateChange={handleListStateChange}
+                          onScrollChange={handleScrollChange}
                           onSelect={(gameId) => {
                             controller.selectGame(gameId);
                             setVariation(null);
                           }}
-                          onAnalyze={(gameId) => {
-                            controller.selectGame(gameId);
+                          onReview={(gameId) => {
                             setVariation(null);
+                            controller.selectGame(gameId);
+                            const candidate =
+                              state.ingestion.result?.games.find((game) => game.id === gameId) ??
+                              null;
+                            if (!parseSelectedGame(candidate)?.plies.length) return;
+                            setReviewReturnTab('games');
                             setReviewMode('review');
                             selectTab('analysis');
+                            void controller.openReview(gameId);
                           }}
                           analysisStatus={analysisStatusMap}
-                          hasLoaded={hasGamesLoaded}
+                          hasLoaded={hasGamesLoaded && state.ingestion.status !== 'loading'}
                           reviewDisabledReason={
                             isSelectedGameWithoutMoves
                               ? 'This game has no reviewable moves.'
@@ -839,42 +1397,7 @@ export function ChessWorkspace({
                             onCancel={controller.cancelIngestion}
                           />
                         ) : null}
-                        {!state.ingestion.result &&
-                        state.ingestion.status === 'failed' &&
-                        state.ingestion.error ? (
-                          <div
-                            className="status-card status-failed"
-                            role="alert"
-                            style={{ marginTop: '1rem' }}
-                          >
-                            <h3>Games could not be loaded</h3>
-                            <p>{state.ingestion.error}</p>
-                          </div>
-                        ) : null}
-                        {state.ingestion.result && state.ingestion.status !== 'loading' ? (
-                          <div
-                            className="utility-rail__result"
-                            data-utility-rail-result
-                            role="region"
-                            aria-label="Ingestion result"
-                            tabIndex={-1}
-                          >
-                            <DiagnosticSummary
-                              result={state.ingestion.result}
-                              onRetry={() => {
-                                const active = state.query.active;
-                                if (active)
-                                  void controller.submitQuery(active, { manualRefresh: true });
-                              }}
-                              onViewGames={() => {
-                                const firstGame = state.ingestion.result?.games[0];
-                                if (firstGame) {
-                                  controller.selectGame(firstGame.id);
-                                }
-                              }}
-                            />
-                          </div>
-                        ) : null}
+                        {!importOpen ? importFeedback : null}
                         {state.ingestion.result?.offlineCacheOnly ? <OfflineCacheNotice /> : null}
                       </div>
                     )
@@ -882,82 +1405,121 @@ export function ChessWorkspace({
 
                   {tab === 'opening' ? (
                     graph && navigation ? (
-                      <>
-                        {displayedBoardFen ? (
-                          <OpeningPositionAnalysis fen={displayedBoardFen} />
-                        ) : null}
-                        <section className="surface-panel" aria-label="Games in this opening">
-                          <h3>Your games in this line</h3>
-                          <p>
-                            {
-                              matchingOpeningGames.filter(
-                                ({ record }) => record.userColor === 'white'
-                              ).length
-                            }{' '}
-                            as White ·{' '}
-                            {
-                              matchingOpeningGames.filter(
-                                ({ record }) => record.userColor === 'black'
-                              ).length
-                            }{' '}
-                            as Black
-                          </p>
-                          <p className="field-help">
-                            This tree combines your imported games. Your playing color is shown for
-                            each game below.
-                          </p>
-                          <details>
-                            <summary>Show matching games ({matchingOpeningGames.length})</summary>
-                            <div className="result-viewport">
-                              <ul>
-                                {matchingOpeningGames.map(({ record }) => (
-                                  <li key={record.id}>
-                                    <button
-                                      type="button"
-                                      className="button-secondary"
-                                      onClick={() => {
-                                        controller.selectGame(record.id);
-                                        selectTab('analysis');
-                                      }}
-                                    >
-                                      {record.whitePlayer.username ?? 'White'} vs{' '}
-                                      {record.blackPlayer.username ?? 'Black'} · You played{' '}
-                                      {record.userColor === 'white' ? 'White' : 'Black'} ·{' '}
-                                      {new Date(record.endedAt * 1000).toLocaleDateString()}
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          </details>
-                        </section>
-                        <OpeningTreeTable
-                          graph={graph}
-                          navigation={navigation}
-                          perspective={state.preferences.resultPerspective}
-                          excludedGameCount={state.graph.snapshot?.excludedGameCount ?? 0}
-                          diagnosticCodes={state.graph.diagnosticCodes}
-                          onNavigate={(next) => {
-                            setUnobservedMove(null);
-                            setNavigation(next);
-                            controller.navigateGraph(next.positionKey, next.pathId);
+                      <div className="opening-panel">
+                        {/* T41: compact scope/position context comes first. */}
+                        <OpeningScopeControl
+                          value={state.preferences.openingScope}
+                          onChange={handleOpeningScopeChange}
+                          whiteCount={openingColorCounts.white}
+                          blackCount={openingColorCounts.black}
+                          importColors={state.query.active?.colors ?? ['white', 'black']}
+                          disabled={state.graph.status === 'building'}
+                          onRequestLoad={() => {
+                            const query = state.query.active;
+                            if (!query) return;
+                            setOpeningImportQuery({ ...query, colors: ['white', 'black'] });
+                            setImportOpen(true);
                           }}
-                          moveOrdersAction={
-                            <button
-                              ref={moveOrdersButton}
-                              type="button"
-                              className="button-secondary"
-                              onClick={() => setMoveOrdersOpen(true)}
-                              disabled={
-                                Boolean(unobservedMove) ||
-                                !graph.positions.get(navigation.positionKey)?.arrivalsByPath.size
-                              }
-                            >
-                              View move orders
-                            </button>
-                          }
                         />
-                        {moveOrdersOpen ? (
+                        {state.graph.status === 'building' ? (
+                          <p role="status">Preparing opening candidates…</p>
+                        ) : null}
+                        {state.graph.error ? <p role="alert">{state.graph.error}</p> : null}
+                        {openingNotice ? <p role="status">{openingNotice}</p> : null}
+                        {navigation.observed ? (
+                          <p className="opening-membership field-help">
+                            {state.graph.scope === 'both'
+                              ? 'Both colors'
+                              : state.graph.scope === 'black'
+                                ? 'Black'
+                                : 'White'}{' '}
+                            · Position:{' '}
+                            {state.graph.snapshot
+                              ? selectPositionGameIds(state.graph.snapshot, navigation.positionKey)
+                                  .length
+                              : 0}{' '}
+                            games · Exact line: {openingExactMatchCount} games
+                          </p>
+                        ) : null}
+                        {/* T41: notation/navigation and candidates next. */}
+                        <fieldset
+                          disabled={state.graph.status === 'building'}
+                          inert={state.graph.status === 'building'}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'minmax(0, 1fr)',
+                            gap: 'inherit',
+                            border: 0,
+                            padding: 0,
+                            margin: 0,
+                            minWidth: 0,
+                          }}
+                        >
+                          <OpeningTreeTable
+                            graph={graph}
+                            navigation={navigation}
+                            perspective={state.preferences.resultPerspective}
+                            excludedGameCount={state.graph.snapshot?.excludedGameCount ?? 0}
+                            diagnosticCodes={state.graph.diagnosticCodes}
+                            showArrows={showOpeningArrows}
+                            onToggleArrows={setShowOpeningArrows}
+                            activeUci={activeOpeningUci}
+                            onHoverCandidate={setActiveOpeningUci}
+                            onNavigate={(next) => {
+                              setActiveOpeningUci(null);
+                              setNavigation(next);
+                              controller.navigateGraph(next.positionKey, next.pathId);
+                            }}
+                            onPerspectiveChange={(next) => {
+                              controller.dispatch({
+                                type: 'preferences/changed',
+                                preferences: { resultPerspective: next },
+                              });
+                            }}
+                            moveOrdersAction={
+                              <button
+                                ref={moveOrdersButton}
+                                type="button"
+                                className="button-secondary"
+                                onClick={() => setMoveOrdersOpen(true)}
+                                disabled={
+                                  Boolean(unobservedMove) ||
+                                  !graph.positions.get(navigation.positionKey)?.arrivalsByPath.size
+                                }
+                              >
+                                View move orders
+                              </button>
+                            }
+                          />
+                          <OpeningSettings
+                            value={state.preferences.openingHorizon}
+                            onChange={(openingHorizon) =>
+                              controller.dispatch({
+                                type: 'preferences/changed',
+                                preferences: { openingHorizon },
+                              })
+                            }
+                          />
+                          {/* T41: expensive secondary contents mount only on expansion. */}
+                          {positionEnginePanel}
+                          <OpeningDisclosure
+                            label={`Matching games (${openingExactMatchCount})`}
+                            className="opening-disclosure opening-matching-disclosure"
+                          >
+                            <OpeningView
+                              gamesById={openingGamesById}
+                              snapshot={state.graph.snapshot!}
+                              positionKey={navigation.positionKey}
+                              pathId={navigation.observed ? navigation.pathId : null}
+                              onSelectGame={(id) => {
+                                setReviewReturnTab('opening');
+                                selectTab('analysis');
+                                void controller.openReview(id);
+                              }}
+                            />
+                          </OpeningDisclosure>
+                        </fieldset>
+                        {moveOrdersOpen && state.graph.status !== 'building' ? (
                           <MoveOrderDialog
                             node={graph.positions.get(navigation.positionKey)!}
                             paths={graph.paths}
@@ -966,7 +1528,7 @@ export function ChessWorkspace({
                             onClose={() => setMoveOrdersOpen(false)}
                           />
                         ) : null}
-                      </>
+                      </div>
                     ) : (
                       <div className="workspace-empty">
                         <h2>Explore your openings</h2>
@@ -982,48 +1544,69 @@ export function ChessWorkspace({
                     )
                   ) : null}
 
+                  {tab === 'analysis' && variation ? (
+                    <VariationSandboxBanner
+                      state={variation}
+                      returnNotation={
+                        variationOrigin?.selectedPly
+                          ? `${Math.ceil(variationOrigin.selectedPly / 2)}${variationOrigin.selectedPly % 2 ? '.' : '…'} ${parsedGame?.plies[variationOrigin.selectedPly - 1]?.san ?? ''}`
+                          : 'Starting position'
+                      }
+                      onCursorChange={(cursor) =>
+                        setVariation((prev) => (prev ? moveVariationCursor(prev, cursor) : null))
+                      }
+                      onClose={returnToGame}
+                    />
+                  ) : null}
+
                   {tab === 'analysis' ? (
                     selectedRecord && parsedGame ? (
-                      <LazyAnalyzerWorkspace
-                        mode={reviewMode}
-                        game={parsedGame}
-                        players={{
-                          white: parsedGame.whitePlayer,
-                          black: parsedGame.blackPlayer,
-                        }}
-                        isVariationActive={Boolean(variation)}
-                        onReturnToGame={() => setVariation(null)}
-                        capability={state.analysis.capability}
-                        status={state.analysis.status}
-                        result={state.analysis.result}
-                        progress={state.analysis.progress}
-                        strength={state.preferences.analysisStrength}
-                        upstreamAccuracies={selectedRecord.accuracies}
-                        onStrengthChange={(analysisStrength) =>
-                          controller.dispatch({
-                            type: 'preferences/changed',
-                            preferences: { analysisStrength },
-                          })
-                        }
-                        onStart={(strength) => void controller.startAnalysis(strength)}
-                        onCancel={controller.cancelAnalysis}
-                        onResume={() => void controller.startAnalysis()}
-                        onSelectPly={handlePlyChange}
-                        selectedPly={state.selection.ply}
-                        fenByPly={Object.fromEntries(
-                          parsedGame.plies.map((move) => [move.ply, move.fenBefore])
-                        )}
-                        onExplorePv={(pvFen, uciMoves) => {
-                          const variationState = createVariationFromUciSequence(
-                            state.selection.ply,
-                            pvFen,
-                            uciMoves
-                          );
-                          if (variationState) {
-                            setVariation(variationState);
+                      <>
+                        {positionEnginePanel}
+                        <ReviewView
+                          feedbackInLayout
+                          userColor={selectedRecord.userColor}
+                          reviewFilter={reviewFilter}
+                          onReviewFilterChange={setReviewFilter}
+                          mode={reviewMode}
+                          game={parsedGame}
+                          players={{
+                            white: parsedGame.whitePlayer,
+                            black: parsedGame.blackPlayer,
+                          }}
+                          isVariationActive={Boolean(variation)}
+                          onReturnToGame={returnToGame}
+                          capability={state.analysis.capability}
+                          status={state.analysis.status}
+                          result={reviewResult}
+                          showingPrevious={state.analysis.showingPrevious}
+                          previousStrength={state.analysis.previousStrength}
+                          progress={state.analysis.progress}
+                          strength={state.preferences.analysisStrength}
+                          upstreamAccuracies={selectedRecord.accuracies}
+                          onStrengthChange={(analysisStrength) =>
+                            controller.dispatch({
+                              type: 'preferences/changed',
+                              preferences: { analysisStrength },
+                            })
                           }
-                        }}
-                      />
+                          onStart={(strength) => void controller.startAnalysis(strength)}
+                          onRetryEngine={() => void controller.retryEngine()}
+                          onCancel={controller.cancelAnalysis}
+                          onResume={() => void controller.startAnalysis()}
+                          onStartOver={() => {
+                            setVariation(null);
+                            setVariationOrigin(null);
+                            setReviewMode('review');
+                            if (state.selection.gameId)
+                              controller.startOver(state.selection.gameId);
+                          }}
+                          onSelectPly={handlePlyChange}
+                          selectedPly={state.selection.ply}
+                          fenByPly={fenByPly}
+                          onExplorePv={explorePv}
+                        />
+                      </>
                     ) : (
                       <div className="workspace-empty">
                         <h2>Choose a game to review</h2>
@@ -1049,7 +1632,10 @@ export function ChessWorkspace({
       <UtilityRail
         title="Import games"
         open={importOpen}
-        onOpenChange={setImportOpen}
+        onOpenChange={(open) => {
+          setImportOpen(open);
+          if (!open) setOpeningImportQuery(null);
+        }}
         id="game-query-drawer"
         returnFocusRef={importTriggerRef}
         resultFocusVersion={resultFocusVersion}
@@ -1061,44 +1647,7 @@ export function ChessWorkspace({
             onCancel={controller.cancelIngestion}
           />
         ) : null}
-        {state.ingestion.status === 'failed' && state.ingestion.error ? (
-          <div className="status-card status-failed" role="alert" style={{ marginTop: '1rem' }}>
-            <h3>Games could not be loaded</h3>
-            <p>{state.ingestion.error}</p>
-            {hasGamesLoaded ? (
-              <p className="field-help" style={{ marginTop: '0.5rem' }}>
-                Your previously loaded games remain available in the workspace.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-        {state.ingestion.status === 'cancelled' ? (
-          <p role="status">
-            Import cancelled.{' '}
-            {hasGamesLoaded
-              ? 'Previously loaded games are still available.'
-              : 'You can load games again.'}
-          </p>
-        ) : null}
-        {state.ingestion.result &&
-        state.ingestion.status !== 'loading' &&
-        (!hasGamesLoaded || state.ingestion.status !== 'failed') ? (
-          <div
-            className="utility-rail__result"
-            data-utility-rail-result
-            role="region"
-            aria-label="Ingestion result"
-            tabIndex={-1}
-          >
-            <DiagnosticSummary
-              result={state.ingestion.result}
-              onRetry={() => {
-                const active = state.query.active;
-                if (active) void controller.submitQuery(active, { manualRefresh: true });
-              }}
-            />
-          </div>
-        ) : null}
+        {importFeedback}
         {state.ingestion.result?.offlineCacheOnly ? <OfflineCacheNotice /> : null}
       </UtilityRail>
 
@@ -1151,7 +1700,9 @@ export function ChessWorkspace({
               onSelect={(nextTab) => {
                 selectTab(nextTab);
                 setMenuOpen(false);
-                requestAnimationFrame(() => titleHeadingRef.current?.focus());
+                requestAnimationFrame(() =>
+                  titleHeadingRef.current?.focus({ preventScroll: true })
+                );
               }}
               onOpenAbout={() => {
                 setMenuOpen(false);
@@ -1172,11 +1723,13 @@ function BoardPanel({
   fen,
   orientation,
   isInteractive,
+  squareNavigation,
   onMove,
   lastMove,
   lastMoveBadge,
   history,
   pvArrow,
+  openingArrows,
   evaluationScore,
   players,
   onFlipOrientation,
@@ -1184,11 +1737,13 @@ function BoardPanel({
   fen: string | null;
   orientation: 'white' | 'black';
   isInteractive: boolean;
+  squareNavigation: boolean;
   onMove?: ((move: AppliedBoardMove) => boolean) | undefined;
   lastMove?: { from: Square; to: Square } | undefined;
   lastMoveBadge?: { square: Square; quality: MoveQuality } | undefined;
   history?: MoveHistoryModel | undefined;
   pvArrow?: { from: Square; to: Square } | undefined;
+  openingArrows?: readonly OpeningArrow[] | undefined;
   evaluationScore?: EvaluationScore | undefined;
   players?: { white: PlayerMetadata; black: PlayerMetadata } | undefined;
   onFlipOrientation?: (() => void) | undefined;
@@ -1200,12 +1755,14 @@ function BoardPanel({
       fen={fen}
       orientation={orientation}
       isInteractive={isInteractive}
+      squareNavigation={squareNavigation}
       {...(onMove !== undefined ? { onMove } : {})}
       {...(history !== undefined ? { history } : {})}
       {...(lastMove !== undefined ? { lastMove } : {})}
       {...(lastMoveBadge !== undefined ? { lastMoveBadge } : {})}
       {...(evaluationScore !== undefined ? { evaluationScore } : {})}
       {...(pvArrow !== undefined ? { pvArrow } : {})}
+      {...(openingArrows !== undefined ? { openingArrows } : {})}
       {...(players !== undefined ? { players } : {})}
       {...(onFlipOrientation !== undefined ? { onFlipOrientation } : {})}
     />
@@ -1218,34 +1775,32 @@ function uciArrow(uci: string | undefined): { from: Square; to: Square } | undef
     : undefined;
 }
 
-function EmptyWorkspace({ message }: { message: string }) {
-  return <p className="empty-workspace">{message}</p>;
+/** Stable list-state owner key per canonical import query (T26). */
+function canonicalQueryKey(
+  query: {
+    username: string;
+    dateFrom?: string | undefined;
+    dateTo?: string | undefined;
+    maxGames?: number | undefined;
+    timeClasses?: readonly string[] | undefined;
+    colors?: readonly string[] | undefined;
+    rated?: boolean | undefined;
+  } | null
+): string {
+  if (!query) return 'no-query';
+  return JSON.stringify([
+    query.username.toLowerCase(),
+    query.dateFrom ?? '',
+    query.dateTo ?? '',
+    query.maxGames ?? null,
+    [...(query.timeClasses ?? [])].sort(),
+    [...(query.colors ?? [])].sort(),
+    query.rated ?? null,
+  ]);
 }
 
-function parseSelectedGame(record: GameRecord | null): ParsedGame | null {
-  if (!record) return null;
-  const result = parseGamePgn({
-    game: {
-      id: record.id,
-      url: record.url,
-      ...(record.uuid ? { uuid: record.uuid } : {}),
-      usernameKey: record.username,
-      userColor: record.userColor,
-      result: record.result,
-      endedAt: record.endedAt,
-      timeClass: record.timeClass,
-      ...(record.timeControl ? { timeControl: record.timeControl } : {}),
-      rated: record.rated,
-      userRating: record.userRating,
-      opponentRating: record.opponentRating,
-      whitePlayer: record.whitePlayer,
-      blackPlayer: record.blackPlayer,
-      ...(record.accuracies ? { accuracies: record.accuracies } : {}),
-      pgn: record.pgn,
-      rules: record.rules,
-    },
-  });
-  return result.ok ? result.game : null;
+function EmptyWorkspace({ message }: { message: string }) {
+  return <p className="empty-workspace">{message}</p>;
 }
 
 function boardFen(
@@ -1255,9 +1810,10 @@ function boardFen(
   game: ParsedGame | null,
   ply: number
 ): string | null {
+  // T36: the visited entry carries the actual full FEN; the four-field position
+  // key is never promoted to a fake six-field FEN.
   if (tab === 'opening' && graph && navigation) {
-    const key = graph.positions.get(navigation.positionKey)?.key;
-    return key ? `${key} 0 1` : null;
+    return navigation.fen;
   }
   if (!game || game.plies.length === 0) return null;
   if (ply <= 0) return game.plies[0]!.fenBefore;

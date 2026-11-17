@@ -71,7 +71,7 @@ export function createVariationFromUciSequence(
   let currentFen = baseFen;
   const moves: AppliedBoardMove[] = [];
   for (const uci of uciMoves) {
-    if (uci.length < 4) break;
+    if (!/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci)) break;
     const from = uci.slice(0, 2) as import('chess.js').Square;
     const to = uci.slice(2, 4) as import('chess.js').Square;
     const promotion = uci.length > 4 ? (uci[4] as import('./moves').PromotionPiece) : undefined;
@@ -85,6 +85,6 @@ export function createVariationFromUciSequence(
     basePly,
     baseFen,
     moves,
-    cursor: moves.length,
+    cursor: 1,
   };
 }

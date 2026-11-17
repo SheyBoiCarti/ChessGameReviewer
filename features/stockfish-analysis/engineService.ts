@@ -49,6 +49,10 @@ export class EngineService {
   private scheduler: EngineScheduler<EngineEvaluationRequest, EvaluationResult> | undefined;
   private capability: EngineCapability | undefined;
 
+  private initialization: Promise<EngineCapability> | undefined;
+  private initializationGeneration = 0;
+  private retrying = false;
+
   constructor(private readonly options: EngineServiceOptions = {}) {
     this.resources = selectEngineResources(options.capabilityProbe ?? {});
     this.createWorker =
@@ -59,44 +63,68 @@ export class EngineService {
         }) as unknown as WorkerLike);
   }
 
-  async initialize(): Promise<EngineCapability> {
-    if (this.capability) return this.capability;
-    const probe = browserProbe(this.options.capabilityProbe);
-    let failureReason: string | undefined;
-    const tryMode = async (mode: 'threaded' | 'single-thread'): Promise<boolean> => {
-      const candidate = new WorkerEngineAdapter(
-        this.createWorker(),
-        mode,
-        mode === 'threaded' ? this.resources : { ...this.resources, threads: 1 }
-      );
-      try {
-        await candidate.initialize();
-        this.adapter = candidate;
-        return true;
-      } catch (error) {
-        failureReason = error instanceof Error ? error.message : 'Engine initialization failed.';
-        candidate.dispose();
-        return false;
-      }
-    };
-    let threadedInitialized = false;
-    if (probe.crossOriginIsolated && probe.sharedArrayBuffer && probe.simd)
-      threadedInitialized = await tryMode('threaded');
-    const singleThreadInitialized = threadedInitialized ? false : await tryMode('single-thread');
-    this.capability = detectEngineCapability({
-      ...probe,
-      threadedInitialized,
-      singleThreadInitialized,
-    });
-    if (this.capability.mode === 'unavailable' && failureReason) {
-      this.capability = { ...this.capability, reason: failureReason };
-    }
-    if (this.adapter && this.capability.mode !== 'unavailable') {
-      this.scheduler = new EngineScheduler(this.adapter, {
-        createAdapter: () => this.recreateAdapter(),
+  initialize(): Promise<EngineCapability> {
+    if (this.capability) return Promise.resolve(this.capability);
+    if (this.initialization) return this.initialization;
+    const generation = this.initializationGeneration;
+    const current = () => generation === this.initializationGeneration;
+    const work = async (): Promise<EngineCapability> => {
+      const probe = browserProbe(this.options.capabilityProbe);
+      let failureReason: string | undefined;
+      const tryMode = async (mode: 'threaded' | 'single-thread'): Promise<boolean> => {
+        if (!current()) throw new Error('Engine initialization superseded.');
+        let candidate: WorkerEngineAdapter | undefined;
+        try {
+          candidate = new WorkerEngineAdapter(
+            this.createWorker(),
+            mode,
+            mode === 'threaded' ? this.resources : { ...this.resources, threads: 1 }
+          );
+          this.adapter = candidate;
+          await candidate.initialize();
+          if (!current()) throw new Error('Engine initialization superseded.');
+          return true;
+        } catch (error) {
+          candidate?.dispose();
+          if (!current()) throw new Error('Engine initialization superseded.');
+          if (this.adapter === candidate) this.adapter = undefined;
+          failureReason = error instanceof Error ? error.message : 'Engine initialization failed.';
+          return false;
+        }
+      };
+      const threadedInitialized =
+        probe.crossOriginIsolated && probe.sharedArrayBuffer && probe.simd
+          ? await tryMode('threaded')
+          : false;
+      const singleThreadInitialized = threadedInitialized ? false : await tryMode('single-thread');
+      if (!current()) throw new Error('Engine initialization superseded.');
+      this.capability = detectEngineCapability({
+        ...probe,
+        threadedInitialized,
+        singleThreadInitialized,
       });
-    }
-    return this.capability;
+      if (this.capability.mode === 'unavailable' && failureReason)
+        this.capability = { ...this.capability, reason: failureReason };
+      if (this.adapter && this.capability.mode !== 'unavailable')
+        this.scheduler = new EngineScheduler(this.adapter, {
+          createAdapter: () => this.recreateAdapter(),
+        });
+      return this.capability;
+    };
+    this.initialization = work().finally(() => {
+      if (current()) {
+        this.initialization = undefined;
+        this.retrying = false;
+      }
+    });
+    return this.initialization;
+  }
+
+  retryInitialize(): Promise<EngineCapability> {
+    if (this.retrying && this.initialization) return this.initialization;
+    this.dispose();
+    this.retrying = true;
+    return this.initialize();
   }
 
   evaluate(request: SubmitEngineEvaluation): Promise<EvaluationResult> {
@@ -121,7 +149,11 @@ export class EngineService {
     this.scheduler?.notifyUserActivity();
   }
   dispose(): void {
+    this.initializationGeneration++;
+    this.initialization = undefined;
+    this.retrying = false;
     this.scheduler?.dispose();
+    this.adapter?.dispose();
     this.scheduler = undefined;
     this.adapter = undefined;
     this.capability = undefined;
@@ -147,6 +179,7 @@ class WorkerEngineAdapter
     { resolve: (result: EvaluationResult) => void; reject: (error: Error) => void }
   >();
   private sequence = 0;
+  private disposed = false;
   private readonly onMessage: EventListener;
   private readonly onError: EventListener;
 
@@ -160,10 +193,21 @@ class WorkerEngineAdapter
     worker.addEventListener('message', this.onMessage);
     worker.addEventListener('error', this.onError);
   }
-  initialize(): Promise<void> {
-    return this.request({ type: 'INITIALIZE', mode: this.mode, resources: this.resources }).then(
-      () => undefined
-    );
+  async initialize(): Promise<void> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.request({ type: 'INITIALIZE', mode: this.mode, resources: this.resources }),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error('Stockfish initialization timed out after 15 seconds.')),
+            15_000
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
   evaluate(value: EngineEvaluationRequest, signal?: AbortSignal): Promise<EvaluationResult> {
     const promise = this.request({ type: 'EVALUATE', ...value });
@@ -174,6 +218,8 @@ class WorkerEngineAdapter
     void this.request({ type: 'STOP' }).catch(() => undefined);
   }
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.rejectAll(new Error('Stockfish worker disposed.'));
     this.worker.removeEventListener('message', this.onMessage);
     this.worker.removeEventListener('error', this.onError);

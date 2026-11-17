@@ -5,6 +5,7 @@ export interface SavedWorkspaceSession {
   username: string;
   gameId: string;
   ply: number;
+  pgnDigest?: string;
   tab: WorkspaceTab;
   reviewMode: ReviewMode;
 }
@@ -16,7 +17,9 @@ export function readWorkspaceSession(): SavedWorkspaceSession | null {
       !value ||
       typeof value.username !== 'string' ||
       typeof value.gameId !== 'string' ||
-      !Number.isInteger(value.ply) ||
+      (value.pgnDigest !== undefined &&
+        (typeof value.pgnDigest !== 'string' || !/^[a-f0-9]{64}$/.test(value.pgnDigest))) ||
+      !Number.isSafeInteger(value.ply) ||
       value.ply < 0 ||
       !['games', 'analysis', 'opening', 'insights', 'settings'].includes(value.tab) ||
       !['review', 'analysis'].includes(value.reviewMode)
@@ -31,6 +34,15 @@ export function readWorkspaceSession(): SavedWorkspaceSession | null {
 export function saveWorkspaceSession(value: SavedWorkspaceSession): void {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* Storage is optional. */
+  }
+}
+
+/** T27: deletion removes the retained session entry along with the local data. */
+export function clearWorkspaceSession(): void {
+  try {
+    window.localStorage.removeItem(key);
   } catch {
     /* Storage is optional. */
   }

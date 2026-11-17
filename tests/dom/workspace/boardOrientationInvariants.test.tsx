@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChessWorkspace } from '@/components/workspace/ChessWorkspace';
+import { ChessboardView, computeArrowPath, squareCenter } from '@/components/board/ChessboardView';
+import * as parser from '@/features/workspace/parseSelectedGame';
 import type { WorkspaceServices } from '@/features/workspace/createWorkspaceController';
 import type { GameRecord } from '@/lib/db/schema';
 
@@ -63,6 +65,7 @@ function makeMockServices(games: GameRecord[] = [sampleGame]): WorkspaceServices
       dispose: vi.fn(),
     },
     engine: {
+      retryInitialize: vi.fn(),
       initialize: vi.fn().mockResolvedValue({
         profile: 'single-thread',
         threads: 1,
@@ -85,6 +88,31 @@ function makeMockServices(games: GameRecord[] = [sampleGame]): WorkspaceServices
 describe('Board orientation and player metadata invariants', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    // T28 URL sync persists view params in this shared jsdom window; reset so
+    // each test mounts from a clean address bar.
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('does not parse other games for opening membership in Games or Review', async () => {
+    const user = userEvent.setup();
+    const otherGame = {
+      ...sampleGame,
+      id: 'other-game',
+      whitePlayer: { username: 'other-player', rating: 1200 },
+    };
+    const spy = vi.spyOn(parser, 'parseSelectedGame');
+    try {
+      const services = makeMockServices([sampleGame, otherGame]);
+      render(<ChessWorkspace createServices={() => services} />);
+      await user.type(screen.getByLabelText(/^username$/i), 'iamSheyBoiCarti');
+      await user.click(screen.getByRole('button', { name: /find games/i }));
+      await user.click(await screen.findByRole('button', { name: /^Preview .*cmzulu/i }));
+      await user.click(screen.getByRole('button', { name: /^review$/i }));
+      expect(spy.mock.calls.some(([record]) => record?.id === 'other-game')).toBe(false);
+      expect(spy.mock.calls.some(([record]) => record?.id === sampleGame.id)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('toggles board orientation via Flip board button and synchronizes with Settings', async () => {
@@ -96,10 +124,10 @@ describe('Board orientation and player metadata invariants', () => {
     // Load games via query
     const usernameInput = screen.getByLabelText(/^username$/i);
     await user.type(usernameInput, 'iamSheyBoiCarti');
-    await user.click(screen.getByRole('button', { name: /load games/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
 
     // Select the game
-    await user.click(screen.getByRole('button', { name: /cmzulu/i }));
+    await user.click(await screen.findByRole('button', { name: /^Preview .*cmzulu/i }));
 
     // Verify initial White orientation: Black on top, White on bottom
     const topRowInitial = screen.getByLabelText(/black: iamsheyboicarti \(1150\)/i);
@@ -145,8 +173,8 @@ describe('Board orientation and player metadata invariants', () => {
     // Load and select game
     const usernameInput = screen.getByLabelText(/^username$/i);
     await user.type(usernameInput, 'iamSheyBoiCarti');
-    await user.click(screen.getByRole('button', { name: /load games/i }));
-    await user.click(screen.getByRole('button', { name: /cmzulu/i }));
+    await user.click(screen.getByRole('button', { name: /find games/i }));
+    await user.click(await screen.findByRole('button', { name: /^Preview .*cmzulu/i }));
 
     // Navigate history to ply 2 (1...e5)
     const board = screen.getByRole('grid', { name: /chess board/i });
@@ -174,5 +202,39 @@ describe('Board orientation and player metadata invariants', () => {
     // But chess position (e5 pawn) remains at e5
     const pawnE5After = screen.getByLabelText(/black pawn on e5/i);
     expect(pawnE5After).toBeInTheDocument();
+  });
+
+  it('T53: preserves candidate arrow orientation mappings across board flip', () => {
+    const { container, rerender } = render(
+      <ChessboardView
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        orientation="white"
+        openingArrows={[{ from: 'e2', to: 'e4', uci: 'e2e4', band: 'strong', active: false }]}
+      />
+    );
+
+    const lineWhite = container.querySelector('.opening-arrow');
+    expect(lineWhite).toBeInTheDocument();
+    const whiteFrom = squareCenter('e2', 'white')!;
+    const whiteTo = squareCenter('e4', 'white')!;
+    const expectedWhite = computeArrowPath(whiteFrom, whiteTo);
+    expect(lineWhite?.getAttribute('d')).toBe(expectedWhite.d);
+    expect(lineWhite?.getAttribute('d')).toBe('M 1152,1664 L 1152,1200');
+
+    rerender(
+      <ChessboardView
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        orientation="black"
+        openingArrows={[{ from: 'e2', to: 'e4', uci: 'e2e4', band: 'strong', active: false }]}
+      />
+    );
+
+    const lineBlack = container.querySelector('.opening-arrow');
+    expect(lineBlack).toBeInTheDocument();
+    const blackFrom = squareCenter('e2', 'black')!;
+    const blackTo = squareCenter('e4', 'black')!;
+    const expectedBlack = computeArrowPath(blackFrom, blackTo);
+    expect(lineBlack?.getAttribute('d')).toBe(expectedBlack.d);
+    expect(lineBlack?.getAttribute('d')).toBe('M 896,384 L 896,848');
   });
 });

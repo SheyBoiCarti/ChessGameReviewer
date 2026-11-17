@@ -43,7 +43,7 @@ describe('VariationSandboxBanner', () => {
       />
     );
 
-    expect(screen.getByText(/exploration from ply 14/i)).toBeInTheDocument();
+    expect(screen.getByText(/exploration from 1\./i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'e4' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'e5' })).toBeInTheDocument();
 

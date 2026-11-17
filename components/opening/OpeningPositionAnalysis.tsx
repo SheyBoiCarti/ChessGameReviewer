@@ -1,87 +1,78 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { EngineService } from '@/features/stockfish-analysis/engineService';
 import { convertPvToSan } from '@/features/stockfish-analysis/presentation';
+import type { PositionAnalysis } from '@/features/stockfish-analysis/usePositionAnalysis';
 import { normalizeUciScoreToWhite } from '@/lib/engine/evaluation';
+import { formatEvaluationScore } from '@/features/board/evaluationBar';
 
-export function OpeningPositionAnalysis({ fen }: { fen: string }) {
-  const [enabled, setEnabled] = useState(false);
+export function OpeningPositionAnalysis({
+  fen,
+  analysis,
+  enabled,
+  onEnabledChange,
+  onPlayMove,
+  paused = false,
+}: {
+  fen: string;
+  analysis: PositionAnalysis;
+  enabled: boolean;
+  onEnabledChange(enabled: boolean): void;
+  onPlayMove(uci: string): void;
+  paused?: boolean;
+}) {
   return (
-    <section className="surface-panel" aria-label="Opening Stockfish analysis">
-      <label>
+    <section className="surface-panel position-engine" aria-label="Stockfish position analysis">
+      <label className="position-engine__heading">
         <input
           type="checkbox"
           checked={enabled}
-          onChange={(event) => setEnabled(event.target.checked)}
+          onChange={(event) => onEnabledChange(event.target.checked)}
         />{' '}
         Stockfish analysis
       </label>
-      {enabled ? <PositionSearch fen={fen} /> : null}
+      {enabled ? (
+        <>
+          <p className="field-help">Top engine moves · Evaluations from White’s perspective</p>
+          <div role="status">
+            {paused
+              ? 'Live analysis resumes when the game review finishes.'
+              : analysis.loading
+                ? 'Analysing this position…'
+                : analysis.error}
+          </div>
+          {!paused && !analysis.loading && !analysis.error ? (
+            analysis.lines.length ? (
+              <ol className="position-engine__lines" aria-label="Top engine moves">
+                {analysis.lines.map((line, index) => {
+                  const moves = convertPvToSan(fen, line.pv).moves;
+                  const score = normalizeUciScoreToWhite(line.score, fen);
+                  return (
+                    <li key={line.multiPv}>
+                      <button
+                        type="button"
+                        className="position-engine__line"
+                        onClick={() => line.pv[0] && onPlayMove(line.pv[0])}
+                        disabled={!line.pv[0] || !moves.length}
+                        aria-label={`Play engine choice ${index + 1}: ${moves[0] ?? 'unavailable'}`}
+                      >
+                        <strong className="tabular-nums">
+                          {score?.kind === 'cp'
+                            ? `${score.value >= 0 ? '+' : ''}${(score.value / 100).toFixed(2)}`
+                            : formatEvaluationScore(score ?? undefined)}
+                        </strong>
+                        <span className="position-engine__moves">{moves.join(' ')}</span>
+                        <span className="field-help">Depth {line.depth}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : (
+              <p>No legal engine continuation in this position.</p>
+            )
+          ) : null}
+        </>
+      ) : null}
     </section>
   );
-}
-
-function PositionSearch({ fen }: { fen: string }) {
-  const [session] = useState(() => ({
-    engine: new EngineService(),
-    ready: null as ReturnType<EngineService['initialize']> | null,
-  }));
-  const [result, setResult] = useState<{ fen: string; text: string } | null>(null);
-  useEffect(() => {
-    // Create a fresh engine on effect setup, including React's development remount.
-    const engine = new EngineService();
-    let active = true;
-    session.engine = engine;
-    session.ready = engine.initialize().then((capability) => {
-      if (!active) engine.dispose();
-      return capability;
-    });
-    return () => {
-      active = false;
-      engine.dispose();
-    };
-  }, [session]);
-  useEffect(() => {
-    const abort = new AbortController();
-    const engine = session.engine;
-    void session.ready
-      ?.then(async (capability) => {
-        if (abort.signal.aborted) return;
-        if (capability.mode === 'unavailable')
-          throw new Error('Stockfish is unavailable on this device.');
-        const evaluation = await engine.evaluate({
-          id: `opening-${crypto.randomUUID()}`,
-          priority: 1,
-          relevanceToken: fen,
-          deadlineAt: Date.now() + 30000,
-          fen,
-          limit: { movetimeMs: 1000 },
-          multiPv: 1,
-          signal: abort.signal,
-        });
-        if (abort.signal.aborted) return;
-        const line = evaluation.lines[0];
-        const score = line ? normalizeUciScoreToWhite(line.score, fen) : null;
-        const value = score
-          ? score.kind === 'mate'
-            ? `Mate ${score.value}`
-            : `${score.value >= 0 ? '+' : ''}${(score.value / 100).toFixed(2)}`
-          : 'No evaluation';
-        const moves = convertPvToSan(fen, line?.pv ?? []).moves.join(' ');
-        setResult({
-          fen,
-          text: `${value} (White perspective) · Depth ${line?.depth ?? 0}${moves ? ` · ${moves}` : ''}`,
-        });
-      })
-      .catch((error: unknown) => {
-        if (!abort.signal.aborted)
-          setResult({
-            fen,
-            text: error instanceof Error ? error.message : 'Stockfish analysis failed.',
-          });
-      });
-    return () => abort.abort();
-  }, [fen, session]);
-  return <p role="status">{result?.fen === fen ? result.text : 'Analysing this position…'}</p>;
 }

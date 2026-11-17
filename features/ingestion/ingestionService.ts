@@ -1,3 +1,11 @@
+import { computePgnDigest } from '../stockfish-analysis/reviewIdentity';
+import { computeDatasetRevision } from '../opening-tree/graphIdentity';
+import { PGN_PARSER_VERSION, POSITION_KEY_VERSION } from '../../lib/chess/graph/types';
+import {
+  isValidValidationEnvelope,
+  type NormalizedMonthCandidate,
+  type NormalizedMonthRecord,
+} from '../../lib/db/schema';
 import type {
   Diagnostic,
   GameQuery,
@@ -21,6 +29,7 @@ import { fingerprintQuery, parseArchiveMonth, planArchiveMonths } from './archiv
 import { executeWithRetry, type RetryOptions } from './retryPolicy';
 import type {
   FailedMonth,
+  IngestionBatch,
   IngestionDependencies,
   IngestionProgress,
   IngestionResult,
@@ -38,9 +47,11 @@ interface RequiredRuntimeOptions {
   jobId: string;
   signal: AbortSignal;
   manualRefresh: boolean;
+  cacheOnly: boolean;
   now: () => number;
   retry: RetryOptions;
   onProgress?: (progress: IngestionProgress) => void;
+  onBatch?: (batch: IngestionBatch) => void;
 }
 
 type NormalizationResult =
@@ -275,6 +286,10 @@ function normalizeRawGame(raw: RawChesscomGame, username: string): Normalization
   };
 }
 
+function newestFirst(a: GameRecord, b: GameRecord): number {
+  return b.endedAt - a.endedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
 function matchesQuery(game: GameRecord, query: GameQuery): boolean {
   const from = query.dateFrom ? Date.parse(`${query.dateFrom}T00:00:00.000Z`) / 1000 : -Infinity;
   const to = query.dateTo ? Date.parse(`${query.dateTo}T23:59:59.999Z`) / 1000 : Infinity;
@@ -319,6 +334,12 @@ async function resolveArchiveMonths(
 ): Promise<{ months: string[]; offlineCacheOnly: boolean }> {
   const cached = await runtime.deps.readArchiveList(query.username);
   const now = runtime.now();
+  if (runtime.cacheOnly) {
+    return {
+      months: planArchiveMonths(cached?.months ?? syncs.map((sync) => sync.month), query),
+      offlineCacheOnly: false,
+    };
+  }
   if (!runtime.manualRefresh && cached && isFresh(cached.fetchedAt, ARCHIVE_LIST_FRESH_MS, now)) {
     return { months: planArchiveMonths(cached.months, query), offlineCacheOnly: false };
   }
@@ -382,14 +403,198 @@ async function executeIngestion(
       diagnostics: diagnostics.map((diagnostic) => ({ ...diagnostic })),
     });
   };
-  const validateGames = async (monthGames: readonly GameRecord[]): Promise<GameRecord[]> => {
-    const validation = await runtime.deps.validatePgns(monthGames, { signal: runtime.signal });
+  let batchSequence = 0;
+  const emitBatch = async (): Promise<void> => {
+    if (games.length === 0 || !runtime.onBatch || runtime.signal.aborted) return;
+    batchSequence += 1;
+    const datasetRevision = await computeDatasetRevision(games);
+    if (runtime.signal.aborted) return;
+    runtime.onBatch({
+      jobId: runtime.jobId,
+      fingerprint,
+      sequence: batchSequence,
+      datasetRevision,
+      games: Object.freeze([...games]),
+    });
+  };
+  const isEligibleForReplay = (game: GameRecord): boolean => {
+    const from = query.dateFrom ? Date.parse(`${query.dateFrom}T00:00:00.000Z`) / 1000 : -Infinity;
+    const to = query.dateTo ? Date.parse(`${query.dateTo}T23:59:59.999Z`) / 1000 : Infinity;
+    return (
+      game.rules === 'chess' &&
+      game.endedAt >= from &&
+      game.endedAt <= to &&
+      query.timeClasses.includes(game.timeClass) &&
+      query.colors.includes(game.userColor) &&
+      (query.rated === undefined || game.rated === query.rated)
+    );
+  };
+
+  const validateGames = async (
+    monthGames: readonly GameRecord[],
+    month: string,
+    fetchedAt: number,
+    completeFetch: boolean,
+    priorMonth?: NormalizedMonthRecord | null
+  ): Promise<{ validGames: GameRecord[]; normalized: NormalizedMonthRecord }> => {
+    const cached =
+      priorMonth === undefined
+        ? await runtime.deps.readNormalizedMonth(query.username, month)
+        : priorMonth;
     throwIfAborted(runtime.signal);
-    const validIds = new Set(validation.validGameIds);
-    recordsExcluded += validation.totalInvalid;
-    recordsFailed += validation.totalInvalid;
-    for (const diagnostic of validation.diagnostics) appendDiagnostic(diagnostics, diagnostic);
-    return monthGames.filter(({ id }) => validIds.has(id));
+    const cachedById = new Map(
+      cached?.candidates.map((candidate) => [candidate.game.id, candidate.validation])
+    );
+    const candidates: NormalizedMonthCandidate[] = await Promise.all(
+      monthGames.map(async (game) => {
+        const pgnDigest = await computePgnDigest(game.pgn);
+        const prior = cachedById.get(game.id);
+        const reusable =
+          isValidValidationEnvelope(prior) &&
+          prior.state !== 'unknown' &&
+          prior.pgnDigest === pgnDigest &&
+          prior.parserVersion === PGN_PARSER_VERSION &&
+          prior.positionVersion === POSITION_KEY_VERSION &&
+          prior.normalizerVersion === NORMALIZER_VERSION;
+        return {
+          game,
+          validation: reusable
+            ? prior
+            : {
+                state: 'unknown',
+                pgnDigest,
+                parserVersion: PGN_PARSER_VERSION,
+                positionVersion: POSITION_KEY_VERSION,
+                normalizerVersion: NORMALIZER_VERSION,
+                diagnosticCodes: [],
+              },
+        };
+      })
+    );
+    throwIfAborted(runtime.signal);
+    // Walk newest first, validating only enough unknown candidates to fill the cap.
+    // Full fetch coverage still retains the untouched candidates as unknown.
+    const eligible = candidates
+      .filter((c) => isEligibleForReplay(c.game) && !seen.has(c.game.id))
+      .sort((a, b) => newestFirst(a.game, b.game));
+    let remaining = query.maxGames - games.length;
+    let cursor = 0;
+    while (cursor < eligible.length && remaining > 0) {
+      const pending: NormalizedMonthCandidate[] = [];
+      while (cursor < eligible.length && pending.length < remaining) {
+        const candidate = eligible[cursor++]!;
+        if (candidate.validation.state === 'valid') remaining--;
+        else if (candidate.validation.state === 'unknown') pending.push(candidate);
+        if (remaining === 0) break;
+      }
+      if (pending.length === 0) continue;
+      const result = await runtime.deps.validatePgns(
+        pending.map((c) => c.game),
+        { signal: runtime.signal }
+      );
+      throwIfAborted(runtime.signal);
+      const validIds = new Set(result.validGameIds);
+      for (const diagnostic of result.diagnostics) appendDiagnostic(diagnostics, diagnostic);
+      for (const candidate of pending) {
+        const valid = validIds.has(candidate.game.id);
+        const projection = result.projections?.find((p) => p.id === candidate.game.id);
+        candidate.validation = {
+          ...candidate.validation,
+          state: valid ? 'valid' : 'invalid',
+          ...(projection ? { projection } : {}),
+          diagnosticCodes: valid
+            ? []
+            : [
+                ...new Set(
+                  result.diagnostics
+                    .filter((d) => d.gameId === candidate.game.id)
+                    .map((d) => d.code)
+                    .concat(result.diagnosticCodes)
+                ),
+              ].slice(0, 20),
+        };
+        if (valid) remaining--;
+      }
+    }
+    recordsExcluded += candidates.filter((c) => c.validation.state === 'unknown').length;
+    for (const candidate of candidates) {
+      if (candidate.validation.state !== 'invalid') continue;
+      recordsExcluded += 1;
+      recordsFailed += 1;
+      if (!diagnostics.some((diagnostic) => diagnostic.gameId === candidate.game.id)) {
+        appendDiagnostic(diagnostics, {
+          code: candidate.validation.diagnosticCodes[0] ?? 'ILLEGAL_PGN',
+          severity: 'warning',
+          gameId: candidate.game.id,
+          message: 'This game could not be replayed and was excluded.',
+        });
+      }
+    }
+    return {
+      validGames: candidates
+        .filter((candidate) => candidate.validation.state === 'valid')
+        .map((candidate) => ({
+          ...candidate.game,
+          ...(candidate.validation.projection
+            ? { openingProjection: candidate.validation.projection }
+            : {}),
+        })),
+      normalized: {
+        username: query.username,
+        month,
+        fetchedAt,
+        completeFetch,
+        lastUsedAt: runtime.now(),
+        candidates,
+      },
+    };
+  };
+  const validateCachedGames = async (
+    monthGames: readonly GameRecord[],
+    month: string,
+    sync: ArchiveSyncRecord | undefined
+  ) => {
+    const coverage = await runtime.deps.readNormalizedMonth(query.username, month);
+    const existingIds = new Set(monthGames.map((g) => g.id));
+    const extraCoverageGames =
+      coverage?.candidates
+        .filter((candidate) => !existingIds.has(candidate.game.id))
+        .map((candidate) => candidate.game) ?? [];
+    const candidateGames = [...monthGames, ...extraCoverageGames];
+    const { validGames, normalized } = await validateGames(
+      candidateGames,
+      month,
+      coverage?.fetchedAt ?? sync?.lastSuccessfulFetchAt ?? 0,
+      coverage?.completeFetch ?? false,
+      coverage
+    );
+    throwIfAborted(runtime.signal);
+    // Keep candidates outside the accepted set intact; a later query may need them.
+    const updatedIds = new Set(normalized.candidates.map((candidate) => candidate.game.id));
+    normalized.candidates.push(
+      ...(coverage?.candidates.filter((candidate) => !updatedIds.has(candidate.game.id)) ?? [])
+    );
+    if (JSON.stringify(normalized.candidates) !== JSON.stringify(coverage?.candidates)) {
+      await runtime.deps.persistMonth(
+        validGames,
+        {
+          ...(sync ?? {
+            key: `${query.username}:${month}`,
+            username: query.username,
+            month,
+            lastSuccessfulFetchAt: coverage?.fetchedAt ?? 0,
+            status: 'partial',
+            normalizerVersion: NORMALIZER_VERSION,
+          }),
+          observedGameIds: validGames.map((game) => game.id),
+          observedGameCount: validGames.length,
+        },
+        runtime.signal,
+        normalized
+      );
+    }
+    throwIfAborted(runtime.signal);
+    return validGames;
   };
 
   try {
@@ -415,8 +620,8 @@ async function executeIngestion(
       if (!runtime.manualRefresh && sync && isSyncFresh(sync, runtime.now())) {
         const cachedGames = await runtime.deps.readMonthGames(query.username, month);
         recordsFetched += cachedGames.length;
-        const validCachedGames = await validateGames(cachedGames);
-        for (const game of validCachedGames) {
+        const validCachedGames = await validateCachedGames(cachedGames, month, sync);
+        for (const game of [...validCachedGames].sort(newestFirst)) {
           if (matchesQuery(game, query) && !seen.has(game.id)) {
             seen.add(game.id);
             games.push(game);
@@ -427,14 +632,15 @@ async function executeIngestion(
         }
         monthsCompleted += 1;
         emit('filtering', { currentMonth: month, source: 'indexeddb' });
+        await emitBatch();
         if (games.length === query.maxGames) break;
         continue;
       }
-      if (planning.offlineCacheOnly) {
+      if (runtime.cacheOnly || planning.offlineCacheOnly) {
         const cachedGames = await runtime.deps.readMonthGames(query.username, month);
         recordsFetched += cachedGames.length;
-        const validCachedGames = await validateGames(cachedGames);
-        for (const game of validCachedGames) {
+        const validCachedGames = await validateCachedGames(cachedGames, month, sync);
+        for (const game of [...validCachedGames].sort(newestFirst)) {
           if (matchesQuery(game, query) && !seen.has(game.id)) {
             seen.add(game.id);
             games.push(game);
@@ -445,6 +651,7 @@ async function executeIngestion(
         }
         monthsCompleted += 1;
         emit('filtering', { currentMonth: month, source: 'indexeddb' });
+        await emitBatch();
         if (games.length === query.maxGames) break;
         continue;
       }
@@ -483,10 +690,19 @@ async function executeIngestion(
           }
           normalizedMonthGames.push(normalized.game);
         }
-        const validMonthGames = await validateGames(normalizedMonthGames);
+        // Stable IDs can be repeated within an upstream payload; retain one candidate per ID.
+        const uniqueMonthGames = [
+          ...new Map(normalizedMonthGames.map((game) => [game.id, game])).values(),
+        ];
+        const { validGames: validMonthGames, normalized } = await validateGames(
+          uniqueMonthGames,
+          month,
+          runtime.now(),
+          true
+        );
         const stagedMatches: GameRecord[] = [];
         const stagedIds = new Set<string>();
-        for (const game of validMonthGames) {
+        for (const game of [...validMonthGames].sort(newestFirst)) {
           if (matchesQuery(game, query) && !seen.has(game.id) && !stagedIds.has(game.id)) {
             if (games.length + stagedMatches.length < query.maxGames) {
               stagedIds.add(game.id);
@@ -510,14 +726,17 @@ async function executeIngestion(
             observedGameCount: validMonthGames.length,
             normalizerVersion: NORMALIZER_VERSION,
           },
-          runtime.signal
+          runtime.signal,
+          normalized
         );
+        throwIfAborted(runtime.signal);
         for (const game of stagedMatches) {
           seen.add(game.id);
           games.push(game);
         }
         monthsCompleted += 1;
         emit('filtering', { currentMonth: month, source: 'browser-fetch' });
+        await emitBatch();
       } catch (error) {
         if (isPubApiError(error, 'ABORTED') || runtime.signal.aborted) throw error;
         const upstreamError = toUpstreamError(error);
@@ -570,6 +789,7 @@ export async function runIngestion(
     jobId: options.jobId ?? 'ingestion-job',
     signal,
     manualRefresh: options.manualRefresh ?? false,
+    cacheOnly: options.cacheOnly ?? false,
     now: options.now ?? Date.now,
     retry: {
       signal,
@@ -578,6 +798,7 @@ export async function runIngestion(
       wait: options.wait ?? defaultWait,
     },
     ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+    ...(options.onBatch ? { onBatch: options.onBatch } : {}),
   };
   const validation = validateGameQuery(input);
   if (!validation.success) {
@@ -629,6 +850,9 @@ export class IngestionManager {
         signal: controller.signal,
         onProgress: (progress) => {
           if (this.active?.token === token) options.onProgress?.(progress);
+        },
+        onBatch: (batch) => {
+          if (this.active?.token === token) options.onBatch?.(batch);
         },
       });
     } finally {

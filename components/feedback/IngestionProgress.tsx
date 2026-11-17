@@ -13,6 +13,12 @@ export function IngestionProgress({
       <span className="status-label status-label--loading">Loading</span>
       <h3>{heading}</h3>
       <p>{detail}</p>
+      {progress.retry ? (
+        <p>
+          Waiting to retry the archive request (attempt {progress.retry.attempt}). You can cancel
+          while waiting.
+        </p>
+      ) : null}
       {determinate ? (
         <progress value={progress.monthsCompleted} max={progress.monthsPlanned}>
           {detail}

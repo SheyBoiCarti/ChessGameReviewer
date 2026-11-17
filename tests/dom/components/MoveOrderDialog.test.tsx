@@ -4,13 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { MoveOrderDialog } from '@/components/tree/MoveOrderDialog';
-import { openingGraphFixture } from '@/tests/helpers/openingGraphFixture';
+import { openingGraphFixture, fixtureKeyAfter } from '@/tests/helpers/openingGraphFixture';
 
 describe('MoveOrderDialog', () => {
   it('shows independent transposition arrivals and restores trigger focus on Escape', async () => {
     const user = userEvent.setup();
     const graph = openingGraphFixture();
-    const node = graph.positions.get('transposed-target')!;
+    const node = graph.positions.get(fixtureKeyAfter('Nf3', 'd5', 'd4', 'Nf6'))!;
     const onClose = vi.fn();
     const returnFocusRef = createRef<HTMLButtonElement>();
     render(
@@ -28,9 +28,9 @@ describe('MoveOrderDialog', () => {
 
     expect(screen.getByRole('dialog', { name: /move orders/i })).toHaveFocus();
     expect(returnFocusRef.current).toHaveAttribute('inert');
-    expect(screen.getByText('e4 e5 Nf3')).toBeInTheDocument();
-    expect(screen.getByText('d4 d5 Nf3')).toBeInTheDocument();
-    expect(screen.getByText(/3 games/)).toBeInTheDocument();
+    expect(screen.getByText('Nf3 d5 d4 Nf6')).toBeInTheDocument();
+    expect(screen.getByText('d4 d5 Nf3 Nf6')).toBeInTheDocument();
+    expect(screen.getAllByText(/1 game/).length).toBeGreaterThan(0);
     await user.keyboard('{Escape}');
 
     expect(onClose).toHaveBeenCalledTimes(1);
